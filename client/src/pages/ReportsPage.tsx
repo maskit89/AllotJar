@@ -1,53 +1,37 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { ArrowUpRight, TrendingUp } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
-import { Card, EmptyState, ErrorBanner } from '../components/ui'
-import { Hero } from '../components/Hero'
+import { EmptyState, ErrorBanner } from '../components/ui'
+import { KpiRow, KpiTile } from '../components/KpiTile'
 import { ReportsIcon } from '../components/icons'
+import { DASH_CARD } from '../components/budget/card'
+import { TrendCard } from '../components/reports/TrendCard'
+import { SpendingCard, type CategorySpend } from '../components/reports/SpendingCard'
+import { JarSpendingCard } from '../components/reports/JarSpendingCard'
+import { LONG_MONTHS, averageKey, isBlankMonth, monthLabel, rangeLabel } from '../components/reports/figures'
 import { api } from '../lib/api'
 import { EVENTS, track } from '../analytics'
-import type { AnnualMonthDto, AnnualSummaryDto, BudgetTrendsDto, JarSpendingReportDto, JarSpendingRowDto, MonthReportDto } from '../types'
+import type { AnnualSummaryDto, BudgetTrendsDto, JarSpendingReportDto, MonthReportDto } from '../types'
 import { formatMoney, fromAmount, type Minor } from '../lib/money'
-import { hueColor, hueForIndex, hueTint } from '../lib/categoryColors'
 import { currentMonth, todayIso } from '../lib/dates'
 import { useAuth } from '../auth/AuthContext'
 
-const SHORT_MONTHS = [
-  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-]
+/**
+ * The KPI row's two plain tiles share two rows of the row's grid (a subgrid): the labels' and the
+ * numbers'. Where the row leaves "Avg monthly spend" two lines and "Savings rate" one (a phone; a
+ * row of three until about 880px), both numbers still stand level. The hero spans both rows
+ * beside them (from 640px; above them on a narrower row). Nothing changes on other pages.
+ */
+const PLAIN_TILE = 'row-span-2 grid! grid-rows-subgrid [&>p]:self-start'
+const HERO_TILE = '@min-[640px]:row-span-2'
 
-const monthLabel = (year: number, month: number) => `${SHORT_MONTHS[month - 1]} ${year}`
-
-/** Rule 41: the Variance is signed — a plus for more than planned, the formatter's minus for less. */
-function signedMoney(minor: Minor, currency: string): string {
-  return minor > 0 ? `+${formatMoney(minor, currency)}` : formatMoney(minor, currency)
-}
-
-/** Emerald above zero, rose below, plain at zero — a variance is not an error (rule 41). */
-function signClass(minor: Minor): string {
-  return minor < 0 ? 'text-rose-600 dark:text-rose-400' : minor > 0 ? 'text-emerald-600 dark:text-emerald-400' : ''
-}
-
-/** Net: rose when more went out than came in, emerald otherwise (a zero month lost nothing). */
-function netClass(minor: Minor): string {
-  return minor < 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
-}
-
-interface CategorySpend {
-  id: string
-  name: string
-  kind: string
-  /** Net of the refunds received against the group this month (rules 38/39). */
-  netMinor: Minor
-  refundsMinor: Minor
-  /** Position among the month's non-income groups, so the hue matches the Budget screen. */
-  hueIndex: number
-  /** Rule 37: spending no line carries yet, flagged for review. */
-  isUncategorised: boolean
-  count: number
-}
-
+/*
+ * Reports (restyle PR 7, the approved "polished Warm" mock-up): one KPI row (what the latest month
+ * saved, the window's average spend, the latest month's savings rate), then the year over time on
+ * the left (Trend: spent against income received, as a chart or a table, with the year's averages
+ * per category; Jar spending under it) and the chosen month's spending by group on the right, in
+ * view while the page scrolls. A phone reads Trend, Spending, then Jar spending.
+ */
 export function ReportsPage() {
   const [trends, setTrends] = useState<BudgetTrendsDto | null>(null)
   const [breakdown, setBreakdown] = useState<MonthReportDto | null>(null)
@@ -67,9 +51,12 @@ export function ReportsPage() {
         if (cancelled) return
         setTrends(data)
         const last = data.points.at(-1)
-        // Default the annual view to the year of the most recent budget, and the
+        // Default the year to that of the latest month up to this one (a budget made ahead for
+        // next January has nothing in it yet: December keeps its own year's chart), and the
         // category breakdown to the most recent month.
-        setAnnualYear((y) => y ?? last?.year ?? currentMonth().year)
+        const thisMonth = todayIso().slice(0, 7)
+        const anchor = data.points.filter((p) => p.key <= thisMonth).at(-1) ?? last
+        setAnnualYear((y) => y ?? anchor?.year ?? currentMonth().year)
         setBreakdownKey((k) => k ?? last?.key ?? null)
       })
       .catch(() => !cancelled && setError('Could not load your reports.'))
@@ -94,7 +81,8 @@ export function ReportsPage() {
     }
   }, [breakdownKey])
 
-  // Load the annual overview whenever the chosen year changes.
+  // Load the year (the Trend card) whenever the chosen year changes. A failure keeps the last year
+  // that loaded on screen, and its year in the switcher.
   useEffect(() => {
     if (annualYear === null) return
     let cancelled = false
@@ -107,8 +95,8 @@ export function ReportsPage() {
     }
   }, [annualYear])
 
-  // Load what was spent from each jar in the same year as the annual overview (the one year
-  // navigator drives both). An older server has no such report; the card is then left out.
+  // Load what was spent from each jar in the same year (the one year switcher drives both). An
+  // older server has no such report; the card is then left out.
   useEffect(() => {
     if (annualYear === null) return
     let cancelled = false
@@ -122,18 +110,11 @@ export function ReportsPage() {
   }, [annualYear])
 
   const { budgetCurrency } = useAuth()
+  // The breakdown month's currency formats every figure on the page.
   const currency = breakdown?.baseCurrency ?? budgetCurrency
+  const money = (minor: Minor) => formatMoney(minor, currency)
 
-  // Scale the income-vs-spending bars to the largest value in the window.
-  const trendMaxMinor = useMemo(() => {
-    if (!trends) return 0
-    return trends.points.reduce(
-      (max, p) => Math.max(max, fromAmount(p.income), fromAmount(p.incomeReceived), fromAmount(p.spent)),
-      0,
-    )
-  }, [trends])
-
-  // Spending by group for the chosen month, biggest net first. A group that only saw refunds
+  // Spending by group for the chosen month, biggest net first, then Uncategorised. A group that only saw refunds
   // this month (net ≤ 0) stays on the list, labelled, so a negative figure is explicable
   // (rule 39); a group with nothing at all is left out.
   const categorySpend = useMemo<CategorySpend[]>(() => {
@@ -150,490 +131,180 @@ export function ReportsPage() {
         count: c.count,
       }))
       .filter((c) => c.netMinor !== 0 || c.refundsMinor !== 0)
-      .sort((a, b) => b.netMinor - a.netMinor)
+      // Uncategorised last, as in the mock-up: the groups first, then what still needs one.
+      .sort((a, b) => Number(a.isUncategorised) - Number(b.isUncategorised) || b.netMinor - a.netMinor)
   }, [breakdown])
 
-  // Shares are of the positive spending only; a group that netted below zero has no share.
-  const categoryTotalMinor = categorySpend.reduce((s, c) => s + Math.max(0, c.netMinor), 0)
-  const categoryMaxMinor = categorySpend.reduce((m, c) => Math.max(m, c.netMinor), 0)
-
-  // Scale the per-category yearly-average bars to the biggest average.
-  const annualAvgMaxMinor = useMemo(
-    () => (annual?.categories ?? []).reduce((m, c) => Math.max(m, fromAmount(c.averagePerMonth)), 0),
-    [annual],
-  )
+  // An average month per group, from the year shown, for the breakdown month's ticks: only while
+  // both are the same year (the switcher can move the year away from the month).
+  const averages = useMemo(() => {
+    if (!annual || !breakdown || annual.year !== breakdown.year || annual.categories.length === 0) return null
+    return new Map(annual.categories.map((c) => [averageKey(c.kind, c.name), fromAmount(c.averagePerMonth)]))
+  }, [annual, breakdown])
 
   const hasData = trends !== null && trends.points.length > 0
-  const totalSpentMinor = trends ? fromAmount(trends.totalSpent) : 0
-
-  // Hero figures — the most recent month's saving, the window's average spend,
-  // and this month's savings rate (saved ÷ received).
-  // The latest month up to this one: a budget already created for next month has nothing in it yet.
+  const now = currentMonth()
   const thisMonthKey = todayIso().slice(0, 7)
-  const latest = trends?.points.filter((p) => p.key <= thisMonthKey).at(-1)
+
+  // The KPI row: the latest month's saving (a budget made ahead for next month has nothing in it
+  // yet, so the latest month up to this one), the window's average spend, and the latest month's
+  // savings rate (saved ÷ received).
+  const points = trends?.points ?? []
+  const latest = points.filter((p) => p.key <= thisMonthKey).at(-1)
+  const latestIsNow = latest?.key === thisMonthKey
   const savedThisMonthMinor = latest ? fromAmount(latest.incomeReceived) - fromAmount(latest.spent) : 0
-  const avgSpendMinor = trends && trends.points.length > 0 ? Math.round(totalSpentMinor / trends.points.length) : 0
-  // Rows in another currency still waiting for their amount in the budget currency count in no
-  // figure here; say how many, or a total silently leaves them out.
-  const waitingInWindow = trends?.points.reduce((n, p) => n + (p.fxPendingCount ?? 0), 0) ?? 0
+  const avgSpendMinor = points.length > 0 ? Math.round(fromAmount(trends!.totalSpent) / points.length) : 0
   const latestReceivedMinor = latest ? fromAmount(latest.incomeReceived) : 0
   const savingsRate = latestReceivedMinor > 0 ? Math.round((savedThisMonthMinor / latestReceivedMinor) * 100) : 0
+  // Rows in another currency still waiting for their amount in the budget currency count in no
+  // figure here; say how many, or a total silently leaves them out. The window's count is in the
+  // average's (i); the chosen month's and the jars' sit at those cards' feet with the way to add them.
+  const waitingInWindow = points.reduce((n, p) => n + (p.fxPendingCount ?? 0), 0)
+  const latestName = latest ? LONG_MONTHS[latest.month - 1] : null
 
-  /** A month with no budget and nothing recorded reads as a dash across the row. */
-  const annualRowIsBlank = (m: AnnualMonthDto) => !m.hasBudget && m.incomeReceived === 0 && m.spent === 0
-  // The calendar months the server averaged over (D12); an older server sent only the budgeted ones.
-  const averagedMonths = annual?.countedMonths ?? annual?.budgetedMonths ?? 0
+  // Which months the average covers: every month of the window, the month in progress and any
+  // month already budgeted ahead included.
+  const avgHint = (() => {
+    const first = points[0]
+    const last = points.at(-1)
+    if (!first || !last) return null
+    const notes: string[] = []
+    if (points.some((p) => p.key === thisMonthKey)) notes.push(`${LONG_MONTHS[now.month - 1]} so far`)
+    const ahead = points.filter((p) => p.key > thisMonthKey).map((p) => LONG_MONTHS[p.month - 1])
+    if (ahead.length > 0) notes.push(`${ahead.join(' and ')} budgeted ahead`)
+    const n = points.length
+    const waiting =
+      waitingInWindow > 0
+        ? ` ${waitingInWindow} ${waitingInWindow === 1 ? 'payment' : 'payments'} in another currency ${
+            waitingInWindow === 1 ? 'isn’t' : 'aren’t'
+          } counted yet.`
+        : ''
+    return `Average spent per month over ${rangeLabel(first, last)} (${n} ${n === 1 ? 'month' : 'months'}${
+      notes.length > 0 ? `, ${notes.join(' and ')}` : ''
+    }).${waiting}`
+  })()
+
+  const breakdownMonth = breakdown ? LONG_MONTHS[breakdown.month - 1] : null
+  const breakdownIsNow = breakdown?.key === thisMonthKey
+  const spendingHint = (
+    <>
+      {breakdownMonth ? `${breakdownMonth}${breakdownIsNow ? ' so far' : ''}` : 'The month'} by group, refunds taken off. What a jar
+      paid for counts under its group.
+      {averages && <> The tick marks an average month of {annual!.year}.</>}
+      {breakdown && breakdown.fxPendingCount > 0 && (
+        <> Payments in another currency aren’t counted until they have their amount in {currency}.</>
+      )}
+    </>
+  )
+
+  // The jar card's month marks start at the year's first record, as the Trend's months do.
+  const firstMonth = annual && jarSpending && annual.year === jarSpending.year ? (annual.months.find((m) => !isBlankMonth(m))?.month ?? 1) : 1
+  const showJars = jarSpending !== null && jarSpending.year === annualYear && jarSpending.jars.length > 0
+
+  const prevYear = () => {
+    track(EVENTS.reportViewed, { report_type: 'annual' })
+    setAnnualYear((y) => (y ?? currentMonth().year) - 1)
+  }
+  const nextYear = () => {
+    track(EVENTS.reportViewed, { report_type: 'annual' })
+    setAnnualYear((y) => (y ?? currentMonth().year) + 1)
+  }
 
   return (
     <AppShell active="reports" title="Reports">
-        {loading && <p className="text-slate-500">Loading your reports…</p>}
+      {loading && <p className="text-slate-500">Loading your reports…</p>}
 
-        {error && <ErrorBanner>{error}</ErrorBanner>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
-        {!loading && !error && !hasData && (
-          <EmptyState
-            icon={<ReportsIcon className="h-6 w-6" />}
-            title="No budget data yet"
-            description="Once you’ve built a budget or two, your trends will appear here."
-          />
-        )}
+      {!loading && !error && !hasData && (
+        <EmptyState
+          icon={<ReportsIcon className="h-6 w-6" />}
+          title="No budget data yet"
+          description="Once you’ve built a budget or two, your trends will appear here."
+        />
+      )}
 
-        {!loading && hasData && trends && (
-          <>
-            <Hero
-              eyebrow="Saved this month"
-              amount={formatMoney(savedThisMonthMinor, currency)}
-              amountLabel={`Saved this month: ${formatMoney(savedThisMonthMinor, currency)}`}
-              tiles={[
-                { label: 'Avg monthly spend', value: formatMoney(avgSpendMinor, currency) },
-                { label: 'Savings rate', value: `${savingsRate}%` },
-              ]}
+      {!loading && hasData && trends && (
+        <>
+          <KpiRow tiles={2}>
+            <KpiTile
+              hero
+              className={HERO_TILE}
+              label="Saved this month"
+              hint={
+                !latest
+                  ? 'Income received minus what you spent, refunds taken off.'
+                  : latestIsNow
+                    ? 'Income received this month minus what you’ve spent so far, refunds taken off.'
+                    : `Income received in ${latestName} minus what you spent, refunds taken off. ${latestName} is the latest month with a budget.`
+              }
+              value={money(savedThisMonthMinor)}
+              valueLabel={`Saved this month: ${money(savedThisMonthMinor)}`}
+              sub={latest && `${money(fromAmount(latest.spent))} spent ${latestIsNow ? 'so far' : `in ${latestName}`}`}
             />
-            {waitingInWindow > 0 && (
-              <WaitingRowsNote count={waitingInWindow} currency={currency} what="in these months" />
-            )}
+            <KpiTile
+              label="Avg monthly spend"
+              icon={<ArrowUpRight strokeWidth={1.8} />}
+              iconColor="var(--color-clay)"
+              hint={avgHint}
+              value={money(avgSpendMinor)}
+              className={PLAIN_TILE}
+            />
+            <KpiTile
+              label="Savings rate"
+              icon={<TrendingUp strokeWidth={1.8} />}
+              hue="emerald"
+              hint={`The share of ${latestIsNow ? 'this month’s' : latestName ? `${latestName}’s` : 'the month’s'} income you ${
+                latestIsNow ? 'haven’t spent so far' : 'didn’t spend'
+              }.`}
+              value={`${savingsRate}%`}
+              className={PLAIN_TILE}
+            />
+          </KpiRow>
 
-            {/* Income vs spending — a column per month (income solid, spent ghost). */}
-            <Card as="section" className="px-6 py-[22px]">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Income vs spending</h2>
-                <div className="flex gap-4 text-xs text-slate-500">
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2.5 w-2.5 rounded-sm" style={{ background: 'var(--color-brand-600)' }} /> Income
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    <span
-                      className="h-2.5 w-2.5 rounded-sm border"
-                      style={{ background: 'var(--color-brand-50)', borderColor: 'var(--color-brand-600)' }}
-                    />{' '}
-                    Spent
-                  </span>
-                </div>
-              </div>
-              <div className="flex items-end gap-3">
-                {trends.points.map((p, idx) => {
-                  const receivedMinor = fromAmount(p.incomeReceived)
-                  const spentMinor = fromAmount(p.spent)
-                  const isCurrent = idx === trends.points.length - 1
-                  return (
-                    <div
-                      key={p.key}
-                      aria-label={`Trend for ${monthLabel(p.year, p.month)}`}
-                      className="flex flex-1 flex-col items-center gap-2"
-                    >
-                      <div className="flex h-[190px] w-full items-end justify-center gap-1.5">
-                        <div
-                          className="w-[34%] rounded-t"
-                          style={{ height: `${pct(receivedMinor, trendMaxMinor)}%`, background: 'var(--color-brand-600)' }}
-                          title={`Income ${formatMoney(receivedMinor, currency)}`}
-                        />
-                        <div
-                          className="w-[34%] rounded-t border"
-                          style={{
-                            height: `${pct(spentMinor, trendMaxMinor)}%`,
-                            background: 'var(--color-brand-50)',
-                            borderColor: 'var(--color-brand-600)',
-                          }}
-                          title={`Spent ${formatMoney(spentMinor, currency)}`}
-                        />
-                      </div>
-                      <span
-                        className={`text-xs font-medium ${isCurrent ? 'text-brand-700 dark:text-brand-200' : 'text-slate-500'}`}
-                      >
-                        {SHORT_MONTHS[p.month - 1]}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
-
-            {/* Whole-year overview, with its own year navigator. Budgeted income sits next to what
-                was received and their signed Variance (rule 41); Net is received − spent. */}
-            {annual?.months && annual.months.length > 0 && (
-              <Card as="section" className="px-6 py-[22px]">
-                <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Annual overview</h2>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        track(EVENTS.reportViewed, { report_type: 'annual' })
-                        setAnnualYear((y) => (y ?? currentMonth().year) - 1)
-                      }}
-                      aria-label="Previous year"
-                      className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
-                    >
-                      ◀
-                    </button>
-                    <span className="min-w-12 text-center text-sm font-semibold tabular-nums text-slate-800">
-                      {annual.year}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        track(EVENTS.reportViewed, { report_type: 'annual' })
-                        setAnnualYear((y) => (y ?? currentMonth().year) + 1)
-                      }}
-                      aria-label="Next year"
-                      className="rounded-md border border-slate-300 px-2 py-0.5 text-slate-600 hover:bg-slate-50"
-                    >
-                      ▶
-                    </button>
-                  </div>
-                </div>
-                <div className="overflow-x-auto">
-                <table className="w-full min-w-[560px] text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
-                      <th className="py-1.5 font-medium">Month</th>
-                      <th className="py-1.5 text-right font-medium">Budgeted</th>
-                      <th className="py-1.5 text-right font-medium">Received</th>
-                      <th className="py-1.5 text-right font-medium">Variance</th>
-                      <th className="py-1.5 text-right font-medium">Spent</th>
-                      <th className="py-1.5 text-right font-medium">Net</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {annual.months.map((m) => {
-                      const blank = annualRowIsBlank(m)
-                      const budgetedMinor = fromAmount(m.income)
-                      const receivedMinor = fromAmount(m.incomeReceived)
-                      const varianceMinor = fromAmount(m.variance)
-                      const spentMinor = fromAmount(m.spent)
-                      const net = receivedMinor - spentMinor
-                      return (
-                        <tr key={m.month} className={m.hasBudget ? '' : 'text-slate-500'}>
-                          <td className="py-1.5">{SHORT_MONTHS[m.month - 1]}</td>
-                          <td className="py-1.5 text-right tabular-nums">
-                            {m.hasBudget ? formatMoney(budgetedMinor, currency) : '—'}
-                          </td>
-                          <td className="py-1.5 text-right tabular-nums">
-                            {blank ? '—' : formatMoney(receivedMinor, currency)}
-                          </td>
-                          {/* Rule 41: actual minus projected, which is nothing without a budget; the total adds every row. */}
-                          <td className={`py-1.5 text-right tabular-nums ${blank ? '' : signClass(varianceMinor)}`}>
-                            {blank ? '—' : signedMoney(varianceMinor, currency)}
-                          </td>
-                          <td className="py-1.5 text-right tabular-nums">
-                            {blank ? '—' : formatMoney(spentMinor, currency)}
-                          </td>
-                          <td className={`py-1.5 text-right font-medium tabular-nums ${blank ? '' : netClass(net)}`}>
-                            {blank ? '—' : formatMoney(net, currency)}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                  <tfoot>
-                    <tr className="border-t-2 border-slate-200 font-semibold text-slate-800">
-                      <td className="py-2">Total</td>
-                      <td className="py-2 text-right tabular-nums">
-                        {formatMoney(fromAmount(annual.totalIncome), currency)}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {formatMoney(fromAmount(annual.totalIncomeReceived), currency)}
-                      </td>
-                      <td className={`py-2 text-right tabular-nums ${signClass(fromAmount(annual.totalVariance))}`}>
-                        {signedMoney(fromAmount(annual.totalVariance), currency)}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {formatMoney(fromAmount(annual.totalSpent), currency)}
-                      </td>
-                      <td className="py-2 text-right tabular-nums">
-                        {formatMoney(fromAmount(annual.totalIncomeReceived) - fromAmount(annual.totalSpent), currency)}
-                      </td>
-                    </tr>
-                  </tfoot>
-                </table>
-                </div>
-              </Card>
-            )}
-
-            {/* What each jar paid out, month by month, in the annual overview's year: a payment
-                draws from the jar its line names (rule 79), a move between jars is not spending. */}
-            {jarSpending && jarSpending.year === annualYear && jarSpending.jars.length > 0 && (
-              <JarSpendingCard report={jarSpending} fallbackCurrency={currency} />
-            )}
-
-            {/* Average monthly spend per category across the year (the workbook's AVERAGE column). */}
-            {annual?.categories && annual.categories.length > 0 && (
-              <Card as="section" className="px-6 py-[22px]">
-                <h2 className="mb-1 text-[15px] font-bold tracking-[-0.01em] text-slate-900">
-                  Average monthly spending by category
-                </h2>
-                <p className="mb-4 text-xs text-slate-500">
-                  Each category’s spend averaged over {averagedMonths} {averagedMonths === 1 ? 'month' : 'months'} of{' '}
-                  {annual.year}, counting a month with no budget as a month too.
-                </p>
-                <div className="space-y-3">
-                  {annual.categories.map((c) => {
-                    const avgMinor = fromAmount(c.averagePerMonth)
-                    const refundsMinor = fromAmount(c.refunds ?? 0)
-                    return (
-                      <div key={`${c.kind}-${c.name}`} aria-label={`Average spending for ${c.name}`}>
-                        <div className="mb-1 flex items-center justify-between text-xs">
-                          <span className="font-medium text-slate-600">
-                            {c.name}
-                            {c.kind === 'Savings' && (
-                              <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-700">
-                                Fund
-                              </span>
-                            )}
-                            {c.kind === 'Uncategorised' && (
-                              <span className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700">
-                                Review
-                              </span>
-                            )}
-                          </span>
-                          <span className="tabular-nums text-slate-500">
-                            {formatMoney(avgMinor, currency)}/mo · {formatMoney(fromAmount(c.total), currency)} total
-                            {refundsMinor > 0 && ` · after ${formatMoney(refundsMinor, currency)} refunded`}
-                          </span>
-                        </div>
-                        <Bar
-                          widthPct={pct(avgMinor, annualAvgMaxMinor)}
-                          className={c.kind === 'Uncategorised' ? 'bg-amber-400' : 'bg-sky-500'}
-                          label={`Average for ${c.name}`}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              </Card>
-            )}
-
-            {/* Spending by category for the chosen month. */}
-            <Card as="section" className="px-6 py-[22px]">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending by category</h2>
-                <select
-                  aria-label="Breakdown month"
-                  value={breakdownKey ?? ''}
-                  onChange={(e) => {
-                    track(EVENTS.reportViewed, { report_type: 'breakdown' })
-                    setBreakdownKey(e.target.value)
-                  }}
-                  className="rounded-md border border-slate-300 bg-surface px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  {[...trends.points].reverse().map((p) => (
-                    <option key={p.key} value={p.key}>
-                      {monthLabel(p.year, p.month)}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              {breakdown && breakdown.fxPendingCount > 0 && (
-                <WaitingRowsNote count={breakdown.fxPendingCount} currency={currency} what="this month" />
+          {/* Desktop: Trend over Jar spending at the left, Spending at the right (in view while
+              the page scrolls); a phone reads them in the page's order: Trend, Spending, Jar spending.
+              `dash-palette` (index.css): the groups' hues follow the approved palette. */}
+          <div className="dash-palette @container">
+            <div className="grid gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @min-[940px]:grid-rows-[auto_1fr] @min-[940px]:items-start">
+              <TrendCard
+                annual={annual}
+                year={annual?.year ?? annualYear ?? now.year}
+                currency={currency}
+                now={now}
+                onPrevYear={prevYear}
+                onNextYear={nextYear}
+                className={`${DASH_CARD} @min-[940px]:col-start-1 @min-[940px]:row-start-1`}
+              />
+              <SpendingCard
+                categories={categorySpend}
+                currency={currency}
+                hint={spendingHint}
+                monthKey={breakdownKey ?? ''}
+                options={[...trends.points].reverse().map((p) => ({ key: p.key, label: monthLabel(p.year, p.month) }))}
+                onMonthChange={(key) => {
+                  track(EVENTS.reportViewed, { report_type: 'breakdown' })
+                  setBreakdownKey(key)
+                }}
+                averages={averages}
+                fxPending={breakdown?.fxPendingCount ?? 0}
+                className={`${DASH_CARD} @min-[940px]:sticky @min-[940px]:top-[92px] @min-[940px]:col-start-2 @min-[940px]:row-span-2 @min-[940px]:row-start-1`}
+              />
+              {/* What each jar paid out, month by month, in the Trend's year: a payment draws
+                  from the jar its line names (rule 79), a move between jars is not spending. */}
+              {showJars && (
+                <JarSpendingCard
+                  report={jarSpending!}
+                  fallbackCurrency={currency}
+                  firstMonth={firstMonth}
+                  now={now}
+                  className={`${DASH_CARD} @min-[940px]:col-start-1 @min-[940px]:row-start-2`}
+                />
               )}
-              {categorySpend.length === 0 ? (
-                <p className="text-sm text-slate-500">No spending recorded for this month yet.</p>
-              ) : (
-                <div className="space-y-3">
-                  {categorySpend.map((c) => {
-                    const hue = c.isUncategorised ? null : hueForIndex(c.hueIndex)
-                    const share =
-                      c.netMinor > 0 && categoryTotalMinor > 0
-                        ? `${Math.round((c.netMinor / categoryTotalMinor) * 100)}%`
-                        : c.netMinor > 0
-                          ? '0%'
-                          : null
-                    return (
-                      <div key={c.id} aria-label={`Spending for ${c.name}`}>
-                        <div className="mb-1 flex items-center justify-between gap-2 text-xs">
-                          <span className="font-medium text-slate-600">
-                            {c.name}
-                            {c.kind === 'Savings' && (
-                              <span className="ml-1 rounded bg-violet-100 px-1 py-0.5 text-[10px] font-semibold text-violet-700">
-                                Fund
-                              </span>
-                            )}
-                            {c.isUncategorised && (
-                              // Rule 37: flagged for review, with the way to fix it.
-                              <Link
-                                to="/transactions"
-                                aria-label="Review uncategorised transactions"
-                                className="ml-1 rounded bg-amber-100 px-1 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-200 dark:bg-amber-500/15 dark:text-amber-300"
-                              >
-                                Review {c.count} {c.count === 1 ? 'transaction' : 'transactions'}
-                              </Link>
-                            )}
-                          </span>
-                          <span className="text-right tabular-nums text-slate-500">
-                            {formatMoney(c.netMinor, currency)}
-                            {share !== null && ` · ${share}`}
-                            {/* Rules 38/39: say what was refunded, so a small or negative figure is explicable. */}
-                            {c.refundsMinor > 0 && ` · after ${formatMoney(c.refundsMinor, currency)} refunded`}
-                          </span>
-                        </div>
-                        <Bar
-                          widthPct={pct(c.netMinor, categoryMaxMinor)}
-                          color={hue === null ? 'var(--color-amber-400, #fbbf24)' : hueColor(hue)}
-                          track={hue === null ? 'var(--color-amber-100, #fef3c7)' : hueTint(hue)}
-                          label={c.name}
-                        />
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </Card>
-          </>
-        )}
+            </div>
+          </div>
+        </>
+      )}
     </AppShell>
-  )
-}
-
-/**
- * Spending from jars, one row per jar and a column per month (5 October 2026, from the jar
- * notes: "how much I am actually spending from each jar monthly/yearly"). A payment counts
- * wholly against the jar it was paid from: 50 for the vet from the Pets jar reads as 50 under
- * Pets, and the 30 moved in from Food to cover it is not spending from Food. A refund back into
- * the jar reduces the month it was received, and the total says so (rules 38/39). A live jar
- * with nothing spent shows dashes; an archived jar is listed only while the year has a figure.
- */
-function JarSpendingCard({ report, fallbackCurrency }: { report: JarSpendingReportDto; fallbackCurrency: string }) {
-  const currencyOf = (row: JarSpendingRowDto) => row.currency || fallbackCurrency
-  const currencies = new Set(report.jars.map(currencyOf))
-  // A year total across jars only reads when every jar counts in one currency.
-  const totalCurrency = currencies.size === 1 ? [...currencies][0] : null
-  const grandMonths = Array.from({ length: 12 }, (_, i) => report.jars.reduce((s, j) => s + fromAmount(j.months[i] ?? 0), 0))
-  const grandTotal = report.jars.reduce((s, j) => s + fromAmount(j.total), 0)
-  const cell = (minor: Minor, currency: string) => (minor === 0 ? '—' : formatMoney(minor, currency))
-  return (
-    <Card as="section" className="px-6 py-[22px]">
-      <h2 className="text-[15px] font-bold tracking-[-0.01em] text-slate-900">Spending from jars</h2>
-      <p className="mb-4 mt-1 text-xs text-slate-500">
-        What each jar paid out in {report.year}, by the month it was paid. Money moved between jars is not spending.
-      </p>
-      {report.waitingCount > 0 && <WaitingRowsNote count={report.waitingCount} currency={fallbackCurrency} what="paid from a jar" />}
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[960px] text-sm" aria-label={`Spending from jars in ${report.year}`}>
-          <thead>
-            <tr className="border-b border-slate-100 text-left text-xs uppercase tracking-wide text-slate-500">
-              <th scope="col" className="py-1.5 font-medium">Jar</th>
-              {SHORT_MONTHS.map((m) => (
-                <th key={m} scope="col" className="py-1.5 text-right font-medium">
-                  {m}
-                </th>
-              ))}
-              <th scope="col" className="py-1.5 text-right font-medium">Total</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-50">
-            {report.jars.map((row) => {
-              const rowCurrency = currencyOf(row)
-              const totalMinor = fromAmount(row.total)
-              const refundsMinor = fromAmount(row.totalRefunds)
-              return (
-                <tr key={row.jarId} className={row.isArchived ? 'text-slate-500' : ''}>
-                  <th scope="row" className="py-1.5 text-left font-normal">
-                    {row.name}
-                    {row.isArchived && <span className="ml-1 text-xs text-slate-400">(archived)</span>}
-                  </th>
-                  {Array.from({ length: 12 }, (_, i) => (
-                    <td key={i} className="py-1.5 text-right tabular-nums">
-                      {cell(fromAmount(row.months[i] ?? 0), rowCurrency)}
-                    </td>
-                  ))}
-                  <td className="py-1.5 text-right font-medium tabular-nums" title={refundsMinor > 0 ? `after ${formatMoney(refundsMinor, rowCurrency)} refunded` : undefined}>
-                    {cell(totalMinor, rowCurrency)}
-                    {refundsMinor > 0 && <span className="sr-only"> after {formatMoney(refundsMinor, rowCurrency)} refunded</span>}
-                  </td>
-                </tr>
-              )
-            })}
-          </tbody>
-          {totalCurrency !== null && report.jars.length > 1 && (
-            <tfoot>
-              <tr className="border-t-2 border-slate-200 font-semibold text-slate-800">
-                <th scope="row" className="py-2 text-left">All jars</th>
-                {grandMonths.map((minor, i) => (
-                  <td key={i} className="py-2 text-right tabular-nums">
-                    {cell(minor, totalCurrency)}
-                  </td>
-                ))}
-                <td className="py-2 text-right tabular-nums">{cell(grandTotal, totalCurrency)}</td>
-              </tr>
-            </tfoot>
-          )}
-        </table>
-      </div>
-    </Card>
-  )
-}
-
-/**
- * The rows a report leaves out: transactions in another currency whose amount in the budget
- * currency hasn't been entered yet (the app never converts on its own). Every figure above it
- * is complete except for these, so the count says how many, and where to enter them.
- */
-function WaitingRowsNote({ count, currency, what }: { count: number; currency: string; what: string }) {
-  return (
-    <p role="status" className="mb-3 text-xs text-amber-700 dark:text-amber-400">
-      {count} {count === 1 ? 'transaction' : 'transactions'} {what} {count === 1 ? 'is' : 'are'} in another currency,
-      waiting for {count === 1 ? 'its' : 'their'} amount in {currency}, and not counted in these figures.{' '}
-      <Link to="/transactions" className="font-semibold underline">
-        Enter {count === 1 ? 'it' : 'them'} on Transactions
-      </Link>
-      .
-    </p>
-  )
-}
-
-function pct(value: Minor, max: Minor): number {
-  if (max <= 0 || value <= 0) return 0
-  return Math.max(2, Math.round((value / max) * 100)) // a visible sliver for tiny non-zero values
-}
-
-/**
- * A horizontal bar. `className` colours the fill via a utility; pass `color` to
- * fill with an inline colour (a category hue) and `track` to tint the track.
- */
-function Bar({
-  widthPct,
-  className = '',
-  label,
-  color,
-  track,
-}: {
-  widthPct: number
-  className?: string
-  label: string
-  color?: string
-  track?: string
-}) {
-  return (
-    <div
-      className={`h-3 w-full overflow-hidden rounded-full ${track ? '' : 'bg-slate-100'}`}
-      style={track ? { background: track } : undefined}
-      role="img"
-      aria-label={label}
-    >
-      <div
-        className={`h-full rounded-full ${color ? '' : className}`}
-        style={{ width: `${widthPct}%`, ...(color ? { background: color } : null) }}
-      />
-    </div>
   )
 }

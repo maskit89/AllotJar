@@ -1,6 +1,6 @@
 # Reports
 
-**ID prefix:** RPT | **Scope:** Everything on `/reports` (`client/src/pages/ReportsPage.tsx` + its three server queries). The page is a single scroll of a gold **Hero** (`Saved this month` + `Avg monthly spend` / `Savings rate` tiles) and four cards: **Income vs spending** (per-budget bars of received income vs actual spend), **Annual overview** (12-row Budgeted/Received/Variance/Spent/Net table with a year navigator), **Average monthly spending by category** (per-`(Name,Kind)` yearly average), and **Spending by category** (a month-selectable breakdown with an **Uncategorised** row). Covers the exact labels/aria, the loading/error/empty states, the computed money (saved-this-month, avg spend, savings rate, per-category %, annual net, bar scaling, the 2% sliver), sum correctness against budget data (splits counted once, transfers excluded, tx-derived actuals), the "most recent N **budgets** not last N months" window, `(Name,Kind)` category keying, silent partial-failure of the annual/breakdown fetches, the breakdown-currency follow behavior, the `Reports` feature-flag 404/redirect defence-in-depth, and single-month/read-only households. Endpoints: `GET /api/reports/trends?months={n}`, `GET /api/reports/annual/{year}`, and `GET /api/reports/month/{y}/{m}` (breakdown source — `MonthReportDto`: the budget's non-income groups net of refunds plus the month's transaction-dated uncategorised layer, rules 37–39/41). | **Out of scope:** the LandingPage / legal pages / staging banner / SEO / prerender that share the reports-landing subsystem map → **01-landing-public.md**; the dashboard budget view, `IsBalanced` empty-month hero, and month create/copy → **06-dashboard-budget-view.md** + **07-month-lifecycle.md**; transaction/split CRUD and transfer mechanics themselves → **10-transactions.md** + **11-transfers.md** (this file only asserts how they roll up into report sums); the full Owner/Admin/Limited/Read-only matrix and general nav gating → **25-roles-permissions.md** (only the area-specific "reports have no role gate" fact is here); session-expiry interceptor behavior mid-view → **03-session-auth-lifecycle.md**; dark-mode / responsive / axe sweeps → **26-ux-states.md**. **Do not test for:** a CSV/PDF export control (none exists); a date-range picker (only a year navigator + a month `<select>`); any write action on this page (it is read-only GET-only).
+**ID prefix:** RPT | **Scope:** Everything on `/reports` (`client/src/pages/ReportsPage.tsx` + its three server queries). The page (restyle PR 7) is one KPI row (the green hero `Saved this month` + the `Avg monthly spend` / `Savings rate` tiles) and three cards: **Trend** (the year's months as a chart of spent against received income, or as a Received/Spent/Net/Budgeted/Variance table with Total, with the year switcher in its header and the per-`(Name,Kind)` **Average month by category** table on its Table side), **Spending** (a month-selectable breakdown with an average-month tick per category and an **Uncategorised** row with its Assign chip) and **Jar spending** (each jar's payouts month by month in the year shown, as marks or a table). Covers the exact labels/aria, the loading/error/empty states, the computed money (saved-this-month, avg spend, savings rate, per-category %, annual net, bar scaling, the 2% sliver), sum correctness against budget data (splits counted once, transfers excluded, tx-derived actuals), the "most recent N **budgets** not last N months" window, `(Name,Kind)` category keying, silent partial-failure of the annual/breakdown fetches, the breakdown-currency follow behavior, the `Reports` feature-flag 404/redirect defence-in-depth, and single-month/read-only households. Endpoints: `GET /api/reports/trends?months={n}`, `GET /api/reports/annual/{year}`, and `GET /api/reports/month/{y}/{m}` (breakdown source — `MonthReportDto`: the budget's non-income groups net of refunds plus the month's transaction-dated uncategorised layer, rules 37–39/41). | **Out of scope:** the LandingPage / legal pages / staging banner / SEO / prerender that share the reports-landing subsystem map → **01-landing-public.md**; the dashboard budget view, `IsBalanced` empty-month hero, and month create/copy → **06-dashboard-budget-view.md** + **07-month-lifecycle.md**; transaction/split CRUD and transfer mechanics themselves → **10-transactions.md** + **11-transfers.md** (this file only asserts how they roll up into report sums); the full Owner/Admin/Limited/Read-only matrix and general nav gating → **25-roles-permissions.md** (only the area-specific "reports have no role gate" fact is here); session-expiry interceptor behavior mid-view → **03-session-auth-lifecycle.md**; dark-mode / responsive / axe sweeps → **26-ux-states.md**. **Do not test for:** a CSV/PDF export control (none exists); a date-range picker (only a year navigator + a month `<select>`); any write action on this page (it is read-only GET-only).
 
 **Test data setup:** Local stack (API `:5099`, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). Assume **today = 2026-07-16**. Locale **en-GB** so money renders `€1,234.56`; budget currency **EUR** (every month's `baseCurrency`). Feature flag **`Reports` ON** (default). Money is `decimal(18,4)` server-side, integer minor units scale 4 client-side. Household **"Report House"** (owner **report-owner@example.test**, role Owner), solo (1 member) unless a case states shared.
 
@@ -15,15 +15,15 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 
 ## Page load, hero & summary
 
-### RPT-001 - Reports page loads with hero and all four cards
+### RPT-001 - Reports page loads with the KPI row and its three cards
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Signed-in owner of "Report House" with baseline history H2.
 - **Steps:**
   1. Sign in and click the `Reports` nav item (or navigate to `/reports`).
   2. Wait for `Loading your reports…` to clear.
-- **Expected:** AppShell title `Reports`. Gold Hero shows eyebrow `Saved this month` with a big amount and two tiles `Avg monthly spend` and `Savings rate`. Four cards render in order: `Income vs spending`, `Annual overview`, `Average monthly spending by category`, `Spending by category`. No error banner, no empty state.
-- **Automated:** Partial (client/src/pages/ReportsPage.test.tsx)
+- **Expected:** AppShell title `Reports` (no month switcher in the top bar). One KPI row: the green hero `Saved this month` with a gold amount and its "spent" sub-line, then the tiles `Avg monthly spend` and `Savings rate`, each with an (i). Three cards (h2s looked up by exact name, since "Spending" is inside "Jar spending"): `Trend`, `Spending`, then `Jar spending` (only when the household has jars). Desktop: Trend over Jar spending at the left, Spending at the right, sticky; a phone reads Trend, Spending, Jar spending. No error banner, no empty state.
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-001/RPT-010)
 
 ### RPT-002 - Loading placeholder while trends fetch is in flight
 - **Priority:** P2
@@ -67,17 +67,17 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 
 ---
 
-## Income vs spending trend chart
+## Trend chart (the Chart side of the Trend card)
 
-### RPT-006 - Trend renders one column per budget with month ticks and the current month tinted
+### RPT-006 - Trend chart draws one bar per month against the income line, the month in progress hatched
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner with H2 (May + June budgets).
 - **Steps:**
   1. Load `/reports`.
-  2. Inspect the `Income vs spending` card: legend, columns, tick labels, bar tooltips.
-- **Expected:** Legend swatches labelled `Income` (solid brand) and `Spent` (bordered/ghost). Two columns, each wrapper `aria-label="Trend for May 2026"` / `"Trend for Jun 2026"`. Tick labels `May` and `Jun`; the last (current) column's label is brand-tinted (`text-brand-700 dark:text-brand-200`). Each column has two bars with `title="Income {money}"` (= that month's **received** income) and `title="Spent {money}"`, e.g. June `title="Income €2,950.00"` / `title="Spent €2,400.00"`.
-- **Automated:** Partial (client/src/pages/ReportsPage.test.tsx)
+  2. Inspect the `Trend` card on its `Chart` side (the default).
+- **Expected:** A `role="img"` figure named `Spent each month against income received, 2026: May €2,700.00 spent, €2,900.00 income; Jun €2,400.00 spent, €2,950.00 income` (the month in progress says "spent so far" and "income so far"). One bar per month from the year's first month with anything recorded (`data-bar="5"`, `data-bar="6"`), x labels `May` and `Jun` (initials on a phone with more than seven months). Received income is one dashed line, a stretch per run of equal months (`data-income="5"`, `data-income="6"` here), joined where it steps, labelled `Income €2,950.00` at its right end (or above the chart when bars leave no room). The month in progress is hatched, labelled `so far` and its x label bold. No `title=` tooltips; the Table side has the exact figures.
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-007/015, "hatches the month in progress", "draws the income line in runs")
 
 ### RPT-007 - Income bars plot actually-received income, but scaling includes budgeted income
 - **Priority:** P1
@@ -108,7 +108,7 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Steps:**
   1. Load `/reports`.
   2. Inspect the trend columns and the breakdown `<select>` options.
-- **Expected:** Six columns, `Jan` to `Jun`, in chronological order; Feb–May carry no budgeted figures (`hasBudget: false`) and March shows its spending. The breakdown select offers `Jun 2026` back to `Jan 2026` (newest first). Default breakdown = `2026-06`, default annual year = 2026.
+- **Expected:** The window has six points, `Jan` to `Jun`, in chronological order; Feb–May carry no budgeted figures (`hasBudget: false`) and March shows its spending (the window feeds the KPI row and the Spending card's `Breakdown month` select). The select offers `Jun 2026` back to `Jan 2026` (newest first). Default breakdown = `2026-06`; the Trend and Jar spending cards open on 2026, the year of the latest point up to this month (in December with next January budgeted ahead, still this year).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/RReportsCoverageTests.cs `Trends_Window_IsCalendarMonths_SoAMonthWithNoBudgetIsAPointOfItsOwn`).
 
 ### RPT-010 - Trends window caps at the client-requested 6 (and the server clamps 1..24)
@@ -124,27 +124,27 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 
 ---
 
-## Annual overview & year navigation
+## Trend table (the Table side) & year navigation
 
-### RPT-011 - Annual overview table renders with headers, month rows and totals footer
+### RPT-011 - Trend table renders with headers, month rows and totals footer
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner with H2 (May + June budgets in 2026).
 - **Steps:**
   1. Load `/reports`.
-  2. Inspect the `Annual overview` card (defaults to the latest budget's year, 2026).
-- **Expected:** Year navigator shows `2026` between `◀`/`▶` buttons (aria-labels `Previous year`/`Next year`). Table headers `Month | Income | Spent | Net`. May row: Income `€3,000.00`, Spent `€2,700.00`, Net `€300.00`. June row: Income `€3,000.00`, Spent `€2,400.00`, Net `€600.00`. Footer `Total`: Income `€6,000.00`, Spent `€5,100.00`, Net `€900.00`.
-- **Automated:** Partial (client/src/pages/ReportsPage.test.tsx)
+  2. Press `Table` in the `Trend` card (the year defaults to that of the latest month up to this one, 2026).
+- **Expected:** Year switcher in the card header shows `2026` between `Previous year`/`Next year` (a polite live region). Table `Income and spending in 2026`, headers `Month | Received | Spent | Net | Budgeted | Variance` (the month column stays pinned while the figures scroll on a phone). May row: Received `€2,900.00`, Spent `€2,700.00`, Net `€200.00`, Budgeted `€3,000.00`, Variance `-€100.00`. Footer `Total`: Received `€5,850.00`, Spent `€5,100.00`, Net `€750.00`, Budgeted `€6,000.00`, Variance `-€150.00`.
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-011)
 
-### RPT-012 - Non-budgeted months show em dashes; Net is emerald/rose by sign
+### RPT-012 - Months with nothing recorded show em dashes; Net is green/red by sign; the month in progress is muted
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner with H2 (only May/June budgeted in 2026); add a July budget where spent (€3,200.00) exceeds budgeted income (€3,000.00) so July Net is negative.
 - **Steps:**
-  1. Load `/reports`, view `Annual overview` for 2026.
+  1. Load `/reports`, press `Table` in the `Trend` card (2026).
   2. Inspect Jan–Apr / Aug–Dec rows, and the sign colors of Net cells.
-- **Expected:** The 10 monthless rows render `—` (em dash) in all three money cells and use muted (`text-slate-500`) row text. May/June Net cells are emerald (`text-emerald-600 dark:text-emerald-400`, positive). July Net = **−€200.00** in rose (`text-rose-600 dark:text-rose-400`). A non-budgeted month's Net cell carries no color class (just the dash).
-- **Automated:** No
+- **Expected:** The table starts at the year's first month with a budget or a figure and runs to the last budgeted month. A month with nothing recorded renders `—` in every figure cell, muted (`text-slate-500`), no colour. May/June Net are green (`text-ok`, positive). July Net = **-€200.00** in red (`text-bad`); a zero Variance is plain. The month in progress reads `Oct so far` and its whole row is muted, Net and Variance included (not final yet).
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-012, "mutes the month in progress throughout the table")
 
 ### RPT-013 - Previous/Next year navigation loads a new year and fires the analytics event
 - **Priority:** P1
@@ -164,8 +164,8 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Steps:**
   1. Load `/reports`.
   2. Click `Next year` to reach 2027 (no budgets), then keep clicking to 2030.
-- **Expected:** The `Annual overview` card still renders (server always returns 12 `hasBudget:false` months): all 12 rows show `—`, and Total row shows `€0.00 / €0.00 / €0.00`. The `Average monthly spending by category` card **disappears** (empty `categories`). The `Income vs spending` and `Spending by category` cards are unaffected (they follow trends, not the annual year). Navigation is unbounded (no disabled state).
-- **Automated:** No
+- **Expected:** The `Trend` card stays: its Chart side says `Nothing recorded in 2027.` and its Table side shows only the `Total` row at `€0.00` throughout (no month rows). The `Average month by category` table under it **disappears** (empty `categories`), and the Spending card's ticks go (they show only while the year shown is the breakdown month's). The KPI row and the Spending card are otherwise unaffected (they follow the window, not the year). The Jar spending card follows the year. Navigation is unbounded (no disabled state).
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-014)
 
 ### RPT-015 - Annual table shows budgeted and received income with a signed Variance; Net is received − spent
 - **Priority:** P1
@@ -190,16 +190,16 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 
 ---
 
-## Average monthly spending by category
+## Average month by category (the Trend card's Table side)
 
-### RPT-017 - Average card lists categories by descending average with totals and Fund badge
+### RPT-017 - Averages table lists categories by descending average with totals and the jars mark
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner with H2; 2026 counts 2 calendar months (D12: `countedMonths`, from the first month with a budget or a figure to the current UTC month).
 - **Steps:**
-  1. Load `/reports`, view `Average monthly spending by category` (year 2026).
-- **Expected:** Subtitle `Each category's spend averaged over 2 months of 2026, counting a month with no budget as a month too.` (plural). Rows ordered by average desc: `Housing` → `€1,400.00/mo · €2,800.00 total`; `Food` → `€850.00/mo · €1,700.00 total`; `Emergency Fund` with a violet `Fund` badge → `€300.00/mo · €600.00 total`. Each row wrapper `aria-label="Average spending for {name}"`, sky-blue bar `aria-label="Average for {name}"`; the largest average fills the bar to 100%.
-- **Automated:** Partial (client/src/pages/ReportsPage.test.tsx)
+  1. Load `/reports`, press `Table` in the `Trend` card and read `Average month by category` under the months (year 2026).
+- **Expected:** Its (i) (`About the averages`) says `Each category’s spend averaged over 2 months of 2026, counting a month with no budget as a month too.` (plural). Headers `Category | Average | Year`; rows ordered by average desc, each named by its cells: `Housing` `€1,400.00` `€2,800.00`; `Food` `€850.00` `€1,700.00`; `Emergency Fund · jars` (a Savings group) `€300.00` `€600.00`. In the Spending card, the same averages show as a tick on each category's bar (named `An average month: €X`), none on Uncategorised.
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-017, the averages tick tests)
 
 ### RPT-018 - Subtitle uses the singular "month" for a single-month year
 - **Priority:** P2
@@ -217,21 +217,21 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Preconditions:** Owner where (a) an Expense group is named `Groceries` in Jan–Mar then renamed `Food` from Apr, and (b) a Savings group also named `Food` exists with contributions.
 - **Steps:**
   1. Load `/reports`, view the average card for that year.
-- **Expected:** `Groceries` and `Food` appear as **separate** rows (rename splits the year's spend across two names — Jan–Mar under `Groceries`, Apr+ under `Food`), each averaged over the SAME `budgetedMonths` denominator. The Expense `Food` and the Savings `Food` are **two distinct rows** (different `Kind`), and only the Savings one shows the `Fund` badge. Deleting a category mid-year stops further accumulation but its past actuals still count.
+- **Expected:** `Groceries` and `Food` appear as **separate** rows (rename splits the year's spend across two names — Jan–Mar under `Groceries`, Apr+ under `Food`), each averaged over the SAME `budgetedMonths` denominator. The Expense `Food` and the Savings `Food` are **two distinct rows** (different `Kind`), and only the Savings one is marked `jars`. Deleting a category mid-year stops further accumulation but its past actuals still count.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AnnualSummaryTests.cs) — per-category averages by name; the rename-split path is not explicitly asserted.
 
 ---
 
-## Spending by category (breakdown)
+## Spending (the month's breakdown)
 
 ### RPT-020 - Breakdown defaults to the latest month, biggest category first, with share % and bars
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Owner with H2; default breakdown = June 2026.
 - **Steps:**
-  1. Load `/reports`, view `Spending by category` (select defaults to `Jun 2026`).
-- **Expected:** Non-income categories only, sorted by spend desc: `Housing` `€1,400.00 · 58%` (bar 100%); `Food` `€700.00 · 29%` (bar 50%); `Emergency Fund` with violet `Fund` badge `€300.00 · 13%` (bar ~21%). `%` is share of the month's summed category spend (€2,400.00); bar width is relative to the LARGEST category, not the total. Income group is excluded. Row wrapper `aria-label="Spending for {name}"`, bar `role="img" aria-label="{name}"`.
-- **Automated:** Partial (client/src/pages/ReportsPage.test.tsx)
+  1. Load `/reports`, read the `Spending` card (its `Breakdown month` select defaults to `Jun 2026`).
+- **Expected:** Non-income categories only, sorted by spend desc, each row `role="group"` named `Spending for {name}`: `Housing` `€1,400.00 · 58%`; `Food` `€700.00 · 29%`; `Emergency Fund · jars` (a Savings group) `€300.00 · 13%`. The share is muted after the amount, of the month's summed positive spend (€2,400.00). One bar under each row across its width, on one scale: the largest of the spends and the average-month ticks takes 96% of the track (Housing 96%, Food 48%); any figure above zero gets at least a 2% sliver. Income group is excluded.
+- **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-020, "gives a small group a visible sliver")
 
 ### RPT-021 - Changing the breakdown month reloads that month and fires the breakdown event
 - **Priority:** P1
@@ -406,7 +406,7 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Preconditions:** Owner whose ONLY budget ever is June 2026 (received €2,950.00, spent €2,400.00).
 - **Steps:**
   1. Load `/reports`.
-- **Expected:** `Income vs spending` has a single column (`Jun`, current-tinted). `Avg monthly spend` = the single month's spend `€2,400.00` (`round(spent/1)`). `Breakdown month` select has exactly one option `Jun 2026`. Average-card subtitle is singular (`1 budgeted month`). Annual overview + year nav still work (June row populated, other 11 dashed). No empty state (there IS one point).
+- **Expected:** The `Trend` chart has a single bar (`Jun`). `Avg monthly spend` = the single month's spend `€2,400.00` (`round(spent/1)`). `Breakdown month` select has exactly one option `Jun 2026`. The averages (i) is singular (`1 month`). The Trend table and the year switcher still work (a June row, no other months). No empty state (there IS one point).
 - **Automated:** No
 
 ### RPT-037 - Blank current month for a jar-owning household reports over-budgeted, not empty
@@ -432,7 +432,7 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Steps:**
   1. Load `/reports` (breakdown defaults to June).
   2. On `/transactions`, assign the €60.00 row to Housing; return to `/reports`.
-- **Expected:** Step 1: `Spending by category` lists **`Uncategorised`** as its own row (amber bar) reading `€100.00 · 7%` with a link **`Review 2 transactions`** (aria `Review uncategorised transactions`, `href="/transactions"`); `Housing` reads `€1,400.00 · 93%`; the card's total is €1,500.00. Step 2: Housing €1,460.00, Uncategorised `€40.00` with `Review 1 transaction`; the total is still €1,500.00 — categorising moves money between rows, never changes the month. Uncategorised **income** counts in `Received` (rule 41), never in this card. Server: `GET /reports/month/2026/6` → `spentUncategorised: 100`, `uncategorisedCount: 2`, `spent` = categorised + uncategorised, and `categories` ending with `{ name: 'Uncategorised', kind: 'Uncategorised', index: -1, isUncategorised: true, count: 2 }`; the trend point's and the annual month's `spent` include the same €100.00 (`spentUncategorised`), and a month with **no budget** still reports its loose transactions (dashed Budgeted/Variance in the annual table).
+- **Expected:** Step 1: `Spending` lists **`Uncategorised`** as its own last row (a hatched bar, no average tick) reading `€100.00 · 7%` with the dashed chip **`Assign 2`** (a link named `Assign 2, review uncategorised transactions`, `href="/transactions"`); `Housing` reads `€1,400.00 · 93%`; the card's total is €1,500.00. Step 2: Housing €1,460.00, Uncategorised `€40.00` with `Assign 1`; the total is still €1,500.00 — categorising moves money between rows, never changes the month. Uncategorised **income** counts in `Received` (rule 41), never in this card. Server: `GET /reports/month/2026/6` → `spentUncategorised: 100`, `uncategorisedCount: 2`, `spent` = categorised + uncategorised, and `categories` ending with `{ name: 'Uncategorised', kind: 'Uncategorised', index: -1, isUncategorised: true, count: 2 }`; the trend point's and the annual month's `spent` include the same €100.00 (`spentUncategorised`), and a month with **no budget** still reports its loose transactions (dashed Budgeted/Variance in the annual table).
 - **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-038; backend `ReportFiguresTests.Uncategorised_IsIncludedAsItsOwnRow_AndTheTotalDoesNotMoveWhenCategorised`, `Uncategorised_CountsAMonthWithNoBudget_AndSlicesWhoseLineIsGone`)
 
 ### RPT-039 - A refund reduces its category in the month it was received, and the row says so
@@ -451,7 +451,7 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Origin:** rule 41 / W12 P21, P22.
 - **Preconditions:** 2026 with July budgeted €3,000.00 / received €3,200.00, June budgeted €3,000.00 / received €2,950.00, and August with **no budget** but €80.00 received and €120.00 spent (loose transactions).
 - **Steps:**
-  1. Load `/reports`; read the Jul, Jun and Aug rows of `Annual overview`.
+  1. Load `/reports`; press `Table` in the `Trend` card and read the Jul, Jun and Aug rows.
 - **Expected:** Jul `Variance` **`+€200.00`** (emerald); Jun **`-€50.00`** (rose); a zero variance reads `€0.00` unsigned and uncoloured. Aug (muted row): Budgeted `—`, Received `€80.00`, Variance `—`, Spent `€120.00`, Net `-€40.00` (rose). A month with no budget **and** nothing recorded is `—` across the row. The footer's `Variance` is the signed `totalVariance`. Server: `variance = incomeReceived − income`, where `incomeReceived` counts income-line actuals plus uncategorised income and excludes transfers and refunds (3,200 received → +200; 2,800 → −200).
 - **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-040; backend `ReportFiguresTests.Income_ReceivedVsBudgeted_IsASignedVariance`, `Uncategorised_CountsAMonthWithNoBudget_AndSlicesWhoseLineIsGone`)
 
@@ -461,8 +461,8 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Origin:** rules 37–39 / W12 P21.
 - **Preconditions:** 2026 with `Food` €800.00 (Jun) and €900.00 (Jul) spent, €40.00 refunded in total; uncategorised spending in the year.
 - **Steps:**
-  1. Load `/reports`; read `Average monthly spending by category`.
-- **Expected:** `Food` reads `€830.00/mo · €1,660.00 total · after €40.00 refunded` (the average and total are **net** of refunds: 1,700 − 40 over 2 budgeted months). An `Uncategorised` entry appears among the rows with an amber **Review** badge. Server: `AnnualSummaryDto.categories` accumulates by `(Name, Kind)` including `{ kind: 'Uncategorised' }`, each with `refunds`; `totalRefunds` is the year's sum.
+  1. Load `/reports`; press `Table` in the `Trend` card and read `Average month by category`.
+- **Expected:** The `Food` row reads Average `€830.00`, Year `€1,660.00` with `after €40.00 refunded` under it (the average and total are **net** of refunds: 1,700 − 40 over 2 budgeted months). An `Uncategorised` row appears among them marked `· Review` (and gets no tick in the Spending card). Server: `AnnualSummaryDto.categories` accumulates by `(Name, Kind)` including `{ kind: 'Uncategorised' }`, each with `refunds`; `totalRefunds` is the year's sum.
 - **Automated:** Full (client `ReportsPage.catalog.test.tsx` RPT-041; backend `ReportFiguresTests.Uncategorised_CountsAMonthWithNoBudget_AndSlicesWhoseLineIsGone` (annual `Uncategorised` category), `Refund_ReducesTheMonthItWasReceived_AndTheYearNets` (annual category total and refunds))
 
 ### RPT-042 - A row waiting for its budget-currency amount is left out of every report figure until it is entered
@@ -473,7 +473,7 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Steps:**
   1. Load `/reports` with the breakdown on Jun 2026; read the hero, the June trend column, the Food breakdown row, the Uncategorised row and the annual June row.
   2. On `/transactions` click **Enter amount** on London Cab and confirm **53.26**; reload `/reports`.
-- **Expected:** Step 1: every figure is as if the two rows did not exist — Food €700.00, no Uncategorised spending from them, June Spent unchanged in the trend, annual and hero (the trends, annual overview and breakdown all derive from `ReportFigures.ForMonthAsync`). `GET /reports/month/2026/6` returns `fxPendingCount: 2`; the page shows no count or notice for it (the dashboard does — CURR-052). Step 2: Food reads **€753.26**, June Spent rises by 53.26 everywhere, and `fxPendingCount` drops to 1; the other row still counts nowhere.
+- **Expected:** Step 1: every figure is as if the two rows did not exist — Food €700.00, no Uncategorised spending from them, June Spent unchanged in the trend, annual and hero (the trends, annual overview and breakdown all derive from `ReportFigures.ForMonthAsync`). `GET /reports/month/2026/6` returns `fxPendingCount: 2`; the Spending card's foot says `Not counted yet · 2 payments` with an `€ amounts` chip to Transactions, its (i) says why, and the `Avg monthly spend` (i) gives the window's count (said once on the screen, no strip). Step 2: Food reads **€753.26**, June Spent rises by 53.26 everywhere, and `fxPendingCount` drops to 1; the other row still counts nowhere.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/ReportFiguresTests.cs — `MonthReport_LeavesPendingFxRowsOut_AndCountsThem`; FxPendingAggregatesTests — `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`; the page itself unasserted)
 
 ## Spending from jars (5 October 2026, the jar notes)
@@ -494,5 +494,5 @@ Actuals are ALWAYS transaction-derived at read time (`BudgetActuals.ApplyAsync`)
 - **Preconditions:** As RPT-043, plus an archived jar **Old sofa** that paid €400.00 in January and had €20.00 refunded back in February; a live jar **Car** that paid nothing; a jar **Trip** in a GBP account with one expense still waiting for its EUR amount.
 - **Steps:**
   1. Read the card on 2026; then click `Previous year` twice.
-- **Expected:** `Old sofa (archived)` is listed, muted, with `-€20.00` under Feb and a Total of `€380.00` whose title and visually-hidden text say `after €20.00 refunded`. `Car` is listed with dashes (a live jar always appears). The `All jars` footer is left out when the jars are in more than one currency. A note above the table reads "1 transaction paid from a jar is in another currency, waiting for its amount in EUR, and not counted in these figures." The card follows the annual overview's year: on 2025 it shows that year's figures, and on a year with no figure and no live jar (or when the request fails, or on an older server without the endpoint) the card is left out rather than shown empty.
+- **Expected:** `Old sofa (archived)` is listed, muted, with `-€20.00` under Feb and a Total of `€380.00` whose Table side says `after €20.00 refunded` (visually hidden on the Chart side). `Car` is listed with dashes (a live jar always appears). The `All jars` footer is left out when the jars are in more than one currency. The card's foot says `Not counted yet · 1 payment` with an `€ amount` chip to Transactions, and its (i) says payments in another currency aren't counted until they have their amount in EUR. The card follows the Trend card's year: on 2025 it shows that year's figures, and on a year with no figure and no live jar (or when the request fails, or on an older server without the endpoint) the card is left out rather than shown empty.
 - **Automated:** Full (client `ReportsPage.jars.test.tsx`; backend `JarSpendingReportTests.ListsEveryLiveJarAtZero_AnArchivedJarOnlyWithAFigure_AndLeavesWaitingRowsOut`)

@@ -297,9 +297,9 @@ function annualSummary(year: number) {
   }
 }
 
-// The month report behind the "Spending by category" breakdown (rules 37–39): the budget
+// The month report behind the Reports page's Spending card (rules 37–39): the budget
 // month's non-income groups net of refunds, plus the register's unassigned €12 row as the
-// amber Uncategorised row with its "Review 1 transaction" link.
+// Uncategorised row with its dashed "Assign 1" link.
 function monthReport(year: number, month: number) {
   return {
     year,
