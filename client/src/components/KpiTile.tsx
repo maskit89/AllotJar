@@ -11,12 +11,28 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  *    its number steps up to 30px from 850px;
  *  - narrower: the hero across the top, the two tiles side by side under it (or, when there is
  *    only one, a slim full-width strip: the label and its sub-line, the number at the right).
+ * A row that sits on a grid of cards (`onGrid`, the Jars page) takes that grid's columns instead.
  */
 
-/** The row: pass the hero first, then the tiles. `tiles` is how many plain tiles follow it. */
-export function KpiRow({ tiles, children, className = '' }: { tiles: 0 | 1 | 2; children: ReactNode; className?: string }) {
-  const cols =
-    tiles === 2
+/**
+ * The row: pass the hero first, then the tiles. `tiles` is how many plain tiles follow it.
+ * `onGrid`: the row sits on a grid of equal columns below it (the Jars page's jars, with the same
+ * 24px gap): two columns from 640px and three from 900px, the hero over two of them there.
+ */
+export function KpiRow({
+  tiles,
+  onGrid = false,
+  children,
+  className = '',
+}: {
+  tiles: 0 | 1 | 2
+  onGrid?: boolean
+  children: ReactNode
+  className?: string
+}) {
+  const cols = onGrid
+    ? '@min-[640px]:grid-cols-2 @min-[900px]:grid-cols-3 @min-[900px]:[&>:first-child]:col-span-2'
+    : tiles === 2
       ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]'
       : tiles === 1
         ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]'
@@ -48,8 +64,12 @@ export interface KpiTileProps extends Omit<HTMLAttributes<HTMLElement>, 'childre
   extra?: ReactNode
   /** The green hero tile with the gold number (one per row, first). */
   hero?: boolean
-  /** A plain tile alone beside the hero: a slim strip across the narrow row. */
-  strip?: boolean
+  /**
+   * A plain tile alone beside the hero: a slim strip across the narrow row. 'bar': the strip keeps
+   * its sub-line and its bar (`extra`): the label at the left, the number and the sub-line at the
+   * right, the bar across the strip under them.
+   */
+  strip?: boolean | 'bar'
 }
 
 /** One tile of the KPI row. */
@@ -110,17 +130,24 @@ export function KpiTile({
       role="group"
       aria-labelledby={labelId}
       className={`${shape} border border-slate-200/70 bg-surface shadow-card has-[[role=tooltip]]:z-10 ${
-        strip
-          ? // Narrow: a two-column strip (the label over its sub-line, the number at the right).
-            'col-span-2 grid! grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3! gap-y-0.5! px-4 py-3 @min-[640px]:col-span-1 @min-[640px]:flex! @min-[640px]:items-stretch @min-[640px]:gap-2! @min-[640px]:px-6 @min-[640px]:py-[22px]'
-          : ''
+        strip === 'bar'
+          ? // Narrow: one line (the label, then the number and its sub-line at the right) over the bar.
+            'col-span-2 flex-row! flex-wrap items-baseline gap-x-1.5! gap-y-2.5! px-4 py-3 @min-[640px]:col-span-1 @min-[640px]:flex-col! @min-[640px]:flex-nowrap @min-[640px]:items-stretch @min-[640px]:gap-2! @min-[640px]:px-6 @min-[640px]:py-[22px]'
+          : strip
+            ? // Narrow: a two-column strip (the label over its sub-line, the number at the right).
+              'col-span-2 grid! grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3! gap-y-0.5! px-4 py-3 @min-[640px]:col-span-1 @min-[640px]:flex! @min-[640px]:items-stretch @min-[640px]:gap-2! @min-[640px]:px-6 @min-[640px]:py-[22px]'
+            : ''
       } ${className}`}
       {...rest}
     >
       {/* The label and the number keep clear of the icon wherever it shows. */}
       <p
         id={labelId}
-        className={`flex items-center gap-1.5 text-[13px] font-medium text-slate-500 @min-[640px]:text-sm ${icon ? '@min-[720px]:pr-10' : ''}`}
+        className={`flex items-center gap-1.5 text-[13px] font-medium text-slate-500 @min-[640px]:text-sm ${icon ? '@min-[720px]:pr-10' : ''} ${
+          // The strip's label keeps to one line; a sub-line with no room beside the number wraps
+          // under it, at the right.
+          strip === 'bar' ? '@max-[640px]:flex-1 @max-[640px]:whitespace-nowrap' : ''
+        }`}
       >
         {label}
         {hintEl}
@@ -138,18 +165,28 @@ export function KpiTile({
         className={`leading-[1.1] font-bold tracking-[-0.025em] text-slate-900 tabular-nums ${icon ? '@min-[720px]:pr-10' : ''} ${
           // A strip has half the row. A third of the row is narrow until about 850px (a 1,000px
           // window beside the sidebar): the number stays a size down there, so five figures fit.
-          strip ? 'row-span-2 text-lg @min-[640px]:text-[30px]' : 'text-[22px] @min-[850px]:text-[30px]'
+          strip === 'bar'
+            ? 'text-lg @min-[640px]:text-[30px]'
+            : strip
+              ? 'row-span-2 text-lg @min-[640px]:text-[30px]'
+              : 'text-[22px] @min-[850px]:text-[30px]'
         }`}
         aria-label={valueLabel}
       >
         {value}
       </p>
-      {/* The chip and the sub-line share one line (the chip first), as in the mock-up. */}
+      {/* The chip and the sub-line share one line (the chip first), as in the mock-up. A bar
+          strip's bar takes a line of its own: under the number in a tile, across the foot of the
+          narrow strip (its sub-line then sits beside the number). */}
       {(extra || sub) && (
-        <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-          {extra}
+        <div className={`flex flex-wrap items-center gap-x-2.5 gap-y-1.5 ${strip === 'bar' ? '@max-[640px]:contents' : ''}`}>
+          {strip === 'bar' && extra ? <div className="basis-full @max-[640px]:order-3 @min-[640px]:mt-1.5 @min-[640px]:mb-0.5">{extra}</div> : extra}
           {sub && (
-            <span className={`inline-flex items-center gap-1.5 text-[13px] ${subTone === 'ok' ? 'text-ok' : 'text-slate-500'}`}>
+            <span
+              className={`inline-flex items-center gap-1.5 text-[13px] ${subTone === 'ok' ? 'text-ok' : 'text-slate-500'} ${
+                strip === 'bar' ? '@max-[640px]:ml-auto @max-[640px]:text-xs' : ''
+              }`}
+            >
               {sub}
             </span>
           )}

@@ -3,6 +3,7 @@ import {
   addAccount,
   createGoalJar as createJarHeldIn,
   groupAction,
+  jarAction,
   lineAction,
   register,
   suppressOnboarding,
@@ -317,9 +318,10 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(bills).toContainText('1/1 paid')
   await expect(bills.locator('[data-tone="ok"]')).toHaveText('1/1 paid')
 
-  // Archive Old Boiler (two-step confirm) — copying must now drop its line.
+  // Archive Old Boiler (two-step confirm, in its edit form from the jar's ⋯) — copying must now
+  // drop its line.
   await page.getByRole('link', { name: 'Jars' }).click()
-  await page.getByRole('button', { name: 'Edit Old Boiler' }).click()
+  await jarAction(page, 'Old Boiler', 'Edit')
   await page.getByRole('button', { name: 'Archive Old Boiler' }).click()
   await committed(page, 'PUT', '/archive', () =>
     page.getByRole('button', { name: 'Confirm archive Old Boiler' }).click(),

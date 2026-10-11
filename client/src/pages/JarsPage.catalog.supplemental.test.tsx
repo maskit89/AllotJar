@@ -93,11 +93,16 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
 
     // The slate loading line shows…
     expect(await screen.findByText('Loading…', {}, { timeout: 5000 })).toBeInTheDocument()
-    // …the hero still renders, zeroed, until data arrives (€0.00 / +€0.00 / 0)…
+    // …the hero still renders, zeroed, until data arrives (€0.00 / €0.00 of €0.00 / 0 active)…
     const hero = screen.getByText('Total saved').closest('section')!
     expect(within(hero).getByLabelText('Total saved: €0.00')).toBeInTheDocument()
-    expect(within(hero).getByText('This month').closest('div')!.textContent).toContain('+€0.00')
-    expect(within(hero).getByText('Active jars').closest('div')!.textContent).toContain('0')
+    const month = screen.getByRole('group', { name: 'This month' })
+    expect(month.textContent).toContain('€0.00')
+    expect(month.textContent).toContain('of €0.00 planned')
+    fireEvent.focus(within(hero).getByRole('button', { name: 'About total saved' }))
+    expect(screen.getByRole('tooltip').textContent).toContain('(0 active)')
+    // No Move money while there is nothing loaded to move.
+    expect(screen.queryByRole('button', { name: 'Move money' })).not.toBeInTheDocument()
     // …and neither cards nor the empty state flash before the response resolves.
     expect(screen.queryByRole('heading', { name: 'Your jars' })).not.toBeInTheDocument()
     expect(screen.queryByText(/No jars yet/)).not.toBeInTheDocument()

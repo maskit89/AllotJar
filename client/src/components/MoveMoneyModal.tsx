@@ -29,8 +29,13 @@ interface Place {
 }
 
 export interface MoveMoneyModalProps {
-  /** The jar the move starts from (preselected as the source). */
+  /** The jar the move starts from (preselected as the source), or goes to with `fromPage`. */
   jar: JarDto
+  /**
+   * Opened from the Jars page's own Move money button rather than from a jar: the title names no
+   * jar, and the move starts from the account's unallocated money into `jar` (both can be changed).
+   */
+  fromPage?: boolean
   currency: string
   /** Every account, so money can also be moved to one that backs no jars (as its unallocated funds). */
   accounts?: AccountDto[]
@@ -52,13 +57,14 @@ export interface MoveMoneyModalProps {
  * jar gives at most what it holds and the source account never goes below zero (rule 74);
  * POST /transactions/transfer validates that and its messages are shown verbatim.
  */
-export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved }: MoveMoneyModalProps) {
+export function MoveMoneyModal({ jar, fromPage = false, currency, accounts = [], onClose, onMoved }: MoveMoneyModalProps) {
   const [ledgers, setLedgers] = useState<JarAccountLedgerDto[] | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [source, setSource] = useState<string>(jar.id)
-  const [destination, setDestination] = useState<string>(`${UNALLOCATED_PREFIX}${jar.fundingAccountId}`)
+  const unallocatedHere = `${UNALLOCATED_PREFIX}${jar.fundingAccountId}`
+  const [source, setSource] = useState<string>(fromPage ? unallocatedHere : jar.id)
+  const [destination, setDestination] = useState<string>(fromPage ? jar.id : unallocatedHere)
   const [amount, setAmount] = useState('')
   // The move date inside one account; the departure date of a transfer between two.
   const [date, setDate] = useState(todayIso)
@@ -255,7 +261,7 @@ export function MoveMoneyModal({ jar, currency, accounts = [], onClose, onMoved 
   }
 
   return (
-    <Modal title={`Move money — ${jar.name}`} onClose={onClose} size="lg">
+    <Modal title={fromPage ? 'Move money' : `Move money — ${jar.name}`} onClose={onClose} size="lg">
       {error && (
         <div className="mb-3">
           <ErrorBanner>{error}</ErrorBanner>

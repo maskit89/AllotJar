@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Button, ErrorBanner, Input, Select } from './ui'
 import { Modal } from './Modal'
@@ -165,6 +165,12 @@ export interface JarFormModalProps {
    * held money (rule 27: `canDelete`); any other jar is archived instead.
    */
   onDeleted?: (jar: JarDto) => void
+  /**
+   * Edit only: the form opens with Archive (or Delete) already asked for, its "Really archive?"
+   * ("Really delete?") button armed and focused, so the next press acts: the Jars page's ⋯
+   * Archive and Delete. Left out, the form opens as usual.
+   */
+  confirm?: 'archive' | 'delete'
 }
 
 /**
@@ -175,7 +181,18 @@ export interface JarFormModalProps {
  * Savings lines — so what is previewed is what gets planned (W02). `role="dialog"`
  * comes from Modal; mount it conditionally so the focus trap engages.
  */
-export function JarFormModal({ jar, example, savingsCategoryId, accounts, currency, onClose, onSaved, onArchived, onDeleted }: JarFormModalProps) {
+export function JarFormModal({
+  jar,
+  example,
+  savingsCategoryId,
+  accounts,
+  currency,
+  onClose,
+  onSaved,
+  onArchived,
+  onDeleted,
+  confirm,
+}: JarFormModalProps) {
   const editing = jar !== null
   const eligible = useMemo(() => jarAccounts(accounts, currency, jar?.fundingAccountId), [accounts, currency, jar])
   const [form, setForm] = useState<FormState>(() => initialForm(jar, eligible, example))
@@ -190,8 +207,14 @@ export function JarFormModal({ jar, example, savingsCategoryId, accounts, curren
   const [privateWarning, setPrivateWarning] = useState<{ accountId: string; text: string } | null>(null)
   const warningShown = privateWarning && privateWarning.accountId === form.fundingAccountId ? privateWarning : null
   // One deliberate step between "Archive jar" / "Delete jar" and it actually happening.
-  const [confirmArchive, setConfirmArchive] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [confirmArchive, setConfirmArchive] = useState(() => !!jar && confirm === 'archive')
+  const [confirmDelete, setConfirmDelete] = useState(() => !!jar && confirm === 'delete')
+  // The button armed on open (`confirm`) takes focus once the dialog has moved it inside (the
+  // Modal's own effect runs first, as a child's effects do).
+  const armedRef = useRef<HTMLButtonElement>(null)
+  useEffect(() => {
+    armedRef.current?.focus()
+  }, [])
   // The server's schedule for the definition it was asked about (`key`), so a stale answer is
   // never shown for a definition that can no longer be planned.
   const [preview, setPreview] = useState<{ key: string; schedule: JarScheduleDto | null } | null>(null)
@@ -654,6 +677,7 @@ export function JarFormModal({ jar, example, savingsCategoryId, accounts, curren
               {onArchived && (
                 // Two clicks to archive: the first arms the button, the second acts.
                 <button
+                  ref={confirm === 'archive' ? armedRef : undefined}
                   type="button"
                   onClick={() => (confirmArchive ? archive() : setConfirmArchive(true))}
                   disabled={saving}
@@ -670,6 +694,7 @@ export function JarFormModal({ jar, example, savingsCategoryId, accounts, curren
               {onDeleted && jar.canDelete && (
                 // Rule 27: only a jar that has never held money offers Delete; two clicks as well.
                 <button
+                  ref={confirm === 'delete' ? armedRef : undefined}
                   type="button"
                   onClick={() => (confirmDelete ? remove() : setConfirmDelete(true))}
                   disabled={saving}

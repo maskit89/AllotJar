@@ -307,10 +307,11 @@ body {
   color: #fff;
 }
 
-/* The Dashboard follows the approved palette (restyle PR 3), which has no amber/gold category:
-   gold is the hero number, the jar lids and the shelf only. Inside the page the palette's second
-   hue reads as plum (its clay would read as the warn orange of "Due soon" and "Behind" beside a
-   healthy line's bar); other pages keep amber until their own restyle. */
+/* The Dashboard and the Jars page follow the approved palette (restyle PRs 3 and 4), which has no
+   amber/gold category: gold is the hero number, the jar lids and the shelf only. Inside them the
+   palette's second hue reads as plum (its clay would read as the warn orange of "Due soon" and
+   "Behind" beside a healthy line's bar), so a jar keeps one colour on both pages; other pages keep
+   amber until their own restyle. */
 .dash-palette {
   --color-cat-amber: #7d4fa3;
 }

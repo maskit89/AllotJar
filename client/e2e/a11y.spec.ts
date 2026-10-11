@@ -152,10 +152,25 @@ for (const theme of ['light', 'dark'] as const) {
       await dialog.getByLabel('Monthly amount').waitFor()
       await expectNoViolations(page)
 
-      // Edit an existing jar (opening-balance hint, two-step Archive affordance).
+      // Edit an existing jar (opening-balance hint, two-step Archive affordance), from its ⋯
+      // menu (restyle PR 4), scanned open.
       await dialog.getByRole('button', { name: 'Cancel edit' }).click()
-      await page.getByRole('button', { name: 'Edit Home insurance' }).click()
+      await page.getByRole('button', { name: 'Home insurance: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit' }).waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('menuitem', { name: 'Edit' }).click()
       await page.getByRole('dialog').getByRole('button', { name: 'Archive Home insurance' }).waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('a jar\'s ⋯ sheet on a phone has no WCAG A/AA violations', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await authedSetup(page, theme)
+      await page.goto('/jars')
+      await page.getByRole('button', { name: 'Home insurance: more actions' }).click()
+      const sheet = page.getByRole('dialog', { name: 'Home insurance' })
+      await sheet.getByRole('button', { name: 'Edit' }).waitFor()
+      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
       await expectNoViolations(page)
     })
 

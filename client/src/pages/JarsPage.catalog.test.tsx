@@ -11,6 +11,7 @@ import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
 import { account, jar, schedule as sharedSchedule, scheduleMonth } from '../test/fixtures/jars'
 import { me } from '../test/fixtures/me'
+import { jarAction, jarNote } from '../test/rowMenu'
 // Real (unmocked) money module — pin the active display locale so every €-string
 // asserted below renders in the design's canonical en-GB comma-dot format
 // (€1,234.56), independent of test-execution order.
@@ -63,11 +64,11 @@ describe('JarsPage — catalog (JAR)', () => {
 
   // --- List, hero, card & empty state --------------------------------------
 
-  it('JAR-002: the hero sums Total saved / This month / Active jars across the list', { timeout: 15000 }, async () => {
+  it('JAR-002: the hero sums Total saved, This month and the active jars across the list', { timeout: 15000 }, async () => {
     mockLoads({
       jars: [
-        jar({ id: 'f1', name: 'Home insurance', currentBalance: 120, plannedThisMonth: 25 }),
-        jar({ id: 'f2', name: 'Holiday', currentBalance: 300, plannedThisMonth: 50 }),
+        jar({ id: 'f1', name: 'Home insurance', currentBalance: 120, plannedThisMonth: 25, contributedThisMonth: 10 }),
+        jar({ id: 'f2', name: 'Holiday', currentBalance: 300, plannedThisMonth: 50, contributedThisMonth: 20 }),
       ],
     })
 
@@ -76,10 +77,15 @@ describe('JarsPage — catalog (JAR)', () => {
     const hero = (await screen.findByText('Total saved', {}, { timeout: 5000 })).closest('section')!
     // Total saved = Σ currentBalance (120 + 300); the gold number carries its accessible name.
     expect(within(hero).getByLabelText('Total saved: €420.00')).toBeInTheDocument()
-    // This month = Σ plannedThisMonth (25 + 50, rule 14), rendered with a leading "+".
-    expect(within(hero).getByText('This month').closest('div')!.textContent).toContain('+€75.00')
-    // Active jars = the count of jars in the list.
-    expect(within(hero).getByText('Active jars').closest('div')!.textContent).toContain('2')
+    // This month = Σ contributedThisMonth (10 + 20) of Σ plannedThisMonth (25 + 50, rule 14).
+    const month = screen.getByRole('group', { name: 'This month' })
+    expect(month.textContent).toContain('€30.00')
+    expect(month.textContent).toContain('of €75.00 planned')
+    // The active jars are counted in the hero's (i), which says where the money sits.
+    fireEvent.focus(within(hero).getByRole('button', { name: 'About total saved' }))
+    expect((await screen.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toBe(
+      'The money in all your jars (2 active). It sits in Joint Current until a jar pays for something.',
+    )
     expect(screen.getByRole('heading', { name: 'Your jars' })).toBeInTheDocument()
   })
 
@@ -96,14 +102,15 @@ describe('JarsPage — catalog (JAR)', () => {
     renderPage()
 
     // The jar graphic + progressbar clamp at 100 / 0, never past the track.
-    expect(await screen.findByRole('img', { name: 'Overshoot: 100% funded' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Negative: 0% funded' })).toBeInTheDocument()
+    expect(await screen.findByRole('progressbar', { name: 'Overshoot funding progress' }, { timeout: 5000 })).toHaveAttribute('aria-valuetext', '100% funded')
+    expect(screen.getByRole('progressbar', { name: 'Negative funding progress' })).toHaveAttribute('aria-valuetext', '0% funded')
     expect(screen.getByRole('progressbar', { name: 'Overshoot funding progress' })).toHaveAttribute('aria-valuenow', '100')
     expect(screen.getByRole('progressbar', { name: 'Negative funding progress' })).toHaveAttribute('aria-valuenow', '0')
-    // The pill echoes the clamped percentage; the negative balance renders with its sign.
-    expect(screen.getByText('100%')).toBeInTheDocument()
-    expect(screen.getByText('0%')).toBeInTheDocument()
-    expect(screen.getByText('-€40.00')).toBeInTheDocument()
+    // The clamped percentage lives in the jar's progressbar above (no pill repeats it); the negative
+    // balance renders with its sign, in the bad colour.
+    expect(screen.queryByText('100%')).not.toBeInTheDocument()
+    expect(screen.queryByText('0%')).not.toBeInTheDocument()
+    expect(screen.getByText('-€40.00')).toHaveClass('text-bad')
   })
 
   it('JAR-005: the % pill is hidden for a FullyFunded jar and a target-less jar', { timeout: 15000 }, async () => {
@@ -113,6 +120,7 @@ describe('JarsPage — catalog (JAR)', () => {
         jar({ id: 'f2', name: 'Slush', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, deadline: null, currentBalance: 500, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, fundingCompletesOn: null }),
       ],
     })
+    const user = userEvent.setup()
 
     renderPage()
 
@@ -121,13 +129,15 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(screen.queryByText('100%')).not.toBeInTheDocument()
 
     // Slush (target ≤ 0, no plan): no pill, no "of €…" suffix — just the bare balance — and the
-    // "Needs a plan" chip with the line saying what would plan it: a date alone can't plan a
+    // "Needs a plan" chip, with what would plan it in its ⋯'s note: a date alone can't plan a
     // target-less jar, so it is asked for a target too (rule 17).
-    const slush = screen.getByRole('img', { name: 'Slush: 0% funded' }).parentElement!
+    const slush = screen.getByRole('progressbar', { name: 'Slush funding progress' }).closest('article')!
+    expect(slush).toHaveAccessibleName('Slush')
+    expect(screen.getByRole('progressbar', { name: 'Slush funding progress' })).toHaveAttribute('aria-valuetext', '0% funded')
     expect(within(slush).getByText('€500.00')).toBeInTheDocument()
     expect(within(slush).queryByText(/of €/)).not.toBeInTheDocument()
     expect(within(slush).getByText('Needs a plan')).toBeInTheDocument()
-    expect(within(slush).getByText('Give it a target and a date, or a monthly amount')).toBeInTheDocument()
+    expect(await jarNote(user, 'Slush')).toContain('Give it a target and a date, or a monthly amount')
   })
 
   it('JAR-009: a failed /jars load shows the error banner and no cards', { timeout: 15000 }, async () => {
@@ -150,9 +160,13 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(await screen.findByText('Home insurance', {}, { timeout: 5000 })).toBeInTheDocument()
     const hero = screen.getByText('Total saved').closest('section')!
     expect(within(hero).getByLabelText('Total saved: €120.00')).toBeInTheDocument()
-    // …but once the ReadOnly role lands, the create + edit affordances disappear.
+    // …but once the ReadOnly role lands, the create + edit affordances disappear: no ⋯ at all.
     await waitFor(() => expect(screen.queryByRole('button', { name: 'New jar' })).not.toBeInTheDocument(), { timeout: 5000 })
-    expect(screen.queryByLabelText('Edit Home insurance')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Home insurance: more actions' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Move money' })).not.toBeInTheDocument()
+    // What the ⋯'s note would say sits behind an (i) in its place.
+    fireEvent.focus(screen.getByRole('button', { name: 'About Home insurance' }))
+    expect((await screen.findByRole('tooltip', {}, { timeout: 5000 })).textContent).toContain('Held in Joint Current')
   })
 
   // --- Creating a jar (New jar modal) --------------------------------------
@@ -258,7 +272,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     const held = dialog.getByLabelText('Funding account') as HTMLSelectElement
     expect(held).toBeEnabled()
@@ -294,10 +308,13 @@ describe('JarsPage — catalog (JAR)', () => {
       { timeout: 5000 },
     )
     expect(await screen.findByText('Someday', {}, { timeout: 5000 })).toBeInTheDocument()
-    // The card: this month's plan, the ongoing pot's monthly amount, no % pill and no "of €…" (no target).
-    expect(screen.getByText('Plan €50.00 · in €0.00 · to go €50.00')).toBeInTheDocument()
-    expect(screen.getByText('€50.00 every month')).toBeInTheDocument()
-    expect(screen.queryByText(/of €/)).not.toBeInTheDocument()
+    // The card: the ongoing pot's monthly amount, no % pill and no "of €…" (no target); this
+    // month's plan is in its ⋯'s note.
+    const card = within(screen.getByRole('article', { name: 'Someday' }))
+    expect(card.getByText('€50.00 every month')).toBeInTheDocument()
+    expect(card.queryByText(/%$/)).not.toBeInTheDocument()
+    expect(card.queryByText(/of €/)).not.toBeInTheDocument()
+    expect(await jarNote(user, 'Someday')).toContain('Plan €50.00 · in €0.00 · to go €50.00')
   })
 
   it('JAR-028 (D1): a target with more decimals than cents is refused with a message, never rounded', { timeout: 15000 }, async () => {
@@ -437,7 +454,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Set aside a fixed amount each month')).toBeChecked()
     expect(dialog.getByLabelText('Monthly amount')).toHaveValue('40')
@@ -465,7 +482,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // The prefilled "Next due" is the open cycle's date, not the old anchor.
     expect(dialog.getByLabelText('Next due date')).toHaveValue('2027-01-01')
@@ -491,7 +508,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     const repeats = dialog.getByLabelText('Repeats') as HTMLSelectElement
     // The stored 24 shows as an extra, pre-selected option so a save can't silently rewrite it.
@@ -518,7 +535,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(await dialog.findByText('€60.00 a month · Sep 2026 – Nov 2026', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', targetAmount: 300, targetDate: '2026-12-01', accrual: 1, initialAllocation: 0 }))
@@ -561,7 +578,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.clear(dialog.getByLabelText('Target amount'))
     await user.type(dialog.getByLabelText('Target amount'), '900')
@@ -583,7 +600,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.clear(dialog.getByLabelText('Target amount'))
     await user.type(dialog.getByLabelText('Target amount'), '900')
@@ -610,7 +627,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.clear(dialog.getByLabelText('Jar name'))
     await user.type(dialog.getByLabelText('Jar name'), 'Renamed')
@@ -630,7 +647,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' })) // arm
     await user.click(dialog.getByRole('button', { name: 'Confirm archive Home insurance' })) // act
@@ -645,7 +662,7 @@ describe('JarsPage — catalog (JAR)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Holiday', {}, { timeout: 5000 }))
+    await jarAction(user, 'Holiday', 'Edit')
     let dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // Arm the archive, then cancel out of the modal entirely.
     await user.click(dialog.getByRole('button', { name: 'Archive Holiday' }))
@@ -657,7 +674,7 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(screen.getByText('Holiday')).toBeInTheDocument()
 
     // Re-opening shows the Archive button reset (confirmArchive cleared on close).
-    await user.click(screen.getByLabelText('Edit Holiday'))
+    await jarAction(user, 'Holiday', 'Edit')
     dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByRole('button', { name: 'Archive Holiday' })).toBeInTheDocument()
     expect(dialog.queryByRole('button', { name: 'Confirm archive Holiday' })).not.toBeInTheDocument()

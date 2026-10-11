@@ -9,6 +9,7 @@ import { mockGet, mockPost, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
 import { account, jar } from '../test/fixtures/jars'
+import { jarAction, menuItems } from '../test/rowMenu'
 
 // A date can be just a month (jar setup plan, PR 2): the form asks for a month, sends
 // the 1st of that month with monthOnly, and the card reads "Mar 2027". The plan is the 1st's, so
@@ -131,7 +132,7 @@ describe('JarsPage — a date that is just a month', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Home insurance' }, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByRole('radio', { name: 'Month' }))
 
@@ -155,7 +156,7 @@ describe('JarsPage — a date that is just a month', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Home insurance' }, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByRole('radio', { name: 'Month' })).toBeChecked()
@@ -172,7 +173,7 @@ describe('JarsPage — a date that is just a month', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Home insurance' }, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     const picker = dialog.getByLabelText('Next due (month)')
@@ -191,7 +192,7 @@ describe('JarsPage — a date that is just a month', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Edit Home insurance' }, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(dialog.getByRole('radio', { name: 'Date' })).toBeChecked()
@@ -205,12 +206,14 @@ describe('JarsPage — a date that is just a month', () => {
   it('a bill due this month and still short reads Behind, with nothing to dismiss yet', { timeout: 15000 }, async () => {
     // The server's answer while October runs (7 October 2026: a warning in the month, missed from the next).
     fundsData = [jar({ targetDate: '2026-10-01', deadline: '2026-10-01', monthOnly: true, status: 'Behind', plannedThisMonth: 180, remainingThisMonth: 180 })]
+    const user = userEvent.setup()
     renderPage()
 
     expect(await screen.findByText('Behind', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Due Oct 2026 · yearly')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Mark Home insurance paid' })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: "Dismiss Home insurance's missed deadline" })).not.toBeInTheDocument()
+    const items = (await menuItems(user, 'Home insurance: more actions')).map((i) => i.name)
+    expect(items).toContain('Mark paid')
+    expect(items).not.toContain('Dismiss')
   })
 
   it('the cards read the month, not the 1st', { timeout: 15000 }, async () => {

@@ -11,6 +11,7 @@ import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
 import { account, jar as sharedJar, ledger } from '../test/fixtures/jars'
+import { jarAction } from '../test/rowMenu'
 
 // Home insurance holds 400 and accrues in one go, with no deadline yet.
 const jar = (over: Partial<JarDto> = {}) =>
@@ -41,7 +42,7 @@ const renderPage = () => renderWithProviders(<JarsPage />)
 const today = new Date().toISOString().slice(0, 10)
 
 async function openMove(user: ReturnType<typeof userEvent.setup>) {
-  await user.click(await screen.findByLabelText('Move money from Home insurance', {}, { timeout: 5000 }))
+  await jarAction(user, 'Home insurance', 'Move money')
   const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
   await dialog.findByLabelText('Move from', {}, { timeout: 5000 })
   return dialog

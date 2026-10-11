@@ -9,6 +9,7 @@ import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { JarsPage } from './JarsPage'
 import { account, jar, ledger, schedule, scheduleMonth } from '../test/fixtures/jars'
+import { jarAction, jarNote } from '../test/rowMenu'
 
 const accountsData = [account()]
 
@@ -43,9 +44,11 @@ describe('JarsPage', () => {
 
     expect(await screen.findByText('Home insurance', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Holiday')).toBeInTheDocument()
-    // Each jar shows its balance and a funded-percentage pill (120 of 300 = 40%).
-    expect(screen.getByText(/120.00/)).toBeInTheDocument()
-    expect(screen.getByText('40%')).toBeInTheDocument()
+    // Each jar shows its balance, and its glass jar fills to the funded percentage (120 of 300 = 40%).
+    expect(screen.getByText('€120.00')).toBeInTheDocument()
+    const progress = screen.getByRole('progressbar', { name: 'Home insurance funding progress' })
+    expect(progress).toHaveAttribute('aria-valuenow', '40')
+    expect(progress).toHaveAttribute('aria-valuetext', '40% funded')
   })
 
   it('shows a status chip, this month\'s plan and the funding horizon on the cards', { timeout: 15000 }, async () => {
@@ -60,18 +63,24 @@ describe('JarsPage', () => {
       jar({ id: 'f4', name: 'Someday', kind: 1, recurMonths: null, targetAmount: 0, targetDate: null, status: 'Unscheduled', plannedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null }),
     ]
 
+    const user = userEvent.setup()
     renderPage()
 
-    expect(await screen.findByText(/Plan .*25\.00 · in .*10\.00 · to go .*15\.00/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/^Due .* · yearly$/)).toBeInTheDocument()
+    // The card's one line is the horizon; the month's plan sits in the ⋯'s note.
+    expect(await screen.findByText(/^Due .* · yearly$/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await jarNote(user, 'Home insurance')).toContainEqual(expect.stringMatching(/^Plan .*25\.00 · in .*10\.00 · to go .*15\.00$/))
     // Attention + celebration states surface as chips.
     expect(screen.getByText('Behind')).toBeInTheDocument()
     expect(screen.getByText(/^Needed by /)).toBeInTheDocument()
-    expect(screen.getByText('Funded')).toBeInTheDocument()
-    // A funded jar with nothing left to plan reads "Fully funded", not a bare dash.
-    expect(screen.getByText('Fully funded')).toBeInTheDocument()
-    expect(screen.getByText('Needs a plan')).toBeInTheDocument()
-    expect(screen.getByText('Give it a target and a date, or a monthly amount')).toBeInTheDocument()
+    // A funded jar with nothing left to plan reads "Funded" (its chip), not a bare dash; its ⋯'s
+    // note doesn't say it again.
+    expect(within(screen.getByRole('article', { name: 'Sofa' })).getByText('Funded')).toBeInTheDocument()
+    const sofaNote = await jarNote(user, 'Sofa')
+    expect(sofaNote).not.toContainEqual(expect.stringMatching(/funded|Nothing to set aside/i))
+    // A jar with no usable plan: the chip on the card, what would plan it in the ⋯'s note.
+    expect(within(screen.getByRole('article', { name: 'Someday' })).getByText('Needs a plan')).toBeInTheDocument()
+    expect(screen.queryByText('Give it a target and a date, or a monthly amount')).not.toBeInTheDocument()
+    expect(await jarNote(user, 'Someday')).toContain('Give it a target and a date, or a monthly amount')
   })
 
   // Rule 34 (P55): a jar in the user's private account first shows what sharing would expose;
@@ -319,7 +328,7 @@ describe('JarsPage', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     const preview = await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
@@ -356,7 +365,7 @@ describe('JarsPage', () => {
     renderPage()
 
     expect(await screen.findByText('€50.00 every month', {}, { timeout: 5000 })).toBeInTheDocument()
-    await user.click(screen.getByLabelText('Edit Home insurance'))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Set aside a fixed amount each month')).toBeChecked()
     expect(dialog.getByLabelText('Monthly amount')).toHaveValue('50')
@@ -394,7 +403,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     expect(dialog.getByLabelText('Repeats')).toHaveValue('12')
     expect(dialog.getByLabelText('Next due date')).toHaveValue('2027-01-01')
@@ -431,7 +440,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // It lives under "More options", which starts open because the jar already uses it.
     expect(dialog.getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'true')
@@ -466,7 +475,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // The jar doesn't use the deadline month yet, so the fold starts closed.
     expect(dialog.getByRole('button', { name: 'More options' })).toHaveAttribute('aria-expanded', 'false')
@@ -511,7 +520,7 @@ describe('JarsPage', () => {
     expect(dialog.queryByLabelText('Opening balance')).not.toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Cancel edit' }))
 
-    await user.click(screen.getByLabelText('Edit Home insurance'))
+    await jarAction(user, 'Home insurance', 'Edit')
     dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // Nothing to fold away on this edit (the 1st-of-month date has no deadline-month option
     // either), so there is no "More options" at all.
@@ -600,14 +609,20 @@ describe('JarsPage', () => {
     expect(held.value).toBe('acc1')
   })
 
-  it('shows "Not available" with an Unavailable chip when the jar\'s balance is null, and the account it is held in', { timeout: 15000 }, async () => {
+  it('shows "Not available" when the jar\'s balance is null, and the account it is held in', { timeout: 15000 }, async () => {
     fundsData = [jar({ currentBalance: null, plannedThisMonth: 0, contributedThisMonth: 0, remainingThisMonth: 0, deadline: null, fundingCompletesOn: null, estimatedMonthsToTarget: null, status: 'Unavailable' })]
+    const user = userEvent.setup()
 
     renderPage()
 
     expect(await screen.findByText('Not available', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Unavailable')).toBeInTheDocument()
-    expect(screen.getByText('Held in Joint Current')).toBeInTheDocument()
+    // The amount says it, so no Unavailable chip repeats it (as on the Dashboard's jars card).
+    expect(screen.queryByText('Unavailable')).not.toBeInTheDocument()
+    // Nothing to measure against: the target is in the ⋯'s note, not "Not available of €300.00".
+    expect(within(screen.getByRole('article', { name: 'Home insurance' })).queryByText(/of €/)).not.toBeInTheDocument()
+    const note = await jarNote(user, 'Home insurance')
+    expect(note).toContain('Held in Joint Current')
+    expect(note).toContain('Target €300.00')
     // Never counted as zero: no % pill, and the hero footnote says one jar is left out.
     expect(screen.queryByText('0%')).not.toBeInTheDocument()
     expect(screen.getByText(/1 jar with an unavailable balance is not counted/)).toBeInTheDocument()
@@ -637,7 +652,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Move money from Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Move money')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // Every jar-backed account's ledger was loaded (a move may cross accounts): the jar's own
     // account shows its unallocated money and each jar's balance.
@@ -682,7 +697,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Move money from Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Move money')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await dialog.findByLabelText('Move from', {}, { timeout: 5000 })
     await user.type(dialog.getByLabelText('Move amount'), '150')
@@ -699,7 +714,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Move money from Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Move money')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await dialog.findByLabelText('Move from', {}, { timeout: 5000 })
     await user.selectOptions(dialog.getByLabelText('Move to'), 'f1')
@@ -720,7 +735,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // Archiving takes two clicks: the first arms the button, the second acts.
     await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
@@ -742,7 +757,7 @@ describe('JarsPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit Home insurance', {}, { timeout: 5000 }))
+    await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
     await user.click(dialog.getByRole('button', { name: 'Confirm archive Home insurance' }))

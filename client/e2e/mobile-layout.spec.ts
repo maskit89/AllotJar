@@ -60,6 +60,20 @@ test('the jar modal fits a phone screen (2-col grid in a dialog)', async ({ page
   await assertNoHorizontalOverflow(page, '/jars (new-jar modal, More options open)')
 })
 
+test('a jar\'s ⋯ opens a sheet titled with its name on a phone, which fits the screen', async ({ page }) => {
+  await authedSetup(page, 'light')
+  await page.goto('/jars')
+  const more = page.getByRole('button', { name: 'Home insurance: more actions' })
+  await more.click()
+  const sheet = page.getByRole('dialog', { name: 'Home insurance' })
+  await sheet.getByRole('button', { name: 'Edit' }).waitFor()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await assertNoHorizontalOverflow(page, '/jars (jar sheet open)')
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+  await expect(more).toBeFocused()
+})
+
 test('the empty Jars page fits its example jars on a phone screen', async ({ page }) => {
   await authedSetup(page, 'light')
   await page.route('**/api/jars', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }))

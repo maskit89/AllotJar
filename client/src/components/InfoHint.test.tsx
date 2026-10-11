@@ -65,6 +65,23 @@ describe('InfoHint', () => {
       expect(screen.getByRole('tooltip').parentElement).toHaveStyle({ marginLeft: '-44px' })
     })
 
+    it('moves a popover hung from the icon\'s right edge that would run off the left edge back inside it', () => {
+      Object.defineProperty(document.documentElement, 'clientWidth', { value: 390, configurable: true })
+      // Hung from an icon ending at 180px, the 256px popover would start at -76px.
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: -76, right: 180, top: 0, bottom: 0, width: 256, height: 0, x: -76, y: 0, toJSON: () => ({}) })
+      render(
+        <InfoHint label="Hint" align="end">
+          Text
+        </InfoHint>,
+      )
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      const hanger = screen.getByRole('tooltip').parentElement!
+      expect(hanger).toHaveClass('right-0')
+      // A right-anchored box moves by its right margin: 84px to the right.
+      expect(hanger).toHaveStyle({ marginRight: '-84px' })
+      expect(hanger.style.marginLeft).toBe('')
+    })
+
     it('leaves a popover that fits where it is', () => {
       Object.defineProperty(document.documentElement, 'clientWidth', { value: 390, configurable: true })
       vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ left: 100, right: 356, top: 0, bottom: 0, width: 256, height: 0, x: 100, y: 0, toJSON: () => ({}) })
