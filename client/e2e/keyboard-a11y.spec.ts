@@ -663,6 +663,28 @@ test('an account\'s ⋯ on a phone opens its sheet from the keyboard and gives f
   await expect(more).toBeFocused()
 })
 
+// Reports on a phone: the Trend header draws the year on the title's line and Chart | Table
+// across the card under it, and focus follows what is drawn (title's (i), the year, the switch).
+// The Assign chip's name, as the browser computes it (no stray space before the comma).
+test('the Reports Trend header on a phone takes focus in the order it is drawn', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await authedSetup(page, 'light')
+  await page.goto('/reports')
+  const trend = page.locator('section', { has: page.getByRole('heading', { level: 2, name: 'Trend', exact: true }) })
+  const about = trend.getByRole('button', { name: 'About trend' })
+  await about.focus()
+  for (const name of ['Previous year', 'Next year', 'Chart', 'Table']) {
+    await page.keyboard.press('Tab')
+    await expect(trend.getByRole('button', { name, exact: true })).toBeFocused()
+  }
+  const year = trend.getByRole('button', { name: 'Previous year' })
+  const chart = trend.getByRole('button', { name: 'Chart', exact: true })
+  expect((await year.boundingBox())!.y).toBeLessThan((await chart.boundingBox())!.y)
+  await expect(
+    page.getByRole('link', { name: 'Assign 1, review uncategorised transactions', exact: true }),
+  ).toHaveAttribute('href', '/transactions')
+})
+
 // ---------------------------------------------------------------------------
 // Motion (UX-049)
 // ---------------------------------------------------------------------------

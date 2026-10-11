@@ -168,7 +168,8 @@ const LOADING_CASES: LoadingCase[] = [
   {
     path: '/reports',
     route: '**/api/reports/trends**',
-    content: (p) => p.getByRole('heading', { name: 'Income vs spending' }),
+    // The Trend card (restyle PR 7), by exact name: "Spending" and "Jar spending" are headings too.
+    content: (p) => p.getByRole('heading', { name: 'Trend', exact: true }),
     ids: 'UX-041',
   },
   {
