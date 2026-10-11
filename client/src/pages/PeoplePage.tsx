@@ -1520,10 +1520,9 @@ function PersonCard({
             <dt className="text-[13px] text-slate-500">Spent</dt>
             <dd className={SUM}>{spent}</dd>
             {fxPending > 0 && (
-              // Short, in the "€ amount" words of the fill-in chips elsewhere; the Spent (i) says why.
+              // In the "€ amount" words of the fill-in chips elsewhere; the Spent (i) says why.
               <dd className="text-xs font-semibold whitespace-nowrap text-warn">
-                +{fxPending} need{fxPending === 1 ? 's' : ''} {currency}
-                <span className="sr-only"> amount{fxPending === 1 ? '' : 's'}</span>
+                +{fxPending} need{fxPending === 1 ? 's' : ''} {currency} amount{fxPending === 1 ? '' : 's'}
               </dd>
             )}
           </div>

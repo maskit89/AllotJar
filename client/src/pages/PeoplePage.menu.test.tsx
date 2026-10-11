@@ -526,9 +526,9 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
     expect(stat(alexCard, 'Saves to')).toHaveTextContent('Saves toJoint')
 
     const samCard = within(personCard('Sam'))
-    // The payment still waiting for its € amount: a short line, "amount" for a screen reader.
+    // The payment still waiting for its € amount: one short line, all of it on screen.
     expect(stat(samCard, 'Spent')).toHaveTextContent('Spent€80.00+1 needs € amount')
-    expect(within(stat(samCard, 'Spent')).getByText('amount')).toHaveClass('sr-only')
+    expect(within(stat(samCard, 'Spent')).getByText('+1 needs € amount')).not.toHaveClass('sr-only')
     // Nowhere: a dash for the eye, "None" for a screen reader.
     const none = stat(samCard, 'Saves to')
     expect(within(none).getByText('—')).toHaveAttribute('aria-hidden')

@@ -1139,9 +1139,8 @@ describe('PeoplePage — catalog (PPL)', () => {
   })
 
   // PPL-082 — rows in another currency still waiting for their amount in the budget currency are
-  // not counted, and the page says so: a short "+N need €" line on the member's Spent cell ("€
-  // amounts" for a screen reader), and one under the hero for the income rows, whose (i) says the
-  // rest.
+  // not counted, and the page says so: a short "+N need € amounts" line on the member's Spent cell,
+  // and one under the hero for the income rows, whose (i) says the rest.
   it('PPL-082: FX-pending spending and income rows show a "+N need € amount" hint', async () => {
     membersData = [member({ id: 'm1', name: 'Alex' }), member({ id: 'm2', name: 'Sam', incomeSharePct: 0.5 })]
     spendingData = [
@@ -1163,8 +1162,7 @@ describe('PeoplePage — catalog (PPL)', () => {
 
     await cardsShown()
     expect(screen.getByText('€120.00')).toBeInTheDocument()
-    // On screen "+2 need €"; a screen reader also hears "amounts".
-    expect(screen.getByText('+2 need €')).toHaveTextContent('+2 need € amounts')
+    expect(screen.getByText('+2 need € amounts')).toBeInTheDocument()
     expect(screen.getByText('+1 income row needs its € amount')).toBeInTheDocument()
     // The hero's (i) says why: those rows aren't counted until their amount in EUR is entered.
     const about = screen.getByRole('button', { name: 'About income' })
@@ -1172,7 +1170,7 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(await screen.findByRole('tooltip')).toHaveTextContent(/Income rows in another currency aren’t counted until their amount in EUR is entered\./)
     fireEvent.blur(about)
     // Sam has nothing pending → exactly one row hint on the page.
-    expect(screen.getAllByText(/^\+\d+ needs? €$/)).toHaveLength(1)
+    expect(screen.getAllByText(/^\+\d+ needs? € amounts?$/)).toHaveLength(1)
   })
 
   // PPL-083 — the add-person and inline income fields are the DEFAULT income, labelled and hinted
