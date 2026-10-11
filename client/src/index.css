@@ -132,6 +132,9 @@
   --color-cat-teal: #1f8a8a;
   --color-cat-indigo: #4c5bc4;
   --color-cat-rose: #b14a66;
+  /* The approved palette's clay (restyle PR 5): the Transactions page's Spent icon, money going
+     out. Not a category hue (it would read as the warn orange beside a line), so not in the cycle. */
+  --color-clay: #b5592f;
 
   /* Brand-mark tokens (see brand/README §6): the theme-aware logo SVG fills its
      jar body with --accent and its lid + coin fill with --gold. Referenced only
@@ -203,6 +206,7 @@
   --color-cat-teal: #46b5b0;
   --color-cat-indigo: #8c95e6;
   --color-cat-rose: #d98098;
+  --color-clay: #e2906a;
 
   --shadow-hero: 0 22px 46px -24px rgb(0 0 0 / 0.7);
   --hero-grad: linear-gradient(135deg, #155339, #1e6e4e 45%, #2a8a60);

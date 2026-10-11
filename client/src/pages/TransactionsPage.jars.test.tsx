@@ -7,6 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
+import { txAction } from '../test/rowMenu'
 import { TransactionsPage } from './TransactionsPage'
 
 // The jar prompts (rules 78/79/80) on the register: "Savings" backs the Holiday and Car jars,
@@ -300,7 +301,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Confirm receipt: Stash' }, { timeout: 5000 }))
+    await txAction(user, 'Stash', 'Confirm receipt: Stash')
     expect(await screen.findByTestId('receipt-t-in-jar-allocation')).toBeInTheDocument()
     await user.type(screen.getByLabelText('Amount for Holiday'), '100')
     await user.click(screen.getByRole('button', { name: 'Save transfer leg' }))
@@ -335,7 +336,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Confirm receipt: Stash' }, { timeout: 5000 }))
+    await txAction(user, 'Stash', 'Confirm receipt: Stash')
     await user.click(await screen.findByRole('button', { name: 'Save transfer leg' }))
 
     expect(
@@ -354,7 +355,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Add departure date: To Everyday' }, { timeout: 5000 }))
+    await txAction(user, 'To Everyday', 'Add departure date: To Everyday')
     await user.selectOptions(await screen.findByLabelText('From jar'), 'j-car')
     await user.click(screen.getByRole('button', { name: 'Save transfer leg' }))
 
@@ -422,7 +423,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Back to savings', {}, { timeout: 5000 }))
+    await txAction(user, 'Back to savings', 'Edit transfer: Back to savings')
     expect(await screen.findByLabelText('Amount for Car')).toHaveValue('30')
     await user.click(screen.getByRole('button', { name: 'Save transfer' }))
     await waitFor(() =>
@@ -432,7 +433,7 @@ describe('TransactionsPage jar prompts', () => {
       ),
     )
 
-    await user.click(await screen.findByLabelText('Edit transfer: Out of savings', {}, { timeout: 5000 }))
+    await txAction(user, 'Out of savings', 'Edit transfer: Out of savings')
     expect(await screen.findByLabelText('From jar')).toHaveValue('j-hol')
     await user.click(screen.getByRole('button', { name: 'Save transfer' }))
     await waitFor(() =>
@@ -463,7 +464,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transfer: Out of savings', {}, { timeout: 5000 }))
+    await txAction(user, 'Out of savings', 'Edit transfer: Out of savings')
     expect(screen.queryByLabelText('From jar')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save transfer' }))
     await waitFor(() =>
@@ -473,7 +474,7 @@ describe('TransactionsPage jar prompts', () => {
       ),
     )
 
-    await user.click(await screen.findByLabelText('Edit transfer: Back to savings', {}, { timeout: 5000 }))
+    await txAction(user, 'Back to savings', 'Edit transfer: Back to savings')
     expect(screen.queryByLabelText('Amount for Car')).not.toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Save transfer' }))
     await waitFor(() =>
@@ -519,7 +520,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Salary', {}, { timeout: 5000 }))
+    await txAction(user, 'Salary', 'Edit transaction: Salary')
     const holiday = screen.getByLabelText('Amount for Holiday')
     expect(holiday).toHaveValue('300')
     expect(screen.getByLabelText('Amount for Car')).toHaveValue('')
@@ -551,7 +552,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Edit transaction: Tyres', {}, { timeout: 5000 }))
+    await txAction(user, 'Tyres', 'Edit transaction: Tyres')
     const select = screen.getByLabelText('From jar')
     expect(select).toHaveValue('j-car')
     await user.selectOptions(select, 'j-hol')
@@ -568,7 +569,7 @@ describe('TransactionsPage jar prompts', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByLabelText('Split transaction: Tesco', {}, { timeout: 5000 }))
+    await txAction(user, 'Tesco', 'Split transaction: Tesco')
     // Only jar lines so far: nothing to ask.
     await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-holiday')
     await user.type(screen.getByLabelText('Split line 1 amount'), '70')

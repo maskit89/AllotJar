@@ -57,12 +57,18 @@ export function RowMenu({
   actions,
   note,
   triggerClassName = '',
+  describedBy,
 }: {
   /** The ⋯ button's accessible name, e.g. "Rent: more actions". */
   label: string
   actions: RowAction[]
   note?: ReactNode
   triggerClassName?: string
+  /**
+   * Ids of what describes the ⋯ button (`aria-describedby`), e.g. a list row's day and amount, so
+   * two rows with the same name can be told apart. Optional; nothing is shown.
+   */
+  describedBy?: string
 }) {
   const trigger = useRef<HTMLButtonElement>(null)
   // An action that waits for the menu to close (see RowAction.after).
@@ -72,7 +78,7 @@ export function RowMenu({
   return (
     <DropdownMenu modal={false}>
       {/* data-row-trigger: where a row gives focus back when one of its inline editors closes. */}
-      <DropdownMenuTrigger ref={trigger} data-row-trigger="" aria-label={label} className={`${ROW_MENU_TRIGGER} ${triggerClassName}`}>
+      <DropdownMenuTrigger ref={trigger} data-row-trigger="" aria-label={label} aria-describedby={describedBy} className={`${ROW_MENU_TRIGGER} ${triggerClassName}`}>
         <Ellipsis aria-hidden strokeWidth={1.8} className="size-[18px]" />
       </DropdownMenuTrigger>
       <DropdownMenuContent

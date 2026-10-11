@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { groupAction, register } from './helpers'
+import { groupAction, register, txRows } from './helpers'
 
 /**
  * Non-EUR end-to-end regression for the first-month currency rule (#216): the first-ever budget
@@ -76,7 +76,7 @@ test('a non-EUR registrant can budget and log account-linked spending — the fi
   await dialog.getByRole('button', { name: 'Add transaction', exact: true }).click()
   await expect(dialog).toBeHidden()
 
-  const row = page.locator('tbody tr').first()
+  const row = txRows(page).first() // the only row
   await expect(row).toContainText('Tesco')
   await expect(row).toContainText('40.00')
   await expect(row).toContainText('Joint')

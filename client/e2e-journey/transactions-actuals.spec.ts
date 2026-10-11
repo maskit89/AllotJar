@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { groupAction, lineAction, register } from './helpers'
+import { groupAction, lineAction, register, txAction, txRows } from './helpers'
 
 /**
  * Transactions driving REAL budget actuals — the read-time derivation chain the
@@ -115,10 +115,10 @@ async function addTransaction(
   await expect(dialog).toBeHidden() // closes only on a successful POST
 }
 
-/** Split the FIRST register row (payee given) into 70/30 across two lines. */
+/** Split the list row of `payee` (one row with that payee) into 70/30 across two lines, from its ⋯. */
 async function splitFirstRow(page: Page, payee: string, lines: [string, string], amounts: [string, string]) {
-  const rows = page.locator('tbody tr')
-  await rows.first().getByRole('button', { name: `Split transaction: ${payee}` }).click()
+  const row = txRows(page).filter({ hasText: payee })
+  await txAction(page, row, `Split transaction: ${payee}`)
   // Row 1 pre-fills the transaction's current line; only its amount is needed.
   await page.getByRole('textbox', { name: 'Split line 1 amount' }).fill(amounts[0])
   await page.getByRole('combobox', { name: 'Split line 2 category' }).selectOption({ label: lines[1] })
@@ -159,7 +159,9 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
 
   await page.getByRole('link', { name: 'Transactions' }).click()
   await expect(page.getByText('No transactions yet')).toBeVisible()
-  const rows = page.locator('tbody tr')
+  // Newest first: the Lidl rows below are dated the 5th, 10th, 12th and 14th, each add the newest,
+  // so `.first()` is the one just added (their payees differ only in case, which hasText ignores).
+  const rows = txRows(page)
 
   // --- TX-012: add an expense explicitly assigned to Groceries; the row is
   // prepended already carrying its line's tint pill.
@@ -214,27 +216,28 @@ test('expense transactions drive real line actuals: explicit assign, payee inher
   // A previous-month unassigned expense — the register is all-months (TX-001/TX-011),
   // so it appears immediately even though the viewed month is the current one.
   await addTransaction(page, { payee: 'Cinema', amount: '5', date: iso(previous.year, previous.month, 15) })
-  await expect(rows.first().getByRole('button', { name: 'Assign Cinema', exact: true })).toBeVisible()
+  // Dated last month, so it sits below this month's rows: found by its payee.
+  await expect(rows.filter({ hasText: 'Cinema' }).getByRole('button', { name: 'Assign Cinema', exact: true })).toBeVisible()
 
-  // The hero counts the viewed month only: 40+22+8+30+100 out (Cinema is last month's).
-  await expect(page.getByText('6 transactions')).toBeVisible()
-  const moneyOut = page.locator('div', { has: page.getByText('Money out', { exact: true }) }).last()
+  // The KPIs count the viewed month only: 40+22+8+30+100 out (Cinema is last month's).
+  await expect(rows).toHaveCount(6)
+  const moneyOut = page.getByLabel(/^Spent in /)
   await expect(moneyOut).toContainText('200.00')
 
-  // --- TX-011: switching the viewed month moves the hero to that month's money; the list
+  // --- TX-011: switching the viewed month moves the KPIs to that month's money; the list
   // is NOT refiltered and /transactions is NOT refetched.
-  await expect(page.getByText(`Money in · ${current.label}`)).toBeVisible()
+  await expect(page.getByLabel(new RegExp(`^Income for ${current.label}:`))).toBeVisible()
   const fetchesBeforeSwitch = registerFetches
   await page.getByRole('button', { name: 'Previous month' }).click()
-  await expect(page.getByText(`Money in · ${previous.label}`)).toBeVisible()
-  await expect(page.getByText('6 transactions')).toBeVisible()
+  await expect(page.getByLabel(new RegExp(`^Income for ${previous.label}:`))).toBeVisible()
+  await expect(rows).toHaveCount(6)
   await expect(rows.filter({ hasText: 'Costco' })).toBeVisible() // current-month row still listed
   await expect(rows.filter({ hasText: 'Cinema' })).toBeVisible() // previous-month row still listed
   await expect(moneyOut).toContainText(/(?<![\d,])5\.00/) // the previous month's money out: Cinema
   await page.waitForTimeout(300) // give any (buggy) refetch a beat to show up
   expect(registerFetches).toBe(fetchesBeforeSwitch)
   await page.getByRole('button', { name: 'Next month' }).click()
-  await expect(page.getByText(`Money in · ${current.label}`)).toBeVisible()
+  await expect(page.getByLabel(new RegExp(`^Income for ${current.label}:`))).toBeVisible()
 
   // --- Budget side of TX-012/TX-044: each line's read-time actual is the sum of its
   // whole transactions plus its split SLICE — and the split's 100.00 counts exactly
@@ -276,7 +279,7 @@ test('the auto-categorizer never inherits a payee match from another household',
   await pageA.getByRole('link', { name: 'Transactions' }).click()
   await addTransaction(pageA, { payee: 'Cross Cafe', amount: '15', category: 'Groceries' })
   await expect(
-    pageA.locator('tbody tr').first().getByRole('button', { name: /^Reassign/ }),
+    txRows(pageA).filter({ hasText: 'Cross Cafe' }).getByRole('button', { name: /^Reassign/ }),
   ).toContainText('Groceries')
   await contextA.close()
 
@@ -289,7 +292,7 @@ test('the auto-categorizer never inherits a payee match from another household',
   await page.getByRole('link', { name: 'Transactions' }).click()
   await addTransaction(page, { payee: 'Cross Cafe', amount: '9' })
   await expect(
-    page.locator('tbody tr').first().getByRole('button', { name: 'Assign Cross Cafe', exact: true }),
+    txRows(page).filter({ hasText: 'Cross Cafe' }).getByRole('button', { name: 'Assign Cross Cafe', exact: true }),
   ).toBeVisible()
 
   // And B's Groceries actual is untouched by A's 15.00 — only planning-free zeros.
@@ -319,7 +322,7 @@ test('deleting a budget line or an account detaches its transactions but never d
 
   // A whole assigned transaction and a split one, both on the Joint account.
   await page.getByRole('link', { name: 'Transactions' }).click()
-  const rows = page.locator('tbody tr')
+  const rows = txRows(page)
   await addTransaction(page, { payee: 'Tesco', amount: '40', category: 'Groceries', account: 'Joint' })
   await addTransaction(page, { payee: 'Costco', amount: '100', category: 'Groceries', account: 'Joint' })
   const tescoRow = rows.filter({ hasText: 'Tesco' })
@@ -342,7 +345,7 @@ test('deleting a budget line or an account detaches its transactions but never d
   await expect(page.getByRole('textbox', { name: 'Rename Groceries', exact: true })).toHaveCount(0)
 
   await page.getByRole('link', { name: 'Transactions' }).click()
-  await expect(page.getByText('2 transactions')).toBeVisible() // nothing was deleted
+  await expect(rows).toHaveCount(2) // nothing was deleted
   // The whole Tesco transaction is back to the dashed "+ Assign" pill.
   await expect(tescoRow.getByRole('button', { name: 'Assign Tesco', exact: true })).toBeVisible()
   // The split survives: the Groceries slice now reads Unassigned, the Internet slice is untouched.
@@ -360,7 +363,7 @@ test('deleting a budget line or an account detaches its transactions but never d
   await expect(page.getByText('No accounts yet')).toBeVisible()
 
   await page.getByRole('link', { name: 'Transactions' }).click()
-  await expect(page.getByText('2 transactions')).toBeVisible()
+  await expect(rows).toHaveCount(2)
   await expect(tescoRow).toContainText('Tesco')
   await expect(tescoRow.getByText('—')).toBeVisible() // account cell fell back to "—"
   await expect(costcoRow.getByText('—')).toBeVisible()
@@ -385,15 +388,15 @@ test('an income transaction alone never marks the month balanced', async ({ page
   // (which offers income lines — the picker is unfiltered, TX-034).
   await page.getByRole('link', { name: 'Transactions' }).click()
   await addTransaction(page, { payee: 'ACME Payroll', amount: '2500', income: true })
-  const rows = page.locator('tbody tr')
+  const rows = txRows(page)
   await rows.first().getByRole('button', { name: 'Assign ACME Payroll', exact: true }).click()
   await rows
     .first()
     .getByRole('combobox', { name: 'Assign ACME Payroll', exact: true })
     .selectOption({ label: 'Salary' })
   await expect(rows.first().getByRole('button', { name: /^Reassign/ })).toContainText('Salary')
-  // The register hero sees the money…
-  await expect(page.getByLabel(/^Money in for /)).toContainText('2,500.00')
+  // The list's Income KPI sees the money…
+  await expect(page.getByLabel(/^Income for /)).toContainText('2,500.00')
 
   // …and the income line's received actual reflects it on the Budget page, but the
   // hero still prompts for income: Remaining is 0.00 yet the month is NOT balanced —

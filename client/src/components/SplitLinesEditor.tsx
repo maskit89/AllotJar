@@ -1,4 +1,6 @@
+import { X } from 'lucide-react'
 import type { HouseholdMemberDto } from '../types'
+import { Input, Select } from './ui'
 import type { ItemOptionGroup } from '../lib/transactions'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 
@@ -18,6 +20,12 @@ interface SplitLinesEditorProps {
 }
 
 /**
+ * The fields at the inline editors' size (the building blocks' Input and Select, a size down). The
+ * field draws its own focus ring, so the global :focus-visible outline is dropped (no double ring).
+ */
+const FIELD = 'h-9 py-1.5 focus-visible:outline-none!'
+
+/**
  * The slice rows of a split — category select, amount, optional member, per-row remove —
  * shared by the register's inline split editor and the add-modal's split mode so the two
  * surfaces (and their aria-labels, which the tests key on) can't drift.
@@ -27,11 +35,11 @@ export function SplitLinesEditor({ rows, options, members, onChangeRow, onRemove
     <>
       {rows.map((row, index) => (
         <div key={index} className="flex flex-wrap items-center gap-2">
-          <select
+          <Select
             value={row.budgetItemId}
             aria-label={`Split line ${index + 1} category`}
             onChange={(e) => onChangeRow(index, { budgetItemId: e.target.value })}
-            className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            className={`${FIELD} w-56 max-w-full`}
           >
             <option value="">Choose a line…</option>
             {options.map((g) => (
@@ -43,23 +51,23 @@ export function SplitLinesEditor({ rows, options, members, onChangeRow, onRemove
                 ))}
               </optgroup>
             ))}
-          </select>
-          <input
+          </Select>
+          <Input
             type="text"
             inputMode="decimal"
             {...selectOnFocusProps}
             value={row.amount}
-            placeholder="0,00"
+            placeholder="0.00"
             aria-label={`Split line ${index + 1} amount`}
             onChange={(e) => onChangeRow(index, { amount: e.target.value })}
-            className="w-28 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+            className={`${FIELD} w-28 text-right tabular-nums`}
           />
           {members.length >= 2 && (
-            <select
+            <Select
               value={row.memberId}
               aria-label={`Split line ${index + 1} member`}
               onChange={(e) => onChangeRow(index, { memberId: e.target.value })}
-              className="w-36 rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600 focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500"
+              className={`${FIELD} w-36`}
             >
               <option value="">No member</option>
               {members.map((m) => (
@@ -67,7 +75,7 @@ export function SplitLinesEditor({ rows, options, members, onChangeRow, onRemove
                   {m.name}
                 </option>
               ))}
-            </select>
+            </Select>
           )}
           {rows.length > 2 && (
             <button
@@ -75,9 +83,9 @@ export function SplitLinesEditor({ rows, options, members, onChangeRow, onRemove
               onClick={() => onRemoveRow(index)}
               aria-label={`Remove split line ${index + 1}`}
               title="Remove line"
-              className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600"
+              className="grid size-9 place-items-center rounded-lg text-slate-500 transition hover:bg-bad-bg hover:text-bad"
             >
-              ✕
+              <X aria-hidden className="size-4" />
             </button>
           )}
         </div>
@@ -92,7 +100,7 @@ export function SplitRemainderChip({ remainderMinor, format }: { remainderMinor:
     <span
       aria-label="Remaining to allocate"
       className={`text-xs font-semibold tabular-nums ${
-        remainderMinor === 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-rose-400'
+        remainderMinor === 0 ? 'text-ok' : 'text-bad'
       }`}
     >
       {remainderMinor === 0 ? 'Fully allocated' : `${format(remainderMinor)} left`}

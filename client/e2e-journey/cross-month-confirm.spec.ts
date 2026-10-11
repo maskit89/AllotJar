@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { groupAction, register } from './helpers'
+import { closeMenu, groupAction, openTxMenu, register, txRows } from './helpers'
 
 /**
  * The cross-month acknowledge flow, end to end over the real API: assigning a previous-month
@@ -77,7 +77,7 @@ test('assigning a previous-month transaction to this month prompts, and the conf
 
   // Assign it to the CURRENT month's Groceries line: the server rejects it as cross-month,
   // and the confirm dialog appears instead of a generic error.
-  const row = page.locator('tbody tr').filter({ hasText: 'Cinema' })
+  const row = txRows(page).filter({ hasText: 'Cinema' })
   await row.getByRole('button', { name: 'Assign Cinema', exact: true }).click()
   await row.getByRole('combobox', { name: 'Assign Cinema' }).selectOption({ label: 'Groceries' })
   await expect(page.getByText('Budget to a different month?')).toBeVisible()
@@ -87,6 +87,9 @@ test('assigning a previous-month transaction to this month prompts, and the conf
   await expect(page.getByText('Budget to a different month?')).toBeHidden()
   await expect(row.getByRole('button', { name: 'Reassign Cinema', exact: true })).toContainText('Groceries')
 
-  // The register marks the deliberate mismatch so it stays visible later.
-  await expect(row).toContainText('Budgeted to')
+  // The row's ⋯ note marks the deliberate mismatch so it can be found later (restyle PR 5: a
+  // status that needs nothing done is said in the note, not as a chip in the row).
+  const menu = await openTxMenu(page, row)
+  await expect(menu).toContainText('Budgeted to')
+  await closeMenu(page)
 })

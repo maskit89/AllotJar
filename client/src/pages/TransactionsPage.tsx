@@ -1,16 +1,18 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
+import { ArrowUpRight, Plus, Search, X } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, EmptyState, ErrorBanner, Input, SegmentedControl, Select } from '../components/ui'
-import { FxPendingTag } from '../components/FxPendingTag'
+import { Button, EmptyState, ErrorBanner, Input, SegmentedControl, Select } from '../components/ui'
 import { ConvertedAmountModal } from '../components/ConvertedAmountModal'
-import { Hero } from '../components/Hero'
+import { KpiRow, KpiTile } from '../components/KpiTile'
+import { DASH_CARD } from '../components/budget/card'
+import { TxDay, type TxDayState, type TxRowContext, type TxRowEvent } from '../components/transactions/TxRow'
 import { Modal } from '../components/Modal'
-import { ImportIcon, TransactionsIcon } from '../components/icons'
+import { TransactionsIcon } from '../components/icons'
 import { useFeatures } from '../features/FeatureContext'
 import { useMonth } from '../features/MonthContext'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { EVENTS, track } from '../analytics'
 import type {
   AccountDto,
@@ -26,8 +28,8 @@ import type {
 import { TransactionType } from '../types'
 import { formatMoney, formatPlain, fromAmount, parseMinor, sumMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { formatDate, monthYear, shortDate, todayIso } from '../lib/dates'
-import { hueColor, hueForIndex, hueTint, type CategoryHue } from '../lib/categoryColors'
+import { shortDate, todayIso } from '../lib/dates'
+import { hueForIndex, type CategoryHue } from '../lib/categoryColors'
 import { buildItemOptions, jarLinesOf, transactionTypeLabel } from '../lib/transactions'
 import { SplitLinesEditor, SplitRemainderChip, type SplitRowDraft } from '../components/SplitLinesEditor'
 import { appendSplitRow, patchSplitRow, removeSplitRowAt, startSplitRows } from '../lib/splitRows'
@@ -47,35 +49,13 @@ import {
 } from '../lib/jarLedgers'
 import { fromJarAllocations, jarAllocationsProblem, toJarAllocations } from '../lib/jarAllocationFields'
 import { crossMonthError, editConflict, serverErrors } from '../lib/serverErrors'
-import { PRIVATE_ACCOUNT } from '../lib/accountHolders'
-import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
-
-/**
- * When an assigned transaction is budgeted to a line in a *different* month than its own date
- * (e.g. a 31 Jan purchase budgeted to a February line), returns a compact "Feb 2026"-style label
- * for that line's month so the register can show a "Budgeted to <month>" tag. Returns null when
- * the transaction is unassigned, the line's month wasn't loaded, or the months already match.
- */
-function budgetedToLabel(t: TransactionDto): string | null {
-  if (!t.budgetItemId || t.budgetItemYear == null || t.budgetItemMonth == null) return null
-  const txYear = Number(t.date.slice(0, 4))
-  const txMonth = Number(t.date.slice(5, 7))
-  if (t.budgetItemYear === txYear && t.budgetItemMonth === txMonth) return null
-  return monthYear(`${t.budgetItemYear}-${String(t.budgetItemMonth).padStart(2, '0')}-01`)
-}
+import { fetchConversionSuggestion, suggestionHint } from '../lib/conversion'
 
 /**
  * The add form's third "type": a refund is money received (sent as Income) linked to the
  * purchase it comes back from (rules 38/39). UI-only — the API knows Expense/Income/Transfer.
  */
 const ADD_REFUND = -1
-
-/** The register's label for a refund row: which purchase the money came back from. */
-function refundOfLabel(t: TransactionDto): string | null {
-  if (!t.refundOfTransactionId) return null
-  const who = t.refundOfPayee || 'a purchase'
-  return t.refundOfDate ? `Refund of ${who} · ${shortDate(t.refundOfDate)}` : `Refund of ${who}`
-}
 
 /**
  * The jars a stored answer names on this account, so an archived jar it names stays offered
@@ -96,25 +76,6 @@ function refundablePurchases(transactions: TransactionDto[]): TransactionDto[] {
     .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
 }
 
-/**
- * The register's compact description of a stored jar split (rules 78/79): "→ Holiday 300.00,
- * Car 200.00" for money put into jars, "from Holiday" for money drawn from one jar (with the
- * amounts when it came from several). Empty when the leg follows the default.
- */
-function jarSplitLabels(t: TransactionDto): string[] {
-  const postings = (t.jarAllocations ?? []).filter((a) => a.jarId)
-  const name = (a: { jarName: string | null }) => a.jarName ?? 'a jar'
-  const withAmount = (a: { jarName: string | null; amount: number }) =>
-    `${name(a)} ${formatPlain(fromAmount(Math.abs(a.amount)))}`
-  const out = postings.filter((a) => a.amount < 0)
-  const into = postings.filter((a) => a.amount > 0)
-  const labels: string[] = []
-  if (out.length === 1) labels.push(`from ${name(out[0])}`)
-  else if (out.length > 1) labels.push(`from ${out.map(withAmount).join(', ')}`)
-  if (into.length > 0) labels.push(`→ ${into.map(withAmount).join(', ')}`)
-  return labels
-}
-
 /** The yyyy-MM key of a budget month, to compare against a date's first seven characters. */
 function monthKeyOf(m: BudgetMonthDto): string {
   return `${m.year}-${String(m.month).padStart(2, '0')}`
@@ -125,16 +86,95 @@ function StatementLockHint() {
   return <span className="font-normal text-slate-500">Confirmed by the bank statement</span>
 }
 
+/** Newest first, as the server sends them; a stable sort keeps the list's own order within a day (a new row first). */
+function newestFirst(list: TransactionDto[]): TransactionDto[] {
+  return [...list].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
+}
+
+/** Whether a row matches the list's search: its payee (a transfer's note), its category or split lines, or its accounts. */
+function matchesSearch(t: TransactionDto, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  const fields = [
+    t.payee,
+    t.type === TransactionType.Transfer ? 'Transfer' : null,
+    t.budgetItemName,
+    ...t.splits.map((s) => s.budgetItemName),
+    t.accountName,
+    t.transferAccountName,
+  ]
+  return fields.some((f) => !!f && f.toLowerCase().includes(q))
+}
+
+/** The first of `selectors` found in `row`. */
+function firstIn(row: HTMLElement | undefined, selectors: string[]): HTMLElement | null {
+  for (const selector of selectors) {
+    const target = row?.querySelector<HTMLElement>(selector)
+    if (target) return target
+  }
+  return null
+}
+
+/**
+ * Where focus goes back to for the row `id`: the first of `targets` in it; when the row has gone
+ * (deleted, or out of the filter) or has nothing to focus (someone else's private entry), the
+ * nearest row after it that has a control, else the nearest before it (`order` is the list as it
+ * was shown, to know where a row that has gone stood); with no row left, the list's filter, else
+ * Add transaction.
+ */
+function focusTarget(id: string, targets: string[], order: TransactionDto[]): HTMLElement | null {
+  const rows = Array.from(document.querySelectorAll<HTMLElement>('[data-tx-id]'))
+  const own = rows.find((el) => el.dataset.txId === id)
+  const target = firstIn(own, targets)
+  if (target) return target
+  let after = own ? rows.indexOf(own) + 1 : -1
+  if (after < 0) {
+    const at = new Map(rows.map((el, i) => [el.dataset.txId, i]))
+    const from = order.findIndex((x) => x.id === id)
+    for (let i = from + 1; i < order.length && after < 0; i++) after = at.get(order[i].id) ?? -1
+    if (after < 0) after = rows.length
+  }
+  const before = own ? rows.indexOf(own) - 1 : after - 1
+  const controls = ['[data-row-trigger]', '[data-assign-chip]']
+  for (let i = after; i < rows.length; i++) {
+    const el = firstIn(rows[i], controls)
+    if (el) return el
+  }
+  for (let i = before; i >= 0; i--) {
+    const el = firstIn(rows[i], controls)
+    if (el) return el
+  }
+  return (
+    document.querySelector<HTMLElement>('[aria-label="Filter transactions"] [aria-pressed="true"]') ??
+    document.querySelector<HTMLElement>('button[aria-label="Add transaction"]')
+  )
+}
+
+/** An inline editor's panel, inside the list card under (or in place of) its row. */
+const EDITOR_PANEL = 'rounded-xl border border-slate-200/70 bg-surface-2 p-3 dark:bg-foreground/[0.03]'
+
+/**
+ * The small fields of the inline editors (the building blocks' Input and Select, a size down). The
+ * field draws its own focus ring, so the global :focus-visible outline is dropped (no double ring).
+ */
+const FIELD = 'h-9 py-1.5 focus-visible:outline-none!'
+
+/** The inline editors' buttons, as tall as their fields so each editor row lines up. */
+const EDITOR_BUTTON = 'h-9'
+
 export function TransactionsPage() {
   const features = useFeatures()
-  // Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+.
-  const { canEnterData, canWrite, budgetCurrency } = useAuth()
+  // Recording/editing transactions is day-to-day entry (Limited+). Importing (Admin+) is reached
+  // from the sidebar and the phone's More sheet, which offer it under the same rule.
+  const { canEnterData, budgetCurrency } = useAuth()
   const [transactions, setTransactions] = useState<TransactionDto[]>([])
   const [month, setMonth] = useState<BudgetMonthDto | null>(null)
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   const [members, setMembers] = useState<HouseholdMemberDto[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  // The list could not be read: there is nothing to call empty (the alert says what happened).
+  const [loadFailed, setLoadFailed] = useState(false)
   // What a saved edit or delete left for the user to settle, e.g. jars no longer backed by the
   // account's money (D10): the change stands, so this is a notice, not an error.
   const [notice, setNotice] = useState<string | null>(null)
@@ -202,8 +242,33 @@ export function TransactionsPage() {
   const [legId, setLegId] = useState<string | null>(null)
   const [legDate, setLegDate] = useState(todayIso)
 
-  // Register filter — All or just Unassigned (the design's toolbar segmented control).
+  // Register filter — All or just Unassigned (the list card's segmented control).
   const [filter, setFilter] = useState<'all' | 'unassigned'>('all')
+  // The list's search (restyle PR 5): narrows the rows already loaded, on the client. Null = closed.
+  const [query, setQuery] = useState<string | null>(null)
+  const searchButtonRef = useRef<HTMLButtonElement>(null)
+  // The row whose phone action sheet is open.
+  const [sheetFor, setSheetFor] = useState<string | null>(null)
+  // The top bar has room for Add transaction from 900px (AppShell's own breakpoint); below it the
+  // button sits under the KPI row, as in the mock-up. Phones (the mock-ups' 700px breakpoint): a
+  // row is one button that opens its actions in a bottom sheet.
+  const desktop = useMediaQuery('(min-width: 900px)')
+  const phone = useMediaQuery('(max-width: 699.98px)')
+  // Where focus goes once an inline editor or a dialog it raised has closed: the first of
+  // `targets` found in the row (its ⋯ or row button, its assign chip), so the user keeps their place.
+  // When the row has gone (deleted, or out of the filter) or has no control, the nearest row that
+  // has one: `order` is the list as it was shown when focus was asked for. `ifLost`: only when focus
+  // has fallen to the page (a save that ended after the user moved on leaves focus where it is).
+  const [pendingFocus, setPendingFocus] = useState<
+    { id: string; targets: string[]; order: TransactionDto[]; ifLost?: boolean } | null
+  >(null)
+  // The rows on screen, as of the last render (set below, once `visible` is known).
+  const visibleRef = useRef<TransactionDto[]>([])
+  const refocusRow = useCallback(
+    (id: string, targets: string[] = ['[data-row-trigger]'], ifLost = false) =>
+      setPendingFocus({ id, targets, order: visibleRef.current, ifLost }),
+    [],
+  )
 
   // Which row is showing its inline category picker (the redesign's "+ Assign").
   const [assigningId, setAssigningId] = useState<string | null>(null)
@@ -366,7 +431,11 @@ export function TransactionsPage() {
         setAccounts(Array.isArray(acc?.data) ? acc.data : [])
         setMembers(Array.isArray(mem?.data) ? mem.data : [])
       })
-      .catch(() => !cancelled && setError('Could not load transactions.'))
+      .catch(() => {
+        if (cancelled) return
+        setError('Could not load transactions.')
+        setLoadFailed(true)
+      })
       .finally(() => !cancelled && setLoading(false))
     return () => {
       cancelled = true
@@ -383,7 +452,8 @@ export function TransactionsPage() {
   }, [])
 
   const assign = useCallback(
-    async (id: string, budgetItemId: string | null, acknowledgeCrossMonth = false, paidFromJarId?: string | null) => {
+    // Named, so the cross-month retry below can run it again acknowledged.
+    async function assignTo(id: string, budgetItemId: string | null, acknowledgeCrossMonth = false, paidFromJarId?: string | null) {
       setSavingId(id)
       setError(null)
       try {
@@ -395,6 +465,8 @@ export function TransactionsPage() {
           ...(paidFromJarId !== undefined ? { paidFromJarId } : {}),
         }
         const { data } = await api.put<TransactionDto>(`/transactions/${id}/assignment`, body)
+        // In the Unassigned filter the row leaves the list: focus moves to its neighbour if it was lost.
+        refocusRow(id, ['[data-assign-chip]', '[data-row-trigger]'], true)
         setTransactions((prev) => prev.map((t) => (t.id === id ? data : t)))
         setCrossMonthPrompt(null)
         reloadLedgers()
@@ -404,7 +476,7 @@ export function TransactionsPage() {
         // `crossMonth` key; prompt, then re-send acknowledged (with the same jar answer).
         const crossMonth = crossMonthError(err)
         if (crossMonth && !acknowledgeCrossMonth) {
-          setCrossMonthPrompt({ message: crossMonth, retry: () => assign(id, budgetItemId, true, paidFromJarId) })
+          setCrossMonthPrompt({ message: crossMonth, retry: () => assignTo(id, budgetItemId, true, paidFromJarId) })
         } else {
           setError(serverErrors(err) ?? 'Could not save that assignment.')
         }
@@ -412,7 +484,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [reloadLedgers],
+    [reloadLedgers, refocusRow],
   )
 
   // Add-modal split-row helpers; the register's editor below uses the same shared row functions.
@@ -463,7 +535,7 @@ export function TransactionsPage() {
     }
   }, [foreignFigure, date])
 
-  const addTransaction = useCallback(async (acknowledgeCrossMonth = false) => {
+  const addTransaction = useCallback(async function add(acknowledgeCrossMonth = false) {
     const minor = parseMinor(amount)
     if (minor === null || minor <= 0) {
       setError('Enter a valid amount greater than zero.')
@@ -568,7 +640,7 @@ export function TransactionsPage() {
       // A backdated entry put on this month's line is the same confirmable cross-month choice.
       const crossMonth = crossMonthError(err)
       if (crossMonth && !acknowledgeCrossMonth) {
-        setCrossMonthPrompt({ message: crossMonth, retry: () => addTransaction(true) })
+        setCrossMonthPrompt({ message: crossMonth, retry: () => add(true) })
       } else {
         // Rule 74 refusals ("Savings would be -50.00 EUR on …") and jar validation show verbatim.
         setError(serverErrors(err) ?? 'Could not add that transaction.')
@@ -889,6 +961,7 @@ export function TransactionsPage() {
         const { data } = await api.put<TransactionDto>(`/transactions/${t.id}/transfer-legs`, body)
         setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
         setLegId(null)
+        refocusRow(t.id)
         reloadLedgers()
       } catch (err) {
         setError(serverErrors(err) ?? 'Could not confirm that transfer.')
@@ -896,9 +969,10 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [legDate, legFromJar, legJarAlloc, jarsOf, ledgerOf, reloadLedgers],
+    [legDate, legFromJar, legJarAlloc, jarsOf, ledgerOf, reloadLedgers, refocusRow],
   )
 
+  /** Delete a row; focus goes to the row that takes its place on screen (the next one with a control, else the one before). */
   const removeTransaction = useCallback(async (id: string) => {
     setSavingId(id)
     setError(null)
@@ -906,6 +980,7 @@ export function TransactionsPage() {
       // 204, or 200 with a warning when the delete left jars unbacked (D10).
       const { data } = await api.delete<DeleteTransactionResult | ''>(`/transactions/${id}`)
       setNotice(data ? (data.warning ?? null) : null)
+      refocusRow(id, ['[data-row-trigger]', '[data-assign-chip]'])
       // The server deletes a transfer's fee row with it (P71): drop that row too.
       setTransactions((prev) => prev.filter((t) => t.id !== id && t.feeForTransferId !== id))
       reloadLedgers()
@@ -917,7 +992,7 @@ export function TransactionsPage() {
     } finally {
       setSavingId(null)
     }
-  }, [reloadLedgers, reloadTransactions, transactions])
+  }, [reloadLedgers, reloadTransactions, transactions, refocusRow])
 
   /**
    * Mark money received as a refund of a purchase, or clear the link (rules 38/39). The server
@@ -935,13 +1010,14 @@ export function TransactionsPage() {
         reloadTransactions()
         setRefundingId(null)
         setRefundPick('')
+        refocusRow(id)
       } catch (err) {
         setError(serverErrors(err) ?? 'Could not update that refund.')
       } finally {
         setSavingId(null)
       }
     },
-    [reloadTransactions],
+    [reloadTransactions, refocusRow],
   )
 
   const startEdit = useCallback(
@@ -979,7 +1055,7 @@ export function TransactionsPage() {
   }, [])
 
   const saveEdit = useCallback(
-    async (t: TransactionDto, acknowledgeCrossMonth = false) => {
+    async function save(t: TransactionDto, acknowledgeCrossMonth = false) {
       const minor = parseMinor(eAmount)
       if (minor === null || minor <= 0) {
         setError('Enter a valid amount greater than zero.')
@@ -1058,6 +1134,7 @@ export function TransactionsPage() {
         reloadLedgers()
         track(EVENTS.transactionEdited)
         setEditingId(null)
+        refocusRow(id)
         setCrossMonthPrompt(null)
       } catch (err) {
         // Moving an assigned/split transaction into another month keeps it budgeted to the
@@ -1072,7 +1149,7 @@ export function TransactionsPage() {
           else setEditingId(null)
           setError(conflict)
         } else if (crossMonth && !acknowledgeCrossMonth) {
-          setCrossMonthPrompt({ message: crossMonth, retry: () => saveEdit(t, true) })
+          setCrossMonthPrompt({ message: crossMonth, retry: () => save(t, true) })
         } else {
           setError(serverErrors(err) ?? 'Could not save that change.')
         }
@@ -1080,7 +1157,7 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, ledgersLoaded, ledgerOf, hasNonJarLine, isJarLineFor, reloadLedgers, reloadAfterConflict, startEdit],
+    [eDate, ePayee, eAmount, eType, eAccount, eMember, eJarAlloc, ePaidFrom, ledgersLoaded, ledgerOf, hasNonJarLine, isJarLineFor, reloadLedgers, reloadAfterConflict, startEdit, refocusRow],
   )
 
   const startSplit = useCallback(
@@ -1112,8 +1189,9 @@ export function TransactionsPage() {
     async (id: string) => {
       await assign(id, null) // clearing the assignment drops the split server-side
       cancelSplit()
+      refocusRow(id)
     },
-    [assign],
+    [assign, refocusRow],
   )
 
   function updateSplitRow(index: number, patch: Partial<SplitRowDraft>) {
@@ -1129,7 +1207,7 @@ export function TransactionsPage() {
   }
 
   const saveSplit = useCallback(
-    async (t: TransactionDto, acknowledgeCrossMonth = false) => {
+    async function save(t: TransactionDto, acknowledgeCrossMonth = false) {
       const parsed = splitRows.map((r) => ({
         budgetItemId: r.budgetItemId,
         memberId: r.memberId,
@@ -1186,6 +1264,7 @@ export function TransactionsPage() {
         })
         setTransactions((prev) => prev.map((x) => (x.id === t.id ? data : x)))
         cancelSplit()
+        refocusRow(t.id)
         setCrossMonthPrompt(null)
         reloadLedgers()
       } catch (err) {
@@ -1202,7 +1281,7 @@ export function TransactionsPage() {
           else cancelSplit()
           setError(conflict)
         } else if (crossMonth && !acknowledgeCrossMonth) {
-          setCrossMonthPrompt({ message: crossMonth, retry: () => saveSplit(t, true) })
+          setCrossMonthPrompt({ message: crossMonth, retry: () => save(t, true) })
         } else {
           setError(serverErrors(err) ?? 'Could not save that split.')
         }
@@ -1210,14 +1289,15 @@ export function TransactionsPage() {
         setSavingId(null)
       }
     },
-    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers, reloadAfterConflict, startSplit],
+    [splitRows, splitPaidFrom, ledgerOf, isJarLineFor, reloadLedgers, reloadAfterConflict, startSplit, refocusRow],
   )
 
   // Split rows only ever target expense/savings lines (the add modal offers splits for expenses).
-  const expenseSplitOptions = buildItemOptions(month, TransactionType.Expense)
-  // Income lines, for the register's income rows: built once per render, not once per row
-  // (every keystroke in an inline field re-renders the whole register).
-  const incomeOptions = buildItemOptions(month, TransactionType.Income)
+  // Built once per month, not once per render or per row: the rows get them unchanged, so a
+  // keystroke in an inline field leaves the other rows alone.
+  const expenseSplitOptions = useMemo(() => buildItemOptions(month, TransactionType.Expense), [month])
+  // Income lines, for the list's income rows.
+  const incomeOptions = useMemo(() => buildItemOptions(month, TransactionType.Income), [month])
   const addRemainderMinor = (parseMinor(amount) ?? 0) - sumMinor(addRows.map((r) => parseMinor(r.amount) ?? 0))
   const addCurrency = month?.baseCurrency ?? budgetCurrency
   // The prompts' "stays unallocated" line needs the arriving amount in major units (null while unparsable).
@@ -1228,17 +1308,17 @@ export function TransactionsPage() {
   const eMinor = parseMinor(eAmount)
   const eAmountMajor = eMinor === null ? null : toAmount(eMinor)
 
-  // Map each budget line to its category's hue, so an assigned transaction's pill
-  // carries the same colour dot as its group on the Budget screen. Income lines
-  // read as the brand green; expense/fund groups cycle the five-hue palette.
+  // Map each budget line to its category's hue, so an assigned transaction's chip
+  // carries the same colour as its group on the Dashboard. Income lines read as
+  // the Dashboard's emerald; expense/fund groups cycle the five-hue palette.
   const itemHue = useMemo(() => {
-    const map: Record<string, CategoryHue | 'income'> = {}
+    const map: Record<string, CategoryHue> = {}
     if (!month) return map
     let expenseIdx = 0
     let fundIdx = 0
     for (const c of month.categories) {
-      const hue: CategoryHue | 'income' =
-        c.kind === 'Income' ? 'income' : c.kind === 'Savings' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
+      const hue: CategoryHue =
+        c.kind === 'Income' ? 'emerald' : c.kind === 'Savings' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
       for (const it of c.items) map[it.id] = hue
     }
     return map
@@ -1290,1525 +1370,1335 @@ export function TransactionsPage() {
     return set
   }, [month])
 
-  // Pill colours for a category's hue (or income / unknown). The dot carries the
-  // colour (>=3:1); the pill text stays --ink (text-slate-900) per the contrast rule.
-  type HueKey = CategoryHue | 'income' | undefined
-  const dotColor = (h: HueKey) =>
-    h === undefined ? 'var(--color-slate-400)' : h === 'income' ? 'var(--color-brand-600)' : hueColor(h)
-  const tintColor = (h: HueKey) =>
-    h === undefined
-      ? 'var(--color-slate-100)'
-      : h === 'income'
-        ? 'color-mix(in srgb, var(--color-brand-600) 14%, transparent)'
-        : hueTint(h)
+  // ---- The list (restyle PR 5) ---------------------------------------------------------------
+  // "Unassigned": external (non-transfer) transactions not yet given a budget line.
+  const filtered = useMemo(
+    () =>
+      filter === 'all'
+        ? transactions
+        : transactions.filter(
+            (t) => t.type !== TransactionType.Transfer && !t.counterpartyErased && !t.isSplit && t.budgetItemId === null,
+          ),
+    [transactions, filter],
+  )
+  // The search narrows the loaded rows only: no request, and the list keeps every month.
+  const searchText = query?.trim() ?? ''
+  const visible = useMemo(
+    () => newestFirst(searchText ? filtered.filter((t) => matchesSearch(t, searchText)) : filtered),
+    [filtered, searchText],
+  )
+  // Grouped by day under small headers, newest first.
+  const days = useMemo(() => {
+    const groups: { date: string; rows: TransactionDto[] }[] = []
+    for (const t of visible) {
+      const last = groups[groups.length - 1]
+      if (last && last.date === t.date) last.rows.push(t)
+      else groups.push({ date: t.date, rows: [t] })
+    }
+    return groups
+  }, [visible])
 
-  const visible = useMemo(() => {
-    if (filter === 'all') return transactions
-    // "Unassigned": external (non-transfer) transactions not yet given a budget line.
-    return transactions.filter(
-      (t) =>
-        t.type !== TransactionType.Transfer && !t.counterpartyErased && !t.isSplit && t.budgetItemId === null,
-    )
-  }, [transactions, filter])
+  useLayoutEffect(() => {
+    visibleRef.current = visible
+  }, [visible])
 
-  return (
-    <AppShell active="transactions" title="Transactions" month>
-        <Hero
-          eyebrow={`Money in · ${monthLabel}`}
-          amount={`+${formatMoney(moneyInMinor, currency)}`}
-          amountLabel={`Money in for ${monthLabel}: ${formatMoney(moneyInMinor, currency)}`}
-          tiles={[
-            { label: 'Money out', value: formatMoney(moneyOutMinor, currency) },
-            {
-              label: 'Unassigned',
-              value: unassignedCount === 0 ? 'All assigned' : `${unassignedCount} to assign`,
-            },
-          ]}
-        />
+  // Focus back to the row once its editor (or the dialog it raised) has closed; see pendingFocus.
+  useEffect(() => {
+    if (!pendingFocus || showAdd || crossMonthPrompt || paidFromPrompt || convertingId) return
+    setPendingFocus(null)
+    const { id, targets, order, ifLost } = pendingFocus
+    const active = document.activeElement
+    if (ifLost && active && active !== document.body && active.isConnected) return
+    focusTarget(id, targets, order)?.focus()
+  }, [pendingFocus, showAdd, crossMonthPrompt, paidFromPrompt, convertingId])
 
-        {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
-        {notice && (
-          <div
-            role="status"
-            className="flex items-start justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
-          >
-            <span>{notice}</span>
-            <button type="button" onClick={() => setNotice(null)} className="shrink-0 text-xs font-semibold underline">
-              Dismiss
-            </button>
+  // The split editor opens on its first line's amount (the line itself is filled in).
+  const [splitPanel, setSplitPanel] = useState<HTMLDivElement | null>(null)
+  useEffect(() => {
+    splitPanel?.querySelector<HTMLElement>('[aria-label="Split line 1 amount"]')?.focus()
+  }, [splitPanel])
+
+  // Escape (or the ✕) closes the search and gives focus back to its button.
+  const refocusSearch = useRef(false)
+  useEffect(() => {
+    if (query === null && refocusSearch.current) {
+      refocusSearch.current = false
+      searchButtonRef.current?.focus()
+    }
+  }, [query])
+  function closeSearch() {
+    refocusSearch.current = true
+    setQuery(null)
+  }
+
+  /** Close the row's open editor from its Cancel (or Escape), focus back to the row. */
+  function cancelEditor(t: TransactionDto, which: 'edit' | 'split' | 'refund' | 'leg') {
+    if (which === 'edit') setEditingId(null)
+    if (which === 'split') cancelSplit()
+    if (which === 'refund') setRefundingId(null)
+    if (which === 'leg') setLegId(null)
+    refocusRow(t.id)
+  }
+
+  const money = (minor: number) => formatMoney(minor, currency)
+  const spentHint = (
+    <>
+      Everything paid out in {monthLabel}, transfer fees and payments from jars included, less refunds received that
+      month. Transfers between your own accounts and payments still waiting for their {budgetCurrency} amount are not
+      counted.
+    </>
+  )
+
+  const addButton =
+    canEnterData && !loading ? (
+      <Button
+        onClick={() => {
+          setMode('transaction')
+          setError(null)
+          // Close the list's inline split editor — the modal's split rows share its aria-labels,
+          // and two mounted editors would collide.
+          cancelSplit()
+          resetAddSplit()
+          resetAddJarPrompts()
+          resetAddForeign()
+          setShowAdd(true)
+        }}
+        aria-label="Add transaction"
+        className="h-[38px] gap-[7px] rounded-[10px] px-4 shadow-[0_1px_2px_rgb(10_50_30/0.2),inset_0_1px_0_rgb(255_255_255/0.12)] max-[899.98px]:h-10 max-[899.98px]:px-3.5 dark:bg-primary dark:hover:bg-brand-600"
+      >
+        <Plus aria-hidden className="size-4" />
+        Add transaction
+      </Button>
+    ) : null
+
+  // ---- The rows --------------------------------------------------------------------------------
+  // Each row is a memoised TxRow. A row asks for an action through one stable `dispatch`, which runs
+  // the page's latest handler (kept in a ref after every render), so a keystroke in an editor or in
+  // the search renders only the rows whose props changed: the one being edited, never the rest.
+  function onRowEvent(e: TxRowEvent) {
+    const { t } = e
+    switch (e.type) {
+      case 'edit-transfer':
+        startTransferEdit(t)
+        return
+      case 'edit':
+        startEdit(t)
+        return
+      case 'split':
+        startSplit(t)
+        return
+      case 'not-refund':
+        void linkRefund(t.id, null)
+        return
+      case 'refund':
+        setEditingId(null)
+        setSplittingId(null)
+        setRefundPick('')
+        setRefundingId(t.id)
+        return
+      case 'leg': {
+        const legPending = t.transferStatus === 'PendingReview'
+        setLegId(t.id)
+        setLegDate(legPending ? t.receivedOn ?? todayIso() : t.departedOn ?? todayIso())
+        // Start from the jar answers given when it was recorded.
+        setLegJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.transferAccountId)))
+        setLegFromJar(paidFromJarOf(t.jarAllocations, t.accountId, new Set()) ?? PAID_FROM_UNALLOCATED)
+        return
+      }
+      case 'delete':
+        void removeTransaction(t.id)
+        return
+      case 'assign':
+        setAssigningId(t.id)
+        return
+      case 'assign-blur':
+        setAssigningId(null)
+        return
+      case 'assign-escape':
+        setAssigningId(null)
+        refocusRow(t.id, ['[data-assign-chip]', '[data-row-trigger]'])
+        return
+      case 'assign-pick': {
+        const next = e.budgetItemId
+        setAssigningId(null)
+        refocusRow(t.id, ['[data-assign-chip]', '[data-row-trigger]'])
+        // Rule 79: a payment from a jar-backed account put on a line that is not a jar asks
+        // which jar it comes from first; a jar line draws from its own jar and clearing the
+        // line draws from unallocated — no prompt.
+        if (next && t.type === TransactionType.Expense && jarsOf(t.accountId).length > 0 && !isJarLineFor(next, t.accountId)) {
+          setPaidFromPrompt({ transaction: t, budgetItemId: next, value: PAID_FROM_UNALLOCATED })
+        } else {
+          void assign(t.id, next)
+        }
+        return
+      }
+      case 'fx':
+        refocusRow(t.id, ['[data-fx-chip]', '[data-row-trigger]'])
+        setConvertingId(t.id)
+        return
+      case 'sheet':
+        setSheetFor(e.open ? t.id : null)
+        return
+    }
+  }
+  const rowEvents = useRef(onRowEvent)
+  useLayoutEffect(() => {
+    rowEvents.current = onRowEvent
+  })
+  const dispatchRow = useCallback((e: TxRowEvent) => rowEvents.current(e), [])
+  const rowCtx = useMemo<TxRowContext>(
+    () => ({
+      canEnterData,
+      budgetCurrency,
+      itemHue,
+      billItemIds,
+      isJarLineFor,
+      incomeOptions,
+      expenseOptions: expenseSplitOptions,
+      dispatch: dispatchRow,
+    }),
+    [canEnterData, budgetCurrency, itemHue, billItemIds, isJarLineFor, incomeOptions, expenseSplitOptions, dispatchRow],
+  )
+
+  // ---- The inline editors, built for the one row that has one open --------------------------------
+  const escapeCloses = (t: TransactionDto, which: 'edit' | 'split' | 'refund' | 'leg') => (e: KeyboardEvent) => {
+    if (e.key !== 'Escape') return
+    e.stopPropagation()
+    cancelEditor(t, which)
+  }
+
+  /** Confirming a transfer's missing leg: in the row, under its line. */
+  function legEditorFor(t: TransactionDto) {
+    const legPending = t.transferStatus === 'PendingReview'
+    return (
+      <div className={`relative z-10 col-span-full mt-2.5 mb-1 flex flex-col gap-2.5 ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'leg')}>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-2 text-[13px] font-semibold text-slate-700">
+            {legPending ? 'Departure date' : 'Receipt date'}
+            <Input
+              type="date"
+              autoFocus
+              value={legDate}
+              aria-label={legPending ? 'Departure date' : 'Receipt date'}
+              onChange={(e) => setLegDate(e.target.value)}
+              className={`${FIELD} text-slate-700`}
+            />
+          </label>
+          <div className="ml-auto flex gap-1.5">
+            <Button size="sm" onClick={() => confirmLeg(t)} disabled={savingId === t.id} aria-label="Save transfer leg" className={EDITOR_BUTTON}>
+              Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => cancelEditor(t, 'leg')} aria-label="Cancel transfer leg" className={EDITOR_BUTTON}>
+              Cancel
+            </Button>
           </div>
-        )}
+        </div>
+        {/* The jar question of the leg being confirmed (rules 78/80): a receipt into a jar-backed
+            account asks how it is divided; a departure from one may name the jar it left. */}
+        {(() => {
+          const ledger = ledgerOf(legPending ? t.accountId : t.transferAccountId)
+          const jars = activeJars(ledger)
+          if (!ledger || jars.length === 0) return null
+          return legPending ? (
+            <PaidFromJarSelect
+              id={`departure-${t.id}-from-jar`}
+              compact
+              jars={jars}
+              accountName={ledger.accountName}
+              currency={ledger.currency}
+              value={legFromJar}
+              onChange={setLegFromJar}
+            />
+          ) : (
+            <JarAllocationFields
+              jars={jars}
+              accountName={ledger.accountName}
+              currency={ledger.currency}
+              amount={t.amount}
+              value={legJarAlloc}
+              onChange={setLegJarAlloc}
+              idPrefix={`receipt-${t.id}`}
+              compact
+            />
+          )
+        })()}
+      </div>
+    )
+  }
 
-        {/* Add transaction / transfer — a modal opened from the toolbar's + button. */}
-        {showAdd && canEnterData && (
-        <Modal
-          title={editingTransfer ? 'Edit transfer' : mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
-          onClose={closeAddModal}
+  /** The row's edit form, in place of its line. */
+  function editFormFor(t: TransactionDto) {
+    const isRefund = !!t.refundOfTransactionId
+    const hasRefunds = (t.refundCount ?? 0) > 0
+    return (
+      <div className={`my-2 flex flex-wrap items-center gap-2 ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'edit')}>
+        <Input type="date" autoFocus value={eDate} aria-label="Edit date" onChange={(e) => setEDate(e.target.value)} className={`${FIELD} text-slate-700`} />
+        <Input type="text" value={ePayee} aria-label="Edit payee" placeholder="Payee" onChange={(e) => setEPayee(e.target.value)} className={`${FIELD} min-w-32 flex-1`} />
+        <Input
+          type="text"
+          inputMode="decimal"
+          {...selectOnFocusProps}
+          value={eAmount}
+          aria-label="Edit amount"
+          onChange={(e) => setEAmount(e.target.value)}
+          className={`${FIELD} w-28 text-right tabular-nums`}
+        />
+        <Select
+          value={eType}
+          aria-label="Edit type"
+          onChange={(e) => setEType(Number(e.target.value))}
+          // A refund stays money received, and a refunded purchase stays a purchase, until the
+          // link is removed (rules 38/39).
+          disabled={isRefund || hasRefunds}
+          title={
+            isRefund
+              ? 'A refund is money received. Use “Not a refund” first to change its type.'
+              : hasRefunds
+                ? 'This purchase has refunds linked to it; unmark them first to change its type.'
+                : undefined
+          }
+          className={FIELD}
         >
-          {accounts.length >= 2 && !editingTransfer && (
-            <div className="mb-4">
-              <SegmentedControl
-                ariaLabel="Entry type"
-                value={mode}
-                onChange={(m) => {
-                  setMode(m)
-                  setError(null)
-                  resetAddSplit()
-                }}
-                options={[
-                  { value: 'transaction', label: 'Transaction' },
-                  { value: 'transfer', label: 'Transfer' },
-                ]}
+          <option value={TransactionType.Expense}>Expense</option>
+          <option value={TransactionType.Income}>Income</option>
+        </Select>
+        {accounts.length > 0 && (
+          <Select
+            value={eAccount}
+            aria-label="Edit account"
+            onChange={(e) => {
+              setEAccount(e.target.value)
+              // Another account has other jars — start its answers from the default.
+              setEJarAlloc({})
+              setEPaidFrom(PAID_FROM_UNALLOCATED)
+            }}
+            className={FIELD}
+          >
+            <option value="">No account</option>
+            {accounts.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </Select>
+        )}
+        {members.length >= 2 && (
+          <Select value={eMember} aria-label="Edit member" onChange={(e) => setEMember(e.target.value)} className={FIELD}>
+            <option value="">No member</option>
+            {members.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+          </Select>
+        )}
+        {/* The jar prompts, pre-filled from the stored split (rules 78/79). */}
+        {(() => {
+          const ledger = ledgerOf(eAccount)
+          const jars = jarsForAnswer(
+            ledger,
+            eType === TransactionType.Income
+              ? [...namedJarIds(eJarAlloc), ...storedJarIds(t, t.accountId, 'in')]
+              : [ePaidFrom, ...storedJarIds(t, t.accountId, 'out')],
+          )
+          if (!ledger || jars.length === 0) return null
+          if (eType === TransactionType.Income) {
+            return (
+              <div className="basis-full">
+                <JarAllocationFields
+                  jars={jars}
+                  accountName={ledger.accountName}
+                  currency={ledger.currency}
+                  amount={eAmountMajor}
+                  value={eJarAlloc}
+                  onChange={setEJarAlloc}
+                  idPrefix={`edit-${t.id}`}
+                  compact
+                />
+              </div>
+            )
+          }
+          if (!hasNonJarLine(t, eAccount || null)) return null
+          return (
+            <div className="basis-full">
+              <PaidFromJarSelect
+                id={`edit-${t.id}-paid-from`}
+                compact
+                jars={jars}
+                accountName={ledger.accountName}
+                currency={ledger.currency}
+                value={ePaidFrom}
+                onChange={setEPaidFrom}
               />
             </div>
+          )
+        })()}
+        <div className="ml-auto flex gap-1.5">
+          <Button size="sm" onClick={() => saveEdit(t)} disabled={savingId === t.id} aria-label="Save transaction" className={EDITOR_BUTTON}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => cancelEditor(t, 'edit')} aria-label="Cancel edit" className={EDITOR_BUTTON}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  /** Marking money received as a refund: pick the purchase it came back from (rules 38/39). */
+  function refundEditorFor(t: TransactionDto) {
+    const name = t.payee || t.date
+    return (
+      <div className={`mt-1 mb-3 flex flex-wrap items-center gap-2 text-sm ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'refund')}>
+        <span className="text-[13px] font-semibold text-slate-700">Refund of</span>
+        <Select
+          autoFocus
+          value={refundPick}
+          aria-label={`Purchase refunded by ${name}`}
+          onChange={(e) => setRefundPick(e.target.value)}
+          className={`${FIELD} max-w-full min-w-56`}
+        >
+          <option value="">Choose the purchase</option>
+          {purchases.map((p) => (
+            <option key={p.id} value={p.id}>
+              {shortDate(p.date)} · {p.payee || 'Purchase'} · {formatMoney(fromAmount(p.amount), p.currency)}
+            </option>
+          ))}
+        </Select>
+        <span className="basis-full text-xs text-slate-500 min-[900px]:basis-auto">
+          {purchases.find((p) => p.id === refundPick)?.isSplit
+            ? 'That purchase is split across several lines: the refund is not counted as income, and you pick its category on the row afterwards.'
+            : 'The refund moves to the purchase’s category and is not counted as income.'}
+        </span>
+        <div className="ml-auto flex gap-1.5">
+          <Button size="sm" onClick={() => linkRefund(t.id, refundPick)} disabled={savingId === t.id || !refundPick} aria-label="Save refund link" className={EDITOR_BUTTON}>
+            Save
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => cancelEditor(t, 'refund')} aria-label="Cancel refund link" className={EDITOR_BUTTON}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  /** Splitting a row across budget lines, under its line. */
+  function splitEditorFor(t: TransactionDto) {
+    const isIncome = transactionTypeLabel(t.type) === 'Income'
+    const splitOptions = t.type === TransactionType.Income ? incomeOptions : expenseSplitOptions
+    const totalMinor = fromAmount(t.amount)
+    const remainderMinor = totalMinor - sumMinor(splitRows.map((r) => parseMinor(r.amount) ?? 0))
+    return (
+      <div ref={setSplitPanel} className={`mt-1 mb-3 space-y-3 ${EDITOR_PANEL} p-3.5`} onKeyDown={escapeCloses(t, 'split')}>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {/* An h3: the editor sits under its day's h2. */}
+          <h3 className="text-sm font-semibold text-slate-900">
+            Split “{t.payee || t.date}” ({formatMoney(totalMinor, t.currency)})
+          </h3>
+          <SplitRemainderChip remainderMinor={remainderMinor} format={(m) => formatMoney(m, t.currency)} />
+        </div>
+        {splitOptions.length === 0 && (
+          <p className="text-xs text-bad">Add some {isIncome ? 'income' : 'expense'} budget lines first.</p>
+        )}
+        <SplitLinesEditor rows={splitRows} options={splitOptions} members={members} onChangeRow={updateSplitRow} onRemoveRow={removeSplitRow} />
+        {/* Rule 79: the slices on lines that are not jars draw from one named jar. */}
+        {(() => {
+          const ledger = ledgerOf(t.accountId)
+          const jars = jarsForAnswer(ledger, [splitPaidFrom, ...storedJarIds(t, t.accountId, 'out')])
+          const applies =
+            t.type === TransactionType.Expense &&
+            !!ledger &&
+            jars.length > 0 &&
+            splitRows.some((r) => !!r.budgetItemId && !isJarLineFor(r.budgetItemId, t.accountId))
+          return applies && ledger ? (
+            <PaidFromJarSelect
+              id="split-paid-from"
+              compact
+              jars={jars}
+              accountName={ledger.accountName}
+              currency={ledger.currency}
+              value={splitPaidFrom}
+              onChange={setSplitPaidFrom}
+            />
+          ) : null
+        })()}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button size="sm" variant="secondary" onClick={addSplitRow} aria-label="Add split line" className={EDITOR_BUTTON}>
+            <Plus aria-hidden className="size-3.5" /> Add line
+          </Button>
+          {t.isSplit && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => removeSplit(t.id)}
+              disabled={savingId === t.id}
+              aria-label="Remove split"
+              className={`${EDITOR_BUTTON} text-bad! hover:bg-bad-bg!`}
+            >
+              Remove split
+            </Button>
           )}
-          {error && <div className="mb-3"><ErrorBanner>{error}</ErrorBanner></div>}
-          {mode === 'transaction' ? (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
+          <div className="flex-1" />
+          <Button size="sm" onClick={() => saveSplit(t)} disabled={savingId === t.id || remainderMinor !== 0} aria-label="Save split" className={EDITOR_BUTTON}>
+            Save split
+          </Button>
+          <Button size="sm" variant="ghost" onClick={() => cancelEditor(t, 'split')} aria-label="Cancel split" className={EDITOR_BUTTON}>
+            Cancel
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  // The rows busy saving or with something open: only the days that hold one re-render with the page.
+  const activeIds = [savingId, assigningId, sheetFor, legId, editingId, refundingId, splittingId].filter((id): id is string => !!id)
+  const dayState: TxDayState = {
+    savingId,
+    assigningId,
+    sheetFor,
+    editorsFor: (t) => {
+      const refund = refundingId === t.id
+      const split = splittingId === t.id
+      if (legId !== t.id && editingId !== t.id && !refund && !split) return undefined
+      return {
+        legEditor: legId === t.id ? legEditorFor(t) : undefined,
+        editForm: editingId === t.id ? editFormFor(t) : undefined,
+        below:
+          refund || split ? (
+            <>
+              {refund && refundEditorFor(t)}
+              {split && splitEditorFor(t)}
+            </>
+          ) : undefined,
+      }
+    },
+  }
+
+  return (
+    <AppShell active="transactions" title="Transactions" month actions={desktop ? addButton || undefined : undefined}>
+      <KpiRow tiles={1}>
+        <KpiTile
+          hero
+          label="Income"
+          value={money(moneyInMinor)}
+          valueLabel={`Income for ${monthLabel}: ${money(moneyInMinor)}`}
+        />
+        <KpiTile
+          label="Spent"
+          icon={<ArrowUpRight strokeWidth={1.8} />}
+          iconColor="var(--color-clay)"
+          hint={spentHint}
+          value={money(moneyOutMinor)}
+          valueLabel={`Spent in ${monthLabel}: ${money(moneyOutMinor)}`}
+          strip
+        />
+      </KpiRow>
+
+      {!desktop && addButton && <div className="flex justify-end">{addButton}</div>}
+
+      {error && !showAdd && <ErrorBanner>{error}</ErrorBanner>}
+      {notice && (
+        <div
+          role="status"
+          className="flex items-start justify-between gap-3 rounded-xl border border-slate-200/70 bg-surface px-4 py-3 text-sm text-slate-700 shadow-card"
+        >
+          <span className="flex items-start gap-2">
+            <span aria-hidden className="mt-[5px] size-2 shrink-0 rounded-full bg-warn" />
+            <span>{notice}</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setNotice(null)}
+            className="shrink-0 rounded-md px-1.5 py-0.5 text-[13px] font-semibold text-slate-500 transition hover:bg-surface-2 hover:text-slate-900"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
+      {/* Add transaction / transfer — a modal opened from the toolbar's + button. */}
+      {showAdd && canEnterData && (
+      <Modal
+        title={editingTransfer ? 'Edit transfer' : mode === 'transfer' ? 'Record a transfer' : 'Add a transaction'}
+        onClose={closeAddModal}
+      >
+        {accounts.length >= 2 && !editingTransfer && (
+          <div className="mb-4">
+            <SegmentedControl
+              ariaLabel="Entry type"
+              value={mode}
+              onChange={(m) => {
+                setMode(m)
+                setError(null)
+                resetAddSplit()
+              }}
+              options={[
+                { value: 'transaction', label: 'Transaction' },
+                { value: 'transfer', label: 'Transfer' },
+              ]}
+            />
+          </div>
+        )}
+        {error && <div className="mb-3"><ErrorBanner>{error}</ErrorBanner></div>}
+        {mode === 'transaction' ? (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Type
+              <Select
+                value={type}
+                aria-label="Transaction type"
+                onChange={(e) => {
+                  const next = Number(e.target.value)
+                  setType(next)
+                  // Splits are an expense-only affordance in the add modal.
+                  if (next !== TransactionType.Expense) resetAddSplit()
+                  // The category select offers different lines per direction.
+                  setAssignTo('')
+                  setRefundOf('')
+                  // The jar prompts belong to one direction each.
+                  setAddJarAlloc({})
+                  setAddPaidFrom(PAID_FROM_UNALLOCATED)
+                }}
+                className="w-full"
+              >
+                <option value={TransactionType.Expense}>Expense</option>
+                <option value={TransactionType.Income}>Income</option>
+                <option value={ADD_REFUND}>Refund</option>
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Date
+              <Input
+                type="date"
+                value={date}
+                aria-label="Transaction date"
+                onChange={(e) => setDate(e.target.value)}
+                className="w-full text-slate-700"
+              />
+            </label>
+          </div>
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Payee
+            <Input
+              type="text"
+              value={payee}
+              placeholder="e.g. Tesco"
+              aria-label="Transaction payee"
+              onChange={(e) => setPayee(e.target.value)}
+              className="w-full"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Amount
+              <Input
+                type="text"
+                inputMode="decimal"
+                {...selectOnFocusProps}
+                value={amount}
+                placeholder="0.00"
+                aria-label="Transaction amount"
+                onChange={(e) => setAmount(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') addTransaction()
+                }}
+                className="w-full text-right tabular-nums"
+              />
+            </label>
+            {accounts.length > 0 && (
               <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Type
+                Account
                 <Select
-                  value={type}
-                  aria-label="Transaction type"
+                  value={account}
+                  aria-label="Transaction account"
                   onChange={(e) => {
-                    const next = Number(e.target.value)
-                    setType(next)
-                    // Splits are an expense-only affordance in the add modal.
-                    if (next !== TransactionType.Expense) resetAddSplit()
-                    // The category select offers different lines per direction.
-                    setAssignTo('')
-                    setRefundOf('')
-                    // The jar prompts belong to one direction each.
+                    setAccount(e.target.value)
+                    // Another account has other jars — never carry a jar answer across.
                     setAddJarAlloc({})
                     setAddPaidFrom(PAID_FROM_UNALLOCATED)
                   }}
                   className="w-full"
                 >
-                  <option value={TransactionType.Expense}>Expense</option>
-                  <option value={TransactionType.Income}>Income</option>
-                  <option value={ADD_REFUND}>Refund</option>
-                </Select>
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Date
-                <Input
-                  type="date"
-                  value={date}
-                  aria-label="Transaction date"
-                  onChange={(e) => setDate(e.target.value)}
-                  className="w-full text-slate-700"
-                />
-              </label>
-            </div>
-            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Payee
-              <Input
-                type="text"
-                value={payee}
-                placeholder="e.g. Tesco"
-                aria-label="Transaction payee"
-                onChange={(e) => setPayee(e.target.value)}
-                className="w-full"
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Amount
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={amount}
-                  placeholder="0.00"
-                  aria-label="Transaction amount"
-                  onChange={(e) => setAmount(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addTransaction()
-                  }}
-                  className="w-full text-right tabular-nums"
-                />
-              </label>
-              {accounts.length > 0 && (
-                <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                  Account
-                  <Select
-                    value={account}
-                    aria-label="Transaction account"
-                    onChange={(e) => {
-                      setAccount(e.target.value)
-                      // Another account has other jars — never carry a jar answer across.
-                      setAddJarAlloc({})
-                      setAddPaidFrom(PAID_FROM_UNALLOCATED)
-                    }}
-                    className="w-full"
-                  >
-                    <option value="">No account</option>
-                    {accounts.map((a) => (
-                      <option key={a.id} value={a.id}>
-                        {a.name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-              )}
-            </div>
-            {/* Paid in another currency: the foreign figure is recorded for reference, and a
-                suggestion may fill the Amount, which stays the budget-currency amount that counts. */}
-            {features.multiCurrency && (
-              <div className="space-y-2">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={paidForeign}
-                    onChange={(e) => {
-                      if (e.target.checked) setPaidForeign(true)
-                      else resetAddForeign()
-                    }}
-                    className="h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-brand-500"
-                  />
-                  Paid in another currency
-                </label>
-                {paidForeign && (
-                  <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:bg-white/[0.03]">
-                    <div className="grid grid-cols-[5.5rem_1fr_auto] items-end gap-2">
-                      <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                        Currency
-                        <Input
-                          type="text"
-                          value={fxCurrency}
-                          placeholder="USD"
-                          maxLength={3}
-                          autoComplete="off"
-                          aria-label="Currency paid in"
-                          onChange={(e) => {
-                            setFxCurrency(e.target.value.toUpperCase())
-                            setFxSuggestion(null)
-                          }}
-                          className="w-full uppercase"
-                        />
-                      </label>
-                      <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                        Amount paid
-                        <Input
-                          type="text"
-                          inputMode="decimal"
-                          {...selectOnFocusProps}
-                          value={fxAmount}
-                          placeholder="0.00"
-                          aria-label="Amount paid in that currency"
-                          onChange={(e) => {
-                            setFxAmount(e.target.value)
-                            setFxSuggestion(null)
-                          }}
-                          className="w-full text-right tabular-nums"
-                        />
-                      </label>
-                      <Button variant="secondary" onClick={suggestAddAmount} disabled={fxSuggesting}>
-                        {fxSuggesting ? 'Suggesting…' : 'Suggest'}
-                      </Button>
-                    </div>
-                    <p role="status" className="text-xs text-slate-500">
-                      {fxSuggestion
-                        ? suggestionHint(fxSuggestion)
-                        : `The Amount above is what counts, in ${budgetCurrency}. Suggest fills it in for you to check.`}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Rules 38/39: a refund names the purchase it comes back from. */}
-            {addIsRefund && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Refund of
-                <Select
-                  value={refundOf}
-                  aria-label="Refund of"
-                  onChange={(e) => setRefundOf(e.target.value)}
-                  className="w-full"
-                >
-                  <option value="">Choose the purchase</option>
-                  {purchases.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {shortDate(p.date)} · {p.payee || 'Purchase'} · {formatMoney(fromAmount(p.amount), p.currency)}
-                    </option>
-                  ))}
-                </Select>
-                {purchases.length === 0 && (
-                  <span className="font-normal text-slate-500">No purchases to refund yet.</span>
-                )}
-              </label>
-            )}
-            {/* Rule 78: income reaching a jar-backed account asks how much goes to each jar. */}
-            {addIncomeJarsApply && addLedger && (
-              <JarAllocationFields
-                jars={addJars}
-                accountName={addLedger.accountName}
-                currency={addLedger.currency}
-                amount={addAmountMajor}
-                value={addJarAlloc}
-                onChange={setAddJarAlloc}
-                idPrefix="add"
-                emptyNote={
-                  addIsRefund
-                    ? 'Left empty, a refund of a payment from a completed jar, or of the payment a cycle was marked paid with, goes back into that jar; any other stays unallocated.'
-                    : undefined
-                }
-              />
-            )}
-            {/* Category — hidden for income, per the design; a refund offers the expense/savings
-                lines it may reduce. NOT a <label>: the split toggle button must not become the
-                label's control (the InfoHint lesson). */}
-            {addLineDirection === TransactionType.Expense && (
-              <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                <div className="flex items-center justify-between">
-                  <span>Category</span>
-                  {!addIsRefund && expenseSplitOptions.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (addSplit) resetAddSplit()
-                        else setAddSplit(true)
-                        setAddPaidFrom(PAID_FROM_UNALLOCATED)
-                      }}
-                      aria-pressed={addSplit}
-                      className="rounded px-1 text-xs font-semibold text-violet-600 hover:bg-violet-50 dark:text-violet-300 dark:hover:bg-violet-500/10"
-                    >
-                      {addSplit ? "Don't split" : 'Split across categories'}
-                    </button>
-                  )}
-                </div>
-                {addSplit ? (
-                  <div className="space-y-2 rounded-lg border border-violet-200 bg-violet-50/40 p-3 dark:border-violet-500/30 dark:bg-violet-500/5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs font-semibold text-slate-600">Split lines</span>
-                      <SplitRemainderChip
-                        remainderMinor={addRemainderMinor}
-                        format={(m) => formatMoney(m, addCurrency)}
-                      />
-                    </div>
-                    <SplitLinesEditor
-                      rows={addRows}
-                      options={expenseSplitOptions}
-                      members={members}
-                      onChangeRow={updateAddRow}
-                      onRemoveRow={removeAddRow}
-                    />
-                    <button
-                      type="button"
-                      onClick={addAddRow}
-                      aria-label="Add split line"
-                      className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-surface"
-                    >
-                      + Add line
-                    </button>
-                  </div>
-                ) : (
-                  <Select
-                    value={assignTo}
-                    aria-label="Assign transaction to"
-                    onChange={(e) => {
-                      setAssignTo(e.target.value)
-                      setAddPaidFrom(PAID_FROM_UNALLOCATED)
-                    }}
-                    className="w-full"
-                  >
-                    <option value="">
-                      {addIsRefund
-                        ? transactions.some((t) => t.id === refundOf && t.isSplit)
-                          ? 'Choose a category (the purchase is split)'
-                          : 'Same category as the purchase'
-                        : 'Unassigned'}
-                    </option>
-                    {/* Income goes on income lines; an expense (or a refund, rule 38) on expense or savings lines. */}
-                    {(addIsRefund ? expenseSplitOptions : buildItemOptions(month, addApiType)).map((g) => (
-                      <optgroup key={g.category} label={g.category}>
-                        {g.items.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </Select>
-                )}
-                {/* Rule 79: a payment from a jar-backed account on a line that is not a jar asks
-                    which jar it comes from. A jar line draws from its jar; no line, from unallocated. */}
-                {addPaidFromApplies && addLedger && (
-                  <PaidFromJarSelect
-                    id="add-paid-from"
-                    jars={addJars}
-                    accountName={addLedger.accountName}
-                    currency={addLedger.currency}
-                    value={addPaidFrom}
-                    onChange={setAddPaidFrom}
-                  />
-                )}
-              </div>
-            )}
-            {members.length >= 2 && !(addSplit && type === TransactionType.Expense) && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Member
-                <Select
-                  value={member}
-                  aria-label="Transaction member"
-                  onChange={(e) => setMember(e.target.value)}
-                  className="w-full"
-                >
-                  <option value="">No member</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
+                  <option value="">No account</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>
+                      {a.name}
                     </option>
                   ))}
                 </Select>
               </label>
             )}
-            <div className="flex justify-end gap-2 pt-1">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setShowAdd(false)
-                  resetAddSplit()
-                }}
-              >
-                Cancel
-              </Button>
-              <Button
-                onClick={() => addTransaction()}
-                disabled={adding || (addSplit && type === TransactionType.Expense && addRemainderMinor !== 0)}
-                aria-label="Add transaction"
-              >
-                Add transaction
-              </Button>
-            </div>
           </div>
-          ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Left the source account on
-                <Input
-                  type="date"
-                  value={tDate}
-                  aria-label="Transfer date"
-                  disabled={departureLocked}
-                  onChange={(e) => setTDate(e.target.value)}
-                  className="w-full text-slate-700"
-                />
-                {departureLocked && <StatementLockHint />}
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Amount
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={tAmount}
-                  placeholder="0.00"
-                  aria-label="Transfer amount"
-                  // What arrives: fixed by the bank once a statement confirmed the receipt or the
-                  // return; with only the departure confirmed, the fee takes up the difference.
-                  disabled={amountLocked}
+          {/* Paid in another currency: the foreign figure is recorded for reference, and a
+              suggestion may fill the Amount, which stays the budget-currency amount that counts. */}
+          {features.multiCurrency && (
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={paidForeign}
                   onChange={(e) => {
-                    setTAmount(e.target.value)
-                    if (departureTotalMinor !== null) {
-                      const typed = parseMinor(e.target.value)
-                      setTFee(typed !== null && typed > 0 && typed < departureTotalMinor ? toEditString(departureTotalMinor - typed) : '')
-                    }
+                    if (e.target.checked) setPaidForeign(true)
+                    else resetAddForeign()
                   }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') submitTransfer()
-                  }}
-                  className="w-full text-right tabular-nums"
+                  className="h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-brand-500"
                 />
-                {amountLocked && <StatementLockHint />}
+                Paid in another currency
               </label>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                From
-                <Select
-                  value={tFrom}
-                  aria-label="Transfer from account"
-                  disabled={departureLocked}
-                  onChange={(e) => {
-                    setTFrom(e.target.value)
-                    setTFromJar(PAID_FROM_UNALLOCATED)
-                  }}
-                  className="w-full"
-                >
-                  <option value="">Choose…</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-                {departureLocked && <StatementLockHint />}
-              </label>
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                To
-                <Select
-                  value={tTo}
-                  aria-label="Transfer to account"
-                  disabled={receiptLocked}
-                  onChange={(e) => {
-                    setTTo(e.target.value)
-                    setTJarAlloc({})
-                  }}
-                  className="w-full"
-                >
-                  <option value="">Choose…</option>
-                  {accounts.map((a) => (
-                    <option key={a.id} value={a.id}>
-                      {a.name}
-                    </option>
-                  ))}
-                </Select>
-                {receiptLocked && <StatementLockHint />}
-              </label>
-            </div>
-            {/* Rule 80: money leaving a jar-backed account may say which jar it comes from. */}
-            {tFromLedger && tFromJars.length > 0 && (
-              <PaidFromJarSelect
-                id="transfer-from-jar"
-                compact
-                jars={tFromJars}
-                accountName={tFromLedger.accountName}
-                currency={tFromLedger.currency}
-                value={tFromJar}
-                onChange={setTFromJar}
-              />
-            )}
-            {/* An optional fee: extra money leaving the source with the transfer, recorded as its
-                own expense on the departure date, on the line picked here (or uncategorised). */}
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Fee (optional)
-                <Input
-                  type="text"
-                  inputMode="decimal"
-                  {...selectOnFocusProps}
-                  value={tFee}
-                  placeholder="0.00"
-                  aria-label="Transfer fee"
-                  disabled={departureLocked}
-                  onChange={(e) => setTFee(e.target.value)}
-                  className="w-full text-right tabular-nums"
-                />
-                {departureLocked &&
-                  (amountLocked || departureTotalMinor === null ? (
-                    <StatementLockHint />
-                  ) : (
-                    <span className="font-normal text-slate-500">
-                      The bank took {formatPlain(departureTotalMinor)} in all; the fee is what the amount leaves of it.
-                    </span>
-                  ))}
-              </label>
-              {tHasFee && (
-                <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                  Fee category
-                  <Select
-                    value={tFeeLine}
-                    aria-label="Transfer fee category"
-                    onChange={(e) => setTFeeLine(e.target.value)}
-                    className="w-full"
-                  >
-                    <option value="">Choose a line…</option>
-                    {feeLineOptions.map((g) => (
-                      <optgroup key={g.category} label={g.category}>
-                        {g.items.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </Select>
-                </label>
+              {paidForeign && (
+                <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:bg-white/[0.03]">
+                  <div className="grid grid-cols-[5.5rem_1fr_auto] items-end gap-2">
+                    <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                      Currency
+                      <Input
+                        type="text"
+                        value={fxCurrency}
+                        placeholder="USD"
+                        maxLength={3}
+                        autoComplete="off"
+                        aria-label="Currency paid in"
+                        onChange={(e) => {
+                          setFxCurrency(e.target.value.toUpperCase())
+                          setFxSuggestion(null)
+                        }}
+                        className="w-full uppercase"
+                      />
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                      Amount paid
+                      <Input
+                        type="text"
+                        inputMode="decimal"
+                        {...selectOnFocusProps}
+                        value={fxAmount}
+                        placeholder="0.00"
+                        aria-label="Amount paid in that currency"
+                        onChange={(e) => {
+                          setFxAmount(e.target.value)
+                          setFxSuggestion(null)
+                        }}
+                        className="w-full text-right tabular-nums"
+                      />
+                    </label>
+                    <Button variant="secondary" onClick={suggestAddAmount} disabled={fxSuggesting}>
+                      {fxSuggesting ? 'Suggesting…' : 'Suggest'}
+                    </Button>
+                  </div>
+                  <p role="status" className="text-xs text-slate-500">
+                    {fxSuggestion
+                      ? suggestionHint(fxSuggestion)
+                      : `The Amount above is what counts, in ${budgetCurrency}. Suggest fills it in for you to check.`}
+                  </p>
+                </div>
               )}
             </div>
-            {tHasFee && (
-              <p className="text-xs text-slate-500">
-                The fee leaves {accounts.find((a) => a.id === tFrom)?.name ?? 'the source account'} on top of the
-                amount, as its own expense on the same day.
-              </p>
-            )}
+          )}
+          {/* Rules 38/39: a refund names the purchase it comes back from. */}
+          {addIsRefund && (
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Note
-              <Input
-                type="text"
-                value={tPayee}
-                placeholder="Transfer"
-                aria-label="Transfer note"
-                onChange={(e) => setTPayee(e.target.value)}
+              Refund of
+              <Select
+                value={refundOf}
+                aria-label="Refund of"
+                onChange={(e) => setRefundOf(e.target.value)}
                 className="w-full"
-              />
+              >
+                <option value="">Choose the purchase</option>
+                {purchases.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {shortDate(p.date)} · {p.payee || 'Purchase'} · {formatMoney(fromAmount(p.amount), p.currency)}
+                  </option>
+                ))}
+              </Select>
+              {purchases.length === 0 && (
+                <span className="font-normal text-slate-500">No purchases to refund yet.</span>
+              )}
             </label>
+          )}
+          {/* Rule 78: income reaching a jar-backed account asks how much goes to each jar. */}
+          {addIncomeJarsApply && addLedger && (
+            <JarAllocationFields
+              jars={addJars}
+              accountName={addLedger.accountName}
+              currency={addLedger.currency}
+              amount={addAmountMajor}
+              value={addJarAlloc}
+              onChange={setAddJarAlloc}
+              idPrefix="add"
+              emptyNote={
+                addIsRefund
+                  ? 'Left empty, a refund of a payment from a completed jar, or of the payment a cycle was marked paid with, goes back into that jar; any other stays unallocated.'
+                  : undefined
+              }
+            />
+          )}
+          {/* Category — hidden for income, per the design; a refund offers the expense/savings
+              lines it may reduce. NOT a <label>: the split toggle button must not become the
+              label's control (the InfoHint lesson). */}
+          {addLineDirection === TransactionType.Expense && (
+            <div className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              <div className="flex items-center justify-between">
+                <span>Category</span>
+                {!addIsRefund && expenseSplitOptions.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (addSplit) resetAddSplit()
+                      else setAddSplit(true)
+                      setAddPaidFrom(PAID_FROM_UNALLOCATED)
+                    }}
+                    aria-pressed={addSplit}
+                    className="rounded px-1 text-xs font-semibold text-brand-700 transition hover:bg-surface-2 dark:text-brand-200 dark:hover:bg-foreground/7"
+                  >
+                    {addSplit ? "Don't split" : 'Split across categories'}
+                  </button>
+                )}
+              </div>
+              {addSplit ? (
+                <div className="space-y-2 rounded-lg border border-slate-200/70 bg-surface-2 p-3 dark:bg-foreground/[0.03]">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-600">Split lines</span>
+                    <SplitRemainderChip
+                      remainderMinor={addRemainderMinor}
+                      format={(m) => formatMoney(m, addCurrency)}
+                    />
+                  </div>
+                  <SplitLinesEditor
+                    rows={addRows}
+                    options={expenseSplitOptions}
+                    members={members}
+                    onChangeRow={updateAddRow}
+                    onRemoveRow={removeAddRow}
+                  />
+                  <button
+                    type="button"
+                    onClick={addAddRow}
+                    aria-label="Add split line"
+                    className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-surface"
+                  >
+                    + Add line
+                  </button>
+                </div>
+              ) : (
+                <Select
+                  value={assignTo}
+                  aria-label="Assign transaction to"
+                  onChange={(e) => {
+                    setAssignTo(e.target.value)
+                    setAddPaidFrom(PAID_FROM_UNALLOCATED)
+                  }}
+                  className="w-full"
+                >
+                  <option value="">
+                    {addIsRefund
+                      ? transactions.some((t) => t.id === refundOf && t.isSplit)
+                        ? 'Choose a category (the purchase is split)'
+                        : 'Same category as the purchase'
+                      : 'Unassigned'}
+                  </option>
+                  {/* Income goes on income lines; an expense (or a refund, rule 38) on expense or savings lines. */}
+                  {(addIsRefund ? expenseSplitOptions : buildItemOptions(month, addApiType)).map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.items.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+              )}
+              {/* Rule 79: a payment from a jar-backed account on a line that is not a jar asks
+                  which jar it comes from. A jar line draws from its jar; no line, from unallocated. */}
+              {addPaidFromApplies && addLedger && (
+                <PaidFromJarSelect
+                  id="add-paid-from"
+                  jars={addJars}
+                  accountName={addLedger.accountName}
+                  currency={addLedger.currency}
+                  value={addPaidFrom}
+                  onChange={setAddPaidFrom}
+                />
+              )}
+            </div>
+          )}
+          {members.length >= 2 && !(addSplit && type === TransactionType.Expense) && (
             <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-              Arrived in the destination account on (optional)
+              Member
+              <Select
+                value={member}
+                aria-label="Transaction member"
+                onChange={(e) => setMember(e.target.value)}
+                className="w-full"
+              >
+                <option value="">No member</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setShowAdd(false)
+                resetAddSplit()
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() => addTransaction()}
+              disabled={adding || (addSplit && type === TransactionType.Expense && addRemainderMinor !== 0)}
+              aria-label="Add transaction"
+            >
+              Add transaction
+            </Button>
+          </div>
+        </div>
+        ) : (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Left the source account on
               <Input
                 type="date"
-                value={tReceived}
-                aria-label="Transfer receipt date"
-                // A returned transfer never arrived: clear the return date to record a receipt.
-                disabled={receiptLocked || (returnApplies && !!tReturned)}
-                onChange={(e) => setTReceived(e.target.value)}
+                value={tDate}
+                aria-label="Transfer date"
+                disabled={departureLocked}
+                onChange={(e) => setTDate(e.target.value)}
                 className="w-full text-slate-700"
               />
-              {receiptLocked ? (
+              {departureLocked && <StatementLockHint />}
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Amount
+              <Input
+                type="text"
+                inputMode="decimal"
+                {...selectOnFocusProps}
+                value={tAmount}
+                placeholder="0.00"
+                aria-label="Transfer amount"
+                // What arrives: fixed by the bank once a statement confirmed the receipt or the
+                // return; with only the departure confirmed, the fee takes up the difference.
+                disabled={amountLocked}
+                onChange={(e) => {
+                  setTAmount(e.target.value)
+                  if (departureTotalMinor !== null) {
+                    const typed = parseMinor(e.target.value)
+                    setTFee(typed !== null && typed > 0 && typed < departureTotalMinor ? toEditString(departureTotalMinor - typed) : '')
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') submitTransfer()
+                }}
+                className="w-full text-right tabular-nums"
+              />
+              {amountLocked && <StatementLockHint />}
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              From
+              <Select
+                value={tFrom}
+                aria-label="Transfer from account"
+                disabled={departureLocked}
+                onChange={(e) => {
+                  setTFrom(e.target.value)
+                  setTFromJar(PAID_FROM_UNALLOCATED)
+                }}
+                className="w-full"
+              >
+                <option value="">Choose…</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+              {departureLocked && <StatementLockHint />}
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              To
+              <Select
+                value={tTo}
+                aria-label="Transfer to account"
+                disabled={receiptLocked}
+                onChange={(e) => {
+                  setTTo(e.target.value)
+                  setTJarAlloc({})
+                }}
+                className="w-full"
+              >
+                <option value="">Choose…</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+              </Select>
+              {receiptLocked && <StatementLockHint />}
+            </label>
+          </div>
+          {/* Rule 80: money leaving a jar-backed account may say which jar it comes from. */}
+          {tFromLedger && tFromJars.length > 0 && (
+            <PaidFromJarSelect
+              id="transfer-from-jar"
+              compact
+              jars={tFromJars}
+              accountName={tFromLedger.accountName}
+              currency={tFromLedger.currency}
+              value={tFromJar}
+              onChange={setTFromJar}
+            />
+          )}
+          {/* An optional fee: extra money leaving the source with the transfer, recorded as its
+              own expense on the departure date, on the line picked here (or uncategorised). */}
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Fee (optional)
+              <Input
+                type="text"
+                inputMode="decimal"
+                {...selectOnFocusProps}
+                value={tFee}
+                placeholder="0.00"
+                aria-label="Transfer fee"
+                disabled={departureLocked}
+                onChange={(e) => setTFee(e.target.value)}
+                className="w-full text-right tabular-nums"
+              />
+              {departureLocked &&
+                (amountLocked || departureTotalMinor === null ? (
+                  <StatementLockHint />
+                ) : (
+                  <span className="font-normal text-slate-500">
+                    The bank took {formatPlain(departureTotalMinor)} in all; the fee is what the amount leaves of it.
+                  </span>
+                ))}
+            </label>
+            {tHasFee && (
+              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+                Fee category
+                <Select
+                  value={tFeeLine}
+                  aria-label="Transfer fee category"
+                  onChange={(e) => setTFeeLine(e.target.value)}
+                  className="w-full"
+                >
+                  <option value="">Choose a line…</option>
+                  {feeLineOptions.map((g) => (
+                    <optgroup key={g.category} label={g.category}>
+                      {g.items.map((i) => (
+                        <option key={i.id} value={i.id}>
+                          {i.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </Select>
+              </label>
+            )}
+          </div>
+          {tHasFee && (
+            <p className="text-xs text-slate-500">
+              The fee leaves {accounts.find((a) => a.id === tFrom)?.name ?? 'the source account'} on top of the
+              amount, as its own expense on the same day.
+            </p>
+          )}
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Note
+            <Input
+              type="text"
+              value={tPayee}
+              placeholder="Transfer"
+              aria-label="Transfer note"
+              onChange={(e) => setTPayee(e.target.value)}
+              className="w-full"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+            Arrived in the destination account on (optional)
+            <Input
+              type="date"
+              value={tReceived}
+              aria-label="Transfer receipt date"
+              // A returned transfer never arrived: clear the return date to record a receipt.
+              disabled={receiptLocked || (returnApplies && !!tReturned)}
+              onChange={(e) => setTReceived(e.target.value)}
+              className="w-full text-slate-700"
+            />
+            {receiptLocked ? (
+              <StatementLockHint />
+            ) : (
+              <span className="font-normal text-slate-400">
+                Leave blank until the receiving bank shows it: the amount stays in transit and belongs to
+                neither account until then.
+              </span>
+            )}
+          </label>
+          {/* Only a transfer that left and never arrived can have come back to its source. */}
+          {returnApplies && (
+            <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
+              Returned on (optional)
+              <Input
+                type="date"
+                value={tReturned}
+                aria-label="Transfer returned date"
+                disabled={returnLocked}
+                onChange={(e) => setTReturned(e.target.value)}
+                className="w-full text-slate-700"
+              />
+              {returnLocked ? (
                 <StatementLockHint />
               ) : (
                 <span className="font-normal text-slate-400">
-                  Leave blank until the receiving bank shows it: the amount stays in transit and belongs to
-                  neither account until then.
+                  The date the bank sent the money back to {accounts.find((a) => a.id === tFrom)?.name ?? 'the source account'}.
+                  {tFromJars.length > 0 && ' It goes back to the jar it left from.'}
                 </span>
               )}
             </label>
-            {/* Only a transfer that left and never arrived can have come back to its source. */}
-            {returnApplies && (
-              <label className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                Returned on (optional)
-                <Input
-                  type="date"
-                  value={tReturned}
-                  aria-label="Transfer returned date"
-                  disabled={returnLocked}
-                  onChange={(e) => setTReturned(e.target.value)}
-                  className="w-full text-slate-700"
-                />
-                {returnLocked ? (
-                  <StatementLockHint />
-                ) : (
-                  <span className="font-normal text-slate-400">
-                    The date the bank sent the money back to {accounts.find((a) => a.id === tFrom)?.name ?? 'the source account'}.
-                    {tFromJars.length > 0 && ' It goes back to the jar it left from.'}
-                  </span>
-                )}
-              </label>
-            )}
-            {/* Rule 78: money for a jar-backed account asks how it is divided; while it is in
-                transit the answer is kept for the day it arrives (a returned transfer never does). */}
-            {tToLedger && tToJars.length > 0 && !(returnApplies && tReturned) && (
-              <>
-                <JarAllocationFields
-                  jars={tToJars}
-                  accountName={tToLedger.accountName}
-                  currency={tToLedger.currency}
-                  amount={tAmountMajor}
-                  value={tJarAlloc}
-                  onChange={setTJarAlloc}
-                  idPrefix="transfer"
-                />
-                {!tReceived && (
-                  <p className="text-xs text-slate-500">
-                    Until it arrives the money is in transit; the jars get their amounts on the day it reaches{' '}
-                    {tToLedger.accountName}.
-                  </p>
-                )}
-              </>
-            )}
-            {!editingTransfer && (
-              <label className="flex items-center gap-2 text-sm text-slate-700">
-                <input
-                  type="checkbox"
-                  checked={tConfirmed}
-                  aria-label="Transfer completed confirmation"
-                  onChange={(e) => setTConfirmed(e.target.checked)}
-                  className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                />
-                I’ve completed this transfer.
-              </label>
-            )}
-            <div className="flex justify-end gap-2 pt-1">
-              <Button variant="ghost" onClick={closeAddModal}>
-                Cancel
+          )}
+          {/* Rule 78: money for a jar-backed account asks how it is divided; while it is in
+              transit the answer is kept for the day it arrives (a returned transfer never does). */}
+          {tToLedger && tToJars.length > 0 && !(returnApplies && tReturned) && (
+            <>
+              <JarAllocationFields
+                jars={tToJars}
+                accountName={tToLedger.accountName}
+                currency={tToLedger.currency}
+                amount={tAmountMajor}
+                value={tJarAlloc}
+                onChange={setTJarAlloc}
+                idPrefix="transfer"
+              />
+              {!tReceived && (
+                <p className="text-xs text-slate-500">
+                  Until it arrives the money is in transit; the jars get their amounts on the day it reaches{' '}
+                  {tToLedger.accountName}.
+                </p>
+              )}
+            </>
+          )}
+          {!editingTransfer && (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={tConfirmed}
+                aria-label="Transfer completed confirmation"
+                onChange={(e) => setTConfirmed(e.target.checked)}
+                className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
+              />
+              I’ve completed this transfer.
+            </label>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={closeAddModal}>
+              Cancel
+            </Button>
+            {editingTransfer ? (
+              <Button onClick={() => submitTransfer()} disabled={transferring} aria-label="Save transfer">
+                Save transfer
               </Button>
-              {editingTransfer ? (
-                <Button onClick={() => submitTransfer()} disabled={transferring} aria-label="Save transfer">
-                  Save transfer
+            ) : (
+              <Button onClick={() => submitTransfer()} disabled={transferring} aria-label="Record transfer">
+                Record transfer
+              </Button>
+            )}
+          </div>
+        </div>
+        )}
+      </Modal>
+      )}
+
+      {/* Cross-month confirm: budgeting a transaction to a line in a different month than its
+          date is a deliberate choice (e.g. a purchase that cleared the following month). The
+          same prompt serves assign, edit, split and add — Confirm re-runs the action
+          acknowledged. */}
+      {crossMonthPrompt && (
+        <Modal title="Budget to a different month?" onClose={() => setCrossMonthPrompt(null)}>
+          <p className="text-sm text-slate-600">{crossMonthPrompt.message}</p>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="secondary" size="sm" onClick={() => setCrossMonthPrompt(null)}>
+              Cancel
+            </Button>
+            <Button size="sm" onClick={crossMonthPrompt.retry} disabled={savingId !== null || adding || transferring}>
+              Budget it anyway
+            </Button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Rule 79's inline prompt: "+ Assign" put a payment from a jar-backed account on a line
+          that is not a jar. Unallocated is the default; closing the prompt saves nothing. */}
+      {paidFromPrompt &&
+        (() => {
+          const { transaction: pt, budgetItemId, value } = paidFromPrompt
+          const ledger = ledgerOf(pt.accountId)
+          const choose = (paidFromJarId: string | null) => {
+            setPaidFromPrompt(null)
+            assign(pt.id, budgetItemId, false, paidFromJarId)
+          }
+          return (
+            <Modal title="Which jar does this come from?" onClose={() => setPaidFromPrompt(null)}>
+              <p className="text-sm text-slate-600">
+                {ledger?.accountName ?? pt.accountName ?? 'This account'} holds jars, and this budget line is not one of
+                them. Say which jar pays for {pt.payee || 'this'}, or leave it to the account’s unallocated money.
+              </p>
+              <div className="mt-3">
+                <PaidFromJarSelect
+                  id="assign-paid-from"
+                  jars={activeJars(ledger)}
+                  accountName={ledger?.accountName ?? pt.accountName ?? ''}
+                  currency={ledger?.currency ?? pt.currency}
+                  value={value}
+                  onChange={(next) => setPaidFromPrompt({ ...paidFromPrompt, value: next })}
+                />
+              </div>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button variant="secondary" size="sm" onClick={() => choose(null)}>
+                  Unallocated
                 </Button>
+                <Button size="sm" onClick={() => choose(value)} disabled={!value}>
+                  Use this jar
+                </Button>
+              </div>
+            </Modal>
+          )
+        })()}
+
+      {/* Enter the amount in the budget currency for a row recorded in another currency. */}
+      {convertingId &&
+        (() => {
+          const t = transactions.find((x) => x.id === convertingId)
+          if (!t) return null
+          return (
+            <ConvertedAmountModal
+              transaction={t}
+              budgetCurrency={budgetCurrency}
+              onClose={() => setConvertingId(null)}
+              onConfirmed={(updated) => {
+                setTransactions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
+                setConvertingId(null)
+                reloadLedgers()
+                // A refund's confirmed figure now counts in its purchase's refunded total.
+                if (updated.refundOfTransactionId) reloadTransactions()
+              }}
+            />
+          )
+        })()}
+
+      {loading && <p className="text-slate-500">Loading…</p>}
+
+      {!loading &&
+        (transactions.length === 0 ? (
+          // A failed load has nothing to say "empty" about: the alert above says what happened.
+          !loadFailed && (
+            <EmptyState
+              icon={<TransactionsIcon className="h-6 w-6" />}
+              title="No transactions yet"
+              description="Use + Add transaction to record one, or Import a bank statement."
+            />
+          )
+        ) : (
+          <section
+            aria-label="Transactions"
+            className={`dash-palette ${DASH_CARD} pt-[18px] pb-3 max-[699.98px]:px-4 max-[699.98px]:pt-3.5 max-[699.98px]:pb-1.5`}
+          >
+            <div className="flex flex-wrap items-center gap-3">
+              <SegmentedControl
+                variant="quiet"
+                ariaLabel="Filter transactions"
+                value={filter}
+                onChange={setFilter}
+                options={[
+                  { value: 'all', label: 'All' },
+                  {
+                    value: 'unassigned',
+                    label: 'Unassigned',
+                    badge: unassignedCount > 0 ? unassignedCount : undefined,
+                    description: unassignedCount === 0 ? 'All assigned' : `${unassignedCount} to assign`,
+                  },
+                ]}
+              />
+              <div className="flex-1" />
+              {query === null ? (
+                <button
+                  ref={searchButtonRef}
+                  type="button"
+                  aria-label="Search transactions"
+                  onClick={() => setQuery('')}
+                  className="grid size-10 shrink-0 place-items-center rounded-full text-slate-500 shadow-[inset_0_0_0_1px_var(--color-border)] transition hover:bg-surface-2 hover:text-slate-900 dark:hover:bg-foreground/7"
+                >
+                  <Search aria-hidden strokeWidth={1.8} className="size-[18px]" />
+                </button>
               ) : (
-                <Button onClick={() => submitTransfer()} disabled={transferring} aria-label="Record transfer">
-                  Record transfer
-                </Button>
+                // The pill carries the focus ring (focus-within); the field inside drops its own outline.
+                <div className="flex h-10 min-w-0 flex-1 basis-[220px] items-center gap-2 rounded-full bg-surface px-3.5 shadow-[inset_0_0_0_1px_var(--color-input)] focus-within:shadow-[inset_0_0_0_2px_var(--color-ring)] min-[700px]:max-w-[320px]">
+                  <Search aria-hidden strokeWidth={1.8} className="size-4 shrink-0 text-slate-500" />
+                  <input
+                    type="search"
+                    autoFocus
+                    value={query}
+                    aria-label="Search transactions"
+                    placeholder="Payee, category or account"
+                    onChange={(e) => setQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        closeSearch()
+                      }
+                    }}
+                    onBlur={(e) => {
+                      // Left empty, it closes when focus moves on (not to its own ✕).
+                      if (!e.target.value.trim() && !e.currentTarget.parentElement?.contains(e.relatedTarget as Node)) setQuery(null)
+                    }}
+                    className="h-full min-w-0 flex-1 bg-transparent text-sm text-slate-900 placeholder:text-slate-500 focus-visible:outline-none! [&::-webkit-search-cancel-button]:appearance-none"
+                  />
+                  <button
+                    type="button"
+                    aria-label="Clear search"
+                    onClick={closeSearch}
+                    className="relative -mr-1.5 grid size-7 shrink-0 place-items-center rounded-full text-slate-500 transition after:absolute after:-inset-1.5 after:content-[''] hover:bg-surface-2 hover:text-slate-900 dark:hover:bg-foreground/7"
+                  >
+                    <X aria-hidden className="size-4" />
+                  </button>
+                </div>
               )}
             </div>
-          </div>
-          )}
-        </Modal>
-        )}
+            {/* What the search found, for screen readers (the list itself changes silently). */}
+            <p aria-live="polite" className="sr-only">
+              {searchText ? `${visible.length} ${visible.length === 1 ? 'transaction' : 'transactions'} found` : ''}
+            </p>
 
-        {/* Cross-month confirm: budgeting a transaction to a line in a different month than its
-            date is a deliberate choice (e.g. a purchase that cleared the following month). The
-            same prompt serves assign, edit, split and add — Confirm re-runs the action
-            acknowledged. */}
-        {crossMonthPrompt && (
-          <Modal title="Budget to a different month?" onClose={() => setCrossMonthPrompt(null)}>
-            <p className="text-sm text-slate-600">{crossMonthPrompt.message}</p>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="secondary" size="sm" onClick={() => setCrossMonthPrompt(null)}>
-                Cancel
-              </Button>
-              <Button size="sm" onClick={crossMonthPrompt.retry} disabled={savingId !== null || adding || transferring}>
-                Budget it anyway
-              </Button>
-            </div>
-          </Modal>
-        )}
-
-        {/* Rule 79's inline prompt: "+ Assign" put a payment from a jar-backed account on a line
-            that is not a jar. Unallocated is the default; closing the prompt saves nothing. */}
-        {paidFromPrompt &&
-          (() => {
-            const { transaction: pt, budgetItemId, value } = paidFromPrompt
-            const ledger = ledgerOf(pt.accountId)
-            const choose = (paidFromJarId: string | null) => {
-              setPaidFromPrompt(null)
-              assign(pt.id, budgetItemId, false, paidFromJarId)
-            }
-            return (
-              <Modal title="Which jar does this come from?" onClose={() => setPaidFromPrompt(null)}>
-                <p className="text-sm text-slate-600">
-                  {ledger?.accountName ?? pt.accountName ?? 'This account'} holds jars, and this budget line is not one of
-                  them. Say which jar pays for {pt.payee || 'this'}, or leave it to the account’s unallocated money.
-                </p>
-                <div className="mt-3">
-                  <PaidFromJarSelect
-                    id="assign-paid-from"
-                    jars={activeJars(ledger)}
-                    accountName={ledger?.accountName ?? pt.accountName ?? ''}
-                    currency={ledger?.currency ?? pt.currency}
-                    value={value}
-                    onChange={(next) => setPaidFromPrompt({ ...paidFromPrompt, value: next })}
-                  />
-                </div>
-                <div className="mt-5 flex justify-end gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => choose(null)}>
-                    Unallocated
-                  </Button>
-                  <Button size="sm" onClick={() => choose(value)} disabled={!value}>
-                    Use this jar
-                  </Button>
-                </div>
-              </Modal>
-            )
-          })()}
-
-        {/* Enter the amount in the budget currency for a row recorded in another currency. */}
-        {convertingId &&
-          (() => {
-            const t = transactions.find((x) => x.id === convertingId)
-            if (!t) return null
-            return (
-              <ConvertedAmountModal
-                transaction={t}
-                budgetCurrency={budgetCurrency}
-                onClose={() => setConvertingId(null)}
-                onConfirmed={(updated) => {
-                  setTransactions((prev) => prev.map((x) => (x.id === updated.id ? updated : x)))
-                  setConvertingId(null)
-                  reloadLedgers()
-                  // A refund's confirmed figure now counts in its purchase's refunded total.
-                  if (updated.refundOfTransactionId) reloadTransactions()
-                }}
-              />
-            )
-          })()}
-
-        {loading && <p className="text-slate-500">Loading…</p>}
-
-        {!loading && (
-          <>
-            {/* Toolbar: All/Unassigned filter + count (left), Add transaction (right). */}
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-3">
-                <SegmentedControl
-                  ariaLabel="Filter transactions"
-                  value={filter}
-                  onChange={setFilter}
-                  options={[
-                    { value: 'all', label: 'All' },
-                    { value: 'unassigned', label: 'Unassigned' },
-                  ]}
-                />
-                <span className="text-sm text-slate-500">{transactions.length} transactions</span>
-              </div>
-              <div className="flex items-center gap-2">
-                {features.camtImport && canWrite && (
-                  <Link
-                    to="/import"
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-surface px-3.5 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
-                  >
-                    <ImportIcon className="h-4 w-4" />
-                    Import
-                  </Link>
-                )}
-                {canEnterData && (
-                  <Button
-                    onClick={() => {
-                      setMode('transaction')
-                      setError(null)
-                      // Close the register's inline split editor — the modal's split rows share
-                      // its aria-labels, and two mounted editors would collide.
-                      cancelSplit()
-                      resetAddSplit()
-                      resetAddJarPrompts()
-                      resetAddForeign()
-                      setShowAdd(true)
-                    }}
-                    aria-label="Add transaction"
-                  >
-                    <span aria-hidden className="text-base leading-none">+</span> Add transaction
-                  </Button>
-                )}
-              </div>
-            </div>
-
-            {transactions.length === 0 ? (
-              <EmptyState
-                icon={<TransactionsIcon className="h-6 w-6" />}
-                title="No transactions yet"
-                description="Use + Add transaction to record one, or Import a bank statement."
-              />
+            {visible.length === 0 ? (
+              <p className="pt-7 pb-5 text-center text-sm text-slate-500">
+                {filtered.length === 0
+                  ? filter === 'unassigned'
+                    ? 'Nothing left to assign.'
+                    : 'No transactions yet.'
+                  : `No match for “${searchText}”.`}
+              </p>
             ) : (
-            <Card className="overflow-hidden">
-              <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] table-fixed text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100 text-left text-[11px] font-bold uppercase tracking-[0.05em] text-slate-500">
-                    <th className="w-[84px] px-4 py-3 font-bold">Date</th>
-                    <th className="px-4 py-3 font-bold">Payee</th>
-                    <th className="w-[184px] px-4 py-3 font-bold">Category</th>
-                    <th className="w-[148px] px-4 py-3 font-bold">Account</th>
-                    <th className="w-[128px] px-4 py-3 text-right font-bold">Amount</th>
-                    <th className="w-[80px] px-4 py-3" />
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {visible.length === 0 && (
-                    <tr>
-                      <td colSpan={6} className="px-4 py-6 text-center text-slate-500">
-                        {filter === 'unassigned' ? 'Nothing left to assign.' : 'No transactions yet.'}
-                      </td>
-                    </tr>
-                  )}
-                  {visible.map((t) => {
-                    const isIncome = transactionTypeLabel(t.type) === 'Income'
-                    const isTransfer = t.type === TransactionType.Transfer
-                    const isRefund = !!t.refundOfTransactionId
-                    // A transfer's fee row: changed through its transfer, never on its own (it can
-                    // still be put on a line).
-                    const isFeeRow = !!t.feeForTransferId
-                    const hasRefunds = (t.refundCount ?? 0) > 0
-                    const editing = editingId === t.id
-                    const splitting = splittingId === t.id
-                    const refunding = refundingId === t.id
-                    const splitOptions = t.type === TransactionType.Income ? incomeOptions : expenseSplitOptions
-                    // Only lines the server accepts for the direction: a refund follows its purchase
-                    // onto expense/savings lines (rule 38), other income goes on income lines.
-                    const rowOptions = isRefund ? expenseSplitOptions : splitOptions
-                    const totalMinor = fromAmount(t.amount)
-                    const allocatedMinor = sumMinor(splitRows.map((r) => parseMinor(r.amount) ?? 0))
-                    const remainderMinor = totalMinor - allocatedMinor
-                    // W13 (P56/P57): an entry in someone else's private account is theirs to change.
-                    // The others may only confirm a transfer's receipt into the shared account they see.
-                    const rowEditable = canEnterData && !t.inPrivateAccount
-                    // P57: the others may confirm the leg on the shared side of a transfer with a
-                    // private account, the receipt into it or the departure out of it.
-                    const canConfirmVisibleLeg =
-                      canEnterData &&
-                      !!t.inPrivateAccount &&
-                      ((t.transferStatus === 'InTransit' && t.accountName === PRIVATE_ACCOUNT) ||
-                        (t.transferStatus === 'PendingReview' && t.transferAccountName === PRIVATE_ACCOUNT))
-                    return (
-                      <Fragment key={t.id}>
-                      <tr className="group hover:bg-slate-50">
-                        {editing ? (
-                          <td colSpan={6} className="px-4 py-3">
-                            <div className="flex flex-wrap items-center gap-2">
-                              <input
-                                type="date"
-                                value={eDate}
-                                aria-label="Edit date"
-                                onChange={(e) => setEDate(e.target.value)}
-                                className="rounded-md border border-slate-300 px-2 py-1 text-sm"
-                              />
-                              <input
-                                type="text"
-                                value={ePayee}
-                                aria-label="Edit payee"
-                                onChange={(e) => setEPayee(e.target.value)}
-                                className="min-w-32 flex-1 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                              />
-                              <input
-                                type="text"
-                                inputMode="decimal"
-                                {...selectOnFocusProps}
-                                value={eAmount}
-                                aria-label="Edit amount"
-                                onChange={(e) => setEAmount(e.target.value)}
-                                className="w-24 rounded-md border border-slate-300 px-2 py-1 text-right text-sm tabular-nums"
-                              />
-                              <select
-                                value={eType}
-                                aria-label="Edit type"
-                                onChange={(e) => setEType(Number(e.target.value))}
-                                // A refund stays money received, and a refunded purchase stays a
-                                // purchase, until the link is removed (rules 38/39).
-                                disabled={isRefund || hasRefunds}
-                                title={
-                                  isRefund
-                                    ? 'A refund is money received. Use “Not a refund” first to change its type.'
-                                    : hasRefunds
-                                      ? 'This purchase has refunds linked to it; unmark them first to change its type.'
-                                      : undefined
-                                }
-                                className="rounded-md border border-slate-300 px-2 py-1 text-sm disabled:opacity-60"
-                              >
-                                <option value={TransactionType.Expense}>Expense</option>
-                                <option value={TransactionType.Income}>Income</option>
-                              </select>
-                              {accounts.length > 0 && (
-                                <select
-                                  value={eAccount}
-                                  aria-label="Edit account"
-                                  onChange={(e) => {
-                                    setEAccount(e.target.value)
-                                    // Another account has other jars — start its answers from the default.
-                                    setEJarAlloc({})
-                                    setEPaidFrom(PAID_FROM_UNALLOCATED)
-                                  }}
-                                  className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
-                                >
-                                  <option value="">No account</option>
-                                  {accounts.map((a) => (
-                                    <option key={a.id} value={a.id}>
-                                      {a.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {members.length >= 2 && (
-                                <select
-                                  value={eMember}
-                                  aria-label="Edit member"
-                                  onChange={(e) => setEMember(e.target.value)}
-                                  className="rounded-md border border-slate-300 px-2 py-1 text-sm text-slate-600"
-                                >
-                                  <option value="">No member</option>
-                                  {members.map((m) => (
-                                    <option key={m.id} value={m.id}>
-                                      {m.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              )}
-                              {/* The jar prompts, pre-filled from the stored split (rules 78/79). */}
-                              {(() => {
-                                const ledger = ledgerOf(eAccount)
-                                const jars = jarsForAnswer(
-                                  ledger,
-                                  eType === TransactionType.Income
-                                    ? [...namedJarIds(eJarAlloc), ...storedJarIds(t, t.accountId, 'in')]
-                                    : [ePaidFrom, ...storedJarIds(t, t.accountId, 'out')],
-                                )
-                                if (!ledger || jars.length === 0) return null
-                                if (eType === TransactionType.Income) {
-                                  return (
-                                    <div className="basis-full">
-                                      <JarAllocationFields
-                                        jars={jars}
-                                        accountName={ledger.accountName}
-                                        currency={ledger.currency}
-                                        amount={eAmountMajor}
-                                        value={eJarAlloc}
-                                        onChange={setEJarAlloc}
-                                        idPrefix={`edit-${t.id}`}
-                                        compact
-                                      />
-                                    </div>
-                                  )
-                                }
-                                if (!hasNonJarLine(t, eAccount || null)) return null
-                                return (
-                                  <div className="basis-full">
-                                    <PaidFromJarSelect
-                                      id={`edit-${t.id}-paid-from`}
-                                      compact
-                                      jars={jars}
-                                      accountName={ledger.accountName}
-                                      currency={ledger.currency}
-                                      value={ePaidFrom}
-                                      onChange={setEPaidFrom}
-                                    />
-                                  </div>
-                                )
-                              })()}
-                              <div className="ml-auto flex gap-1">
-                                <Button size="sm" onClick={() => saveEdit(t)} disabled={savingId === t.id} aria-label="Save transaction">
-                                  Save
-                                </Button>
-                                <Button size="sm" variant="ghost" onClick={() => setEditingId(null)} aria-label="Cancel edit">
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          </td>
-                        ) : (
-                          <>
-                            <td className="whitespace-nowrap px-4 py-3.5 tabular-nums text-slate-500">
-                              {shortDate(t.date)}
-                            </td>
-                            <td className="px-4 py-3.5">
-                              <span className="flex min-w-0 items-center gap-2 font-semibold text-slate-900">
-                                <span className="truncate">{t.payee || (isTransfer ? 'Transfer' : '—')}</span>
-                                {!isTransfer && t.budgetItemId && billItemIds.has(t.budgetItemId) && (
-                                  <span className="shrink-0 rounded-[5px] border border-slate-200 px-1.5 py-px text-[9.5px] font-bold uppercase tracking-[0.05em] text-slate-500">
-                                    Bill
-                                  </span>
-                                )}
-                                {/* Rules 38/39: money received that is not income — it came back from a purchase. */}
-                                {isRefund && (
-                                  <Badge tone="teal" className="shrink-0" title={refundOfLabel(t) ?? 'Refund'}>
-                                    Refund
-                                  </Badge>
-                                )}
-                                {isFeeRow && (
-                                  <Badge tone="neutral" className="shrink-0" title="Edit the transfer to change this fee">
-                                    Fee for transfer
-                                  </Badge>
-                                )}
-                                {/* A purchase that has been (partly) refunded says so, so its line's net is explicable. */}
-                                {hasRefunds && (
-                                  <span
-                                    className="shrink-0 rounded-[5px] border border-teal-200 bg-teal-50 px-1.5 py-px text-[9.5px] font-semibold text-teal-700 dark:border-teal-400/30 dark:bg-teal-400/10 dark:text-teal-300"
-                                    title={`${t.refundCount} ${t.refundCount === 1 ? 'refund' : 'refunds'} linked to this purchase`}
-                                  >
-                                    {formatMoney(fromAmount(t.refundedAmount ?? 0), budgetCurrency)} refunded
-                                  </span>
-                                )}
-                                {/* Budgeted to a line in a different month than the transaction's date. */}
-                                {!isTransfer && (() => {
-                                  const label = budgetedToLabel(t)
-                                  return label ? (
-                                    <span
-                                      title={`Budgeted to a ${label} line, not this transaction's own month`}
-                                      className="shrink-0 rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300"
-                                    >
-                                      Budgeted to {label}
-                                    </span>
-                                  ) : null
-                                })()}
-                              </span>
-                              {isRefund && (
-                                <span className="mt-0.5 block text-xs text-slate-500">{refundOfLabel(t)}</span>
-                              )}
-                              {/* A stored jar split (rules 78/79): where this money went, or came from. */}
-                              {(() => {
-                                const labels = jarSplitLabels(t)
-                                return labels.length > 0 ? (
-                                  <span className="mt-1 flex flex-wrap gap-1">
-                                    {labels.map((label) => (
-                                      <Badge key={label} tone="neutral" className="max-w-full" title={`Jars: ${label}`}>
-                                        <span className="truncate">{label}</span>
-                                      </Badge>
-                                    ))}
-                                  </span>
-                                ) : null
-                              })()}
-                            </td>
-                            <td className="px-4 py-3.5">
-                              {isTransfer ? (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <Badge tone="brand">Transfer</Badge>
-                                  {t.transferStatus === 'InTransit' && (
-                                    <span
-                                      title={`Left ${t.accountName ?? 'the source'} on ${formatDate(t.departedOn ?? t.date)}; receipt not yet confirmed`}
-                                      className="rounded-[5px] border border-sky-200 bg-sky-50 px-1.5 py-px text-[9.5px] font-semibold text-sky-700 dark:border-sky-400/30 dark:bg-sky-400/10 dark:text-sky-300"
-                                    >
-                                      In transit
-                                    </span>
-                                  )}
-                                  {t.transferStatus === 'Returned' && (
-                                    <span
-                                      title={`Sent back to ${t.accountName ?? 'the source'} on ${formatDate(t.returnedOn ?? t.date)}`}
-                                      className="rounded-[5px] border border-rose-200 bg-rose-50 px-1.5 py-px text-[9.5px] font-semibold text-rose-700 dark:border-rose-400/30 dark:bg-rose-400/10 dark:text-rose-300"
-                                    >
-                                      Returned
-                                    </span>
-                                  )}
-                                  {t.transferStatus === 'PendingReview' && (
-                                    <span
-                                      title={`Received by ${t.transferAccountName ?? 'the destination'} on ${formatDate(t.receivedOn ?? t.date)}; departure date unknown — nothing is posted until it is supplied`}
-                                      className="rounded-[5px] border border-amber-200 bg-amber-50 px-1.5 py-px text-[9.5px] font-semibold text-amber-700 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-300"
-                                    >
-                                      Pending review
-                                    </span>
-                                  )}
-                                  {(rowEditable || canConfirmVisibleLeg) &&
-                                    (t.transferStatus === 'InTransit' || t.transferStatus === 'PendingReview') &&
-                                    legId !== t.id && (
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setLegId(t.id)
-                                        setLegDate(t.transferStatus === 'PendingReview' ? t.receivedOn ?? todayIso() : t.departedOn ?? todayIso())
-                                        // Start from the jar answers given when it was recorded.
-                                        setLegJarAlloc(fromJarAllocations(incomingAllocationsOf(t.jarAllocations, t.transferAccountId)))
-                                        setLegFromJar(paidFromJarOf(t.jarAllocations, t.accountId, new Set()) ?? PAID_FROM_UNALLOCATED)
-                                      }}
-                                      aria-label={`${t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}: ${t.payee || t.date}`}
-                                      className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-200"
-                                    >
-                                      {t.transferStatus === 'PendingReview' ? 'Add departure date' : 'Confirm receipt'}
-                                    </button>
-                                  )}
-                                  {legId === t.id && (
-                                    <span className="flex items-center gap-1">
-                                      <input
-                                        type="date"
-                                        value={legDate}
-                                        aria-label={t.transferStatus === 'PendingReview' ? 'Departure date' : 'Receipt date'}
-                                        onChange={(e) => setLegDate(e.target.value)}
-                                        className="rounded-md border border-slate-300 px-1.5 py-0.5 text-xs"
-                                      />
-                                      <Button size="sm" onClick={() => confirmLeg(t)} disabled={savingId === t.id} aria-label="Save transfer leg">
-                                        Save
-                                      </Button>
-                                      <Button size="sm" variant="ghost" onClick={() => setLegId(null)} aria-label="Cancel transfer leg">
-                                        Cancel
-                                      </Button>
-                                    </span>
-                                  )}
-                                </div>
-                              ) : t.isSplit ? (
-                                <div className="flex flex-wrap items-center gap-1.5">
-                                  <Badge tone="violet">Split</Badge>
-                                  <span className="text-xs text-slate-500">
-                                    {t.splits
-                                      .map(
-                                        (s) =>
-                                          `${s.budgetItemName ?? 'Unassigned'}${
-                                            s.memberName ? ` (${s.memberName})` : ''
-                                          } ${formatMoney(fromAmount(s.amount), t.currency)}`,
-                                      )
-                                      .join(' · ')}
-                                  </span>
-                                </div>
-                              ) : assigningId === t.id && rowEditable ? (
-                                <select
-                                  autoFocus
-                                  value={t.budgetItemId ?? ''}
-                                  disabled={savingId === t.id}
-                                  aria-label={`Assign ${t.payee || 'transaction'}`}
-                                  onChange={(e) => {
-                                    const next = e.target.value || null
-                                    setAssigningId(null)
-                                    // Rule 79: a payment from a jar-backed account put on a line that is
-                                    // not a jar asks which jar it comes from first; a jar line draws from
-                                    // its own jar and clearing the line draws from unallocated — no prompt.
-                                    if (
-                                      next &&
-                                      t.type === TransactionType.Expense &&
-                                      jarsOf(t.accountId).length > 0 &&
-                                      !isJarLineFor(next, t.accountId)
-                                    ) {
-                                      setPaidFromPrompt({ transaction: t, budgetItemId: next, value: PAID_FROM_UNALLOCATED })
-                                    } else {
-                                      assign(t.id, next)
-                                    }
-                                  }}
-                                  onBlur={() => setAssigningId(null)}
-                                  className="w-56 rounded-md border border-slate-300 px-2 py-1 text-sm focus:border-brand-600 focus:outline-none focus:ring-1 focus:ring-brand-500 disabled:opacity-50"
-                                >
-                                  <option value="">Unassigned</option>
-                                  {rowOptions.map((g) => (
-                                    <optgroup key={g.category} label={g.category}>
-                                      {g.items.map((i) => (
-                                        <option key={i.id} value={i.id}>
-                                          {i.name}
-                                        </option>
-                                      ))}
-                                    </optgroup>
-                                  ))}
-                                </select>
-                              ) : t.budgetItemId ? (
-                                // Assigned — a tint pill with a category colour dot (text stays --ink).
-                                (() => {
-                                  const hue = itemHue[t.budgetItemId]
-                                  const pill = (
-                                    <>
-                                      <span
-                                        className="h-[7px] w-[7px] shrink-0 rounded-full"
-                                        style={{ background: dotColor(hue) }}
-                                        aria-hidden
-                                      />
-                                      <span className="truncate">{t.budgetItemName}</span>
-                                    </>
-                                  )
-                                  return rowEditable ? (
-                                    <button
-                                      type="button"
-                                      onClick={() => setAssigningId(t.id)}
-                                      aria-label={`Reassign ${t.payee || 'transaction'}`}
-                                      className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold text-slate-900"
-                                      style={{ background: tintColor(hue) }}
-                                    >
-                                      {pill}
-                                    </button>
-                                  ) : (
-                                    <span
-                                      className="inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1 text-[12.5px] font-semibold text-slate-900"
-                                      style={{ background: tintColor(hue) }}
-                                    >
-                                      {pill}
-                                    </span>
-                                  )
-                                })()
-                              ) : rowEditable ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setAssigningId(t.id)}
-                                  aria-label={`Assign ${t.payee || 'transaction'}`}
-                                  className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-slate-400 px-3 py-1 text-[12.5px] font-semibold text-slate-500 transition hover:border-brand-600 hover:text-brand-700"
-                                >
-                                  + Assign
-                                </button>
-                              ) : (
-                                <span className="text-sm text-slate-600">Unassigned</span>
-                              )}
-                            </td>
-                            <td className="truncate px-4 py-3.5 text-sm text-slate-500">
-                              {isTransfer
-                                ? `${t.accountName ?? '—'} → ${t.transferAccountName ?? '—'}`
-                                : t.accountName ?? '—'}
-                            </td>
-                            <td
-                              className={`whitespace-nowrap px-4 py-3.5 text-right font-semibold tabular-nums ${
-                                isTransfer
-                                  ? 'text-slate-500'
-                                  : isIncome
-                                    ? 'text-brand-700 dark:text-brand-200'
-                                    : 'text-slate-900'
-                              }`}
-                            >
-                              {isTransfer ? '' : isIncome ? '+' : '−'}
-                              {/* A row waiting for its budget-currency amount shows its own figure
-                                  labelled with the code, so it never reads as budget money. */}
-                              {t.fxPending ? formatForeign(t.amount, t.currency) : formatMoney(fromAmount(t.amount), t.currency)}
-                              {t.fxPending && (
-                                <span className="mt-1 flex flex-col items-end gap-1 font-normal">
-                                  <FxPendingTag budgetCurrency={budgetCurrency} />
-                                  {rowEditable && !t.isSplit && (
-                                    <button
-                                      type="button"
-                                      onClick={() => setConvertingId(t.id)}
-                                      aria-label={`Enter amount in ${budgetCurrency}: ${t.payee || t.date}`}
-                                      className="text-[11px] font-semibold text-brand-700 hover:underline dark:text-brand-200"
-                                    >
-                                      Enter amount
-                                    </button>
-                                  )}
-                                </span>
-                              )}
-                              {!t.fxPending && t.originalCurrency && t.originalAmount != null && (
-                                <span
-                                  className="mt-0.5 block text-[11px] font-normal text-slate-500"
-                                  title={`Paid in ${t.originalCurrency}`}
-                                >
-                                  {formatForeign(t.originalAmount, t.originalCurrency)}
-                                </span>
-                              )}
-                              {!t.fxPending && t.budgetAmount != null && (
-                                <span
-                                  className="mt-0.5 block text-[11px] font-normal text-slate-500"
-                                  title={`The account keeps its ${t.currency} amount; the budget counts this`}
-                                >
-                                  Counts as {formatMoney(fromAmount(t.budgetAmount), budgetCurrency)}
-                                </span>
-                              )}
-                              {/* The fee that left the source on top of what arrived (its own row). */}
-                              {isTransfer && t.fee != null && t.fee > 0 && (
-                                <span
-                                  className="block text-xs font-normal text-slate-500"
-                                  title={`Fee on ${t.feeBudgetItemName ?? 'no budget line'}`}
-                                >
-                                  + fee {formatPlain(fromAmount(t.fee))}
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-3.5 text-right">
-                              {rowEditable && !isFeeRow && (
-                              // Always visible (not hover-revealed): the tester never found the
-                              // split action, and touch devices have no hover at all.
-                              <div className="flex justify-end gap-1">
-                                {isTransfer && (
-                                  <button
-                                    type="button"
-                                    onClick={() => startTransferEdit(t)}
-                                    aria-label={`Edit transfer: ${t.payee || t.date}`}
-                                    title="Edit transfer"
-                                    className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                  >
-                                    ✎
-                                  </button>
-                                )}
-                                {!isTransfer && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() => startEdit(t)}
-                                      aria-label={`Edit transaction: ${t.payee || t.date}`}
-                                      title="Edit transaction"
-                                      className="rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100 hover:text-slate-700"
-                                    >
-                                      ✎
-                                    </button>
-                                    {/* A refund's whole amount reduces one line; it is never split (rule 38). */}
-                                    {!isRefund && (
-                                      <button
-                                        type="button"
-                                        onClick={() => startSplit(t)}
-                                        aria-label={`Split transaction: ${t.payee || t.date}`}
-                                        title="Split across budget lines"
-                                        className="rounded-md px-2 py-1 text-slate-500 hover:bg-violet-50 hover:text-violet-600"
-                                      >
-                                        ⑂
-                                      </button>
-                                    )}
-                                    {/* Rules 38/39: money received can be marked as a refund of a purchase, and back. */}
-                                    {isRefund ? (
-                                      <button
-                                        type="button"
-                                        onClick={() => linkRefund(t.id, null)}
-                                        disabled={savingId === t.id}
-                                        aria-label={`Not a refund: ${t.payee || t.date}`}
-                                        title="Not a refund — record this as income instead"
-                                        className="rounded-md px-2 py-1 text-teal-700 hover:bg-teal-50 disabled:opacity-50 dark:text-teal-300 dark:hover:bg-teal-500/10"
-                                      >
-                                        ↩
-                                      </button>
-                                    ) : (
-                                      isIncome &&
-                                      !t.isSplit && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setEditingId(null)
-                                            setSplittingId(null)
-                                            setRefundPick('')
-                                            setRefundingId(refunding ? null : t.id)
-                                          }}
-                                          aria-label={`Mark as refund: ${t.payee || t.date}`}
-                                          title="Mark as a refund of a purchase"
-                                          className="rounded-md px-2 py-1 text-slate-500 hover:bg-teal-50 hover:text-teal-700"
-                                        >
-                                          ↩
-                                        </button>
-                                      )
-                                    )}
-                                  </>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() => removeTransaction(t.id)}
-                                  disabled={savingId === t.id}
-                                  aria-label={`Delete transaction: ${t.payee || t.date}`}
-                                  title="Delete transaction"
-                                  className="rounded-md px-2 py-1 text-slate-500 hover:bg-rose-50 hover:text-rose-600 disabled:opacity-50"
-                                >
-                                  ✕
-                                </button>
-                              </div>
-                              )}
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                      {/* Marking money received as a refund: pick the purchase it came back from (rules 38/39). */}
-                      {refunding && (
-                        <tr className="bg-teal-50/40 dark:bg-teal-400/5">
-                          <td colSpan={6} className="px-4 py-3">
-                            <div className="flex flex-wrap items-center gap-2 text-sm">
-                              <span className="text-xs font-semibold text-slate-600">Refund of</span>
-                              <select
-                                value={refundPick}
-                                aria-label={`Purchase refunded by ${t.payee || t.date}`}
-                                onChange={(e) => setRefundPick(e.target.value)}
-                                className="min-w-56 rounded-md border border-slate-300 px-2 py-1 text-sm"
-                              >
-                                <option value="">Choose the purchase</option>
-                                {purchases.map((p) => (
-                                  <option key={p.id} value={p.id}>
-                                    {shortDate(p.date)} · {p.payee || 'Purchase'} · {formatMoney(fromAmount(p.amount), p.currency)}
-                                  </option>
-                                ))}
-                              </select>
-                              <span className="text-xs text-slate-500">
-                                {purchases.find((p) => p.id === refundPick)?.isSplit
-                                  ? 'That purchase is split across several lines: the refund is not counted as income, and you pick its category on the row afterwards.'
-                                  : 'The refund moves to the purchase’s category and is not counted as income.'}
-                              </span>
-                              <div className="ml-auto flex gap-1">
-                                <Button
-                                  size="sm"
-                                  onClick={() => linkRefund(t.id, refundPick)}
-                                  disabled={savingId === t.id || !refundPick}
-                                  aria-label="Save refund link"
-                                >
-                                  Save
-                                </Button>
-                                <Button size="sm" variant="ghost" onClick={() => setRefundingId(null)} aria-label="Cancel refund link">
-                                  Cancel
-                                </Button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      {/* The jar question of the leg being confirmed (rules 78/80), under its row so
-                          the fields have room: a receipt into a jar-backed account asks how it is
-                          divided; a departure from one may name the jar it left. */}
-                      {legId === t.id &&
-                        (() => {
-                          const pending = t.transferStatus === 'PendingReview'
-                          const ledger = ledgerOf(pending ? t.accountId : t.transferAccountId)
-                          const jars = activeJars(ledger)
-                          if (!ledger || jars.length === 0) return null
-                          return (
-                            <tr className="bg-sky-50/40 dark:bg-sky-400/5">
-                              <td colSpan={6} className="px-4 py-3">
-                                {pending ? (
-                                  <PaidFromJarSelect
-                                    id={`departure-${t.id}-from-jar`}
-                                    compact
-                                    jars={jars}
-                                    accountName={ledger.accountName}
-                                    currency={ledger.currency}
-                                    value={legFromJar}
-                                    onChange={setLegFromJar}
-                                  />
-                                ) : (
-                                  <JarAllocationFields
-                                    jars={jars}
-                                    accountName={ledger.accountName}
-                                    currency={ledger.currency}
-                                    amount={t.amount}
-                                    value={legJarAlloc}
-                                    onChange={setLegJarAlloc}
-                                    idPrefix={`receipt-${t.id}`}
-                                    compact
-                                  />
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })()}
-                      {splitting && (
-                        <tr className="bg-violet-50/40">
-                          <td colSpan={6} className="px-4 py-4">
-                            <div className="space-y-3">
-                              <div className="flex items-center justify-between">
-                                <h4 className="text-sm font-semibold text-slate-700">
-                                  Split “{t.payee || t.date}” ({formatMoney(totalMinor, t.currency)})
-                                </h4>
-                                <SplitRemainderChip
-                                  remainderMinor={remainderMinor}
-                                  format={(m) => formatMoney(m, t.currency)}
-                                />
-                              </div>
-
-                              {splitOptions.length === 0 && (
-                                <p className="text-xs text-rose-600">
-                                  Add some {isIncome ? 'income' : 'expense'} budget lines first.
-                                </p>
-                              )}
-
-                              <SplitLinesEditor
-                                rows={splitRows}
-                                options={splitOptions}
-                                members={members}
-                                onChangeRow={updateSplitRow}
-                                onRemoveRow={removeSplitRow}
-                              />
-
-                              {/* Rule 79: the slices on lines that are not jars draw from one named jar. */}
-                              {(() => {
-                                const ledger = ledgerOf(t.accountId)
-                                const jars = jarsForAnswer(ledger, [splitPaidFrom, ...storedJarIds(t, t.accountId, 'out')])
-                                const applies =
-                                  t.type === TransactionType.Expense &&
-                                  !!ledger &&
-                                  jars.length > 0 &&
-                                  splitRows.some((r) => !!r.budgetItemId && !isJarLineFor(r.budgetItemId, t.accountId))
-                                return applies && ledger ? (
-                                  <PaidFromJarSelect
-                                    id="split-paid-from"
-                                    compact
-                                    jars={jars}
-                                    accountName={ledger.accountName}
-                                    currency={ledger.currency}
-                                    value={splitPaidFrom}
-                                    onChange={setSplitPaidFrom}
-                                  />
-                                ) : null
-                              })()}
-
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={addSplitRow}
-                                  aria-label="Add split line"
-                                  className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-surface"
-                                >
-                                  + Add line
-                                </button>
-                                {t.isSplit && (
-                                  <button
-                                    type="button"
-                                    onClick={() => removeSplit(t.id)}
-                                    disabled={savingId === t.id}
-                                    aria-label="Remove split"
-                                    className="rounded-md px-2.5 py-1 text-xs font-medium text-rose-600 hover:bg-rose-50 disabled:opacity-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
-                                  >
-                                    Remove split
-                                  </button>
-                                )}
-                                <div className="flex-1" />
-                                <button
-                                  type="button"
-                                  onClick={() => saveSplit(t)}
-                                  disabled={savingId === t.id || remainderMinor !== 0}
-                                  aria-label="Save split"
-                                  className="rounded-md bg-violet-600 px-3 py-1 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
-                                >
-                                  Save split
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={cancelSplit}
-                                  aria-label="Cancel split"
-                                  className="rounded-md px-3 py-1 text-xs text-slate-500 hover:bg-slate-100"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
-              </div>
-            </Card>
+              days.map((d) => (
+                <TxDay
+                  key={d.date}
+                  date={d.date}
+                  rows={d.rows}
+                  phone={phone}
+                  ctx={rowCtx}
+                  state={activeIds.length > 0 && d.rows.some((t) => activeIds.includes(t.id)) ? dayState : null}
+                />
+              ))
             )}
-          </>
-        )}
+          </section>
+        ))}
     </AppShell>
   )
 }

@@ -53,6 +53,11 @@ export interface KpiTileProps extends Omit<HTMLAttributes<HTMLElement>, 'childre
   /** A plain tile's icon, drawn in a tinted square in its top-right corner (wide rows only). */
   icon?: ReactNode
   hue?: CategoryHue
+  /**
+   * The icon's colour when it is not one of the category hues (a CSS colour, e.g. the Transactions
+   * page's clay `var(--color-clay)` for Spent); overrides `hue`.
+   */
+  iconColor?: string
   value: ReactNode
   /** The number's accessible name, when the glyphs alone are not a good one. */
   valueLabel?: string
@@ -79,6 +84,7 @@ export function KpiTile({
   hintLabel,
   icon,
   hue = 'emerald',
+  iconColor,
   value,
   valueLabel,
   sub,
@@ -156,7 +162,10 @@ export function KpiTile({
         <span
           aria-hidden
           className="absolute top-[18px] right-[18px] hidden size-9 place-items-center rounded-[10px] @min-[720px]:grid [&_svg]:size-[18px]"
-          style={{ background: `color-mix(in srgb, ${hueColor(hue)} 13%, var(--color-card))`, color: hueColor(hue) }}
+          style={{
+            background: `color-mix(in srgb, ${iconColor ?? hueColor(hue)} 13%, var(--color-card))`,
+            color: iconColor ?? hueColor(hue),
+          }}
         >
           {icon}
         </span>

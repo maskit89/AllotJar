@@ -166,15 +166,42 @@ test.describe('responsive — data tables scroll inside their own container (375
     }
   }
 
-  // UX-031 — the transactions register (min-w-[720px]) scrolls inside its own
-  // overflow-x-auto box; the page never scrolls sideways at 375 px.
-  test('the transactions register scrolls inside its own container (UX-031)', async ({ page }) => {
+  // UX-031 — the transactions list (restyle PR 5) has no wide table any more: on a phone each row
+  // is two lines that truncate, so the list card fits the screen with nothing scrolling sideways,
+  // neither the page nor the card nor a row.
+  test('the transactions list fits a phone with no sideways scroll (UX-031)', async ({ page }) => {
     await authedSetup(page, 'light')
     await page.goto('/transactions')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
-    const table = page.getByRole('table')
-    await table.waitFor()
-    await expectInnerScroller(table, '/transactions register', true)
+    const list = page.getByRole('region', { name: 'Transactions' })
+    await list.waitFor()
+    await expect(list.getByTestId('tx-row').first()).toBeVisible()
+    const m = await list.evaluate((card: HTMLElement) => {
+      const de = document.documentElement
+      const rows = Array.from(card.querySelectorAll<HTMLElement>('[data-testid="tx-row"]'))
+      return {
+        pageScrollW: de.scrollWidth,
+        pageClientW: de.clientWidth,
+        viewportW: window.innerWidth,
+        cardRight: card.getBoundingClientRect().right,
+        cardScrollW: card.scrollWidth,
+        cardClientW: card.clientWidth,
+        rows: rows.length,
+        // What shows of a row (its elements; a chip's invisible ::after hit area may reach past it,
+        // which the card's own scroll width above still guards).
+        contentPastRow: rows.flatMap((r) => {
+          const right = r.getBoundingClientRect().right
+          return Array.from(r.querySelectorAll<HTMLElement>('*')).filter((el) => el.getBoundingClientRect().right > right + 1)
+        }).length,
+        rowsPastCard: rows.filter((r) => r.getBoundingClientRect().right > card.getBoundingClientRect().right + 1).length,
+      }
+    })
+    expect(m.rows, 'the mocked rows render').toBeGreaterThan(5)
+    expect(m.pageScrollW, 'document overflows the viewport').toBeLessThanOrEqual(m.pageClientW + 1)
+    expect(m.cardRight, 'list card wider than the viewport').toBeLessThanOrEqual(m.viewportW + 1)
+    expect(m.cardScrollW, 'list card scrolls sideways').toBeLessThanOrEqual(m.cardClientW + 1)
+    expect(m.contentPastRow, 'a row\'s content runs past the row').toBe(0)
+    expect(m.rowsPastCard, 'a row runs past the card').toBe(0)
   })
 
   // UX-031 — the People "Your household" table (min-w-[820px]) scrolls inside its

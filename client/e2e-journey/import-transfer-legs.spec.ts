@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { register } from './helpers'
+import { register, txAction, txRows } from './helpers'
 
 /**
  * Own-account transfers across two statements, driven through the live API + real SQL (W07,
@@ -100,7 +100,8 @@ test('both statements of one transfer reconcile to a single movement when the us
   await page.goto('/accounts')
   await expect(page.getByText(/in transit/)).toHaveCount(0)
   await page.goto('/transactions')
-  const rows = page.locator('tbody tr').filter({ hasText: 'TRANSFER' })
+  // hasText ignores case, so this also matches the row's Transfer chip: there is one transfer row.
+  const rows = txRows(page).filter({ hasText: 'TRANSFER' })
   await expect(rows).toHaveCount(1)
   await expect(rows.first().getByText('In transit')).toHaveCount(0)
 
@@ -136,11 +137,11 @@ test('a receipt-first transfer is held for review with no posted effect until it
   await expect(page.getByText('1 receipt pending review', { exact: true })).toHaveCount(2)
   await expect(page.getByText(/transfer receipt.* pending review/)).toBeVisible()
 
-  // --- The register flags the row and asks for the departure date.
+  // --- The list flags the row, and its ⋯ asks for the departure date (the editor opens in the row).
   await page.goto('/transactions')
-  const row = page.locator('tbody tr').filter({ hasText: 'TRANSFER FROM MAIN' })
+  const row = txRows(page).filter({ hasText: 'TRANSFER FROM MAIN' })
   await expect(row.getByText('Pending review')).toBeVisible()
-  await row.getByRole('button', { name: /^Add departure date:/ }).click()
+  await txAction(page, row, /^Add departure date:/)
   await row.getByLabel('Departure date').fill('2026-06-30')
   const confirmed = page.waitForResponse(
     (r) => r.request().method() === 'PUT' && new URL(r.url()).pathname.endsWith('/transfer-legs') && r.ok(),

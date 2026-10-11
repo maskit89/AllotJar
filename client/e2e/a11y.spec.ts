@@ -198,6 +198,61 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // The Transactions list (restyle PR 5): a row's ⋯ open, the search with and without a match,
+    // and the row's inline editors open.
+    test('transactions row menu, search and inline editors have no WCAG A/AA violations', async ({ page }) => {
+      await authedSetup(page, theme)
+      await page.goto('/transactions')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      // One Add transaction, in the top bar.
+      await expect(page.getByRole('button', { name: 'Add transaction' })).toHaveCount(1)
+
+      await page.getByRole('button', { name: 'Welbees Supermarket: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit transaction: Welbees Supermarket' }).waitFor()
+      await expectNoViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(page.getByRole('menu')).toHaveCount(0)
+
+      await page.getByRole('button', { name: 'Search transactions' }).click()
+      await page.getByRole('searchbox', { name: 'Search transactions' }).fill('grocer')
+      await expect(page.getByTestId('tx-row')).toHaveCount(1)
+      await expectNoViolations(page)
+      await page.getByRole('searchbox', { name: 'Search transactions' }).fill('nothing like it')
+      await page.getByText('No match for “nothing like it”.').waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'Clear search' }).click()
+
+      await page.getByRole('button', { name: 'Welbees Supermarket: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Edit transaction: Welbees Supermarket' }).click()
+      await page.getByLabel('Edit payee').waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'Cancel edit' }).click()
+
+      await page.getByRole('button', { name: 'Unknown Shop: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Split transaction: Unknown Shop' }).click()
+      await page.getByLabel('Split line 1 amount').waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'Cancel split' }).click()
+
+      await page.getByRole('button', { name: 'Assign Unknown Shop' }).click()
+      await page.getByRole('combobox', { name: 'Assign Unknown Shop' }).waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('a transaction\'s sheet on a phone has no WCAG A/AA violations', async ({ page }) => {
+      await page.setViewportSize({ width: 390, height: 844 })
+      await authedSetup(page, theme)
+      await page.goto('/transactions')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      // One Add transaction, under the KPIs.
+      await expect(page.getByRole('button', { name: 'Add transaction' })).toHaveCount(1)
+      await page.getByRole('button', { name: 'Welbees Supermarket', exact: true }).click()
+      const sheet = page.getByRole('dialog', { name: 'Welbees Supermarket' })
+      await sheet.getByRole('button', { name: 'Edit transaction: Welbees Supermarket' }).waitFor()
+      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await expectNoViolations(page)
+    })
+
     test('login has no WCAG A/AA violations', async ({ page }) => {
       // Signed out: no token, so the login page renders.
       await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
