@@ -291,4 +291,78 @@ function Get-RestoreFileMoves {
     }
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves
+<#
+.SYNOPSIS
+    The ways a stack's server-side settings file (appsettings.<Env>.json, read as TEXT because
+    the files carry // comments) would make that stack act as the OTHER one: a connection
+    string naming the other stack's database, or an Email:AppBaseUrl that puts the other
+    stack's origin into every emailed link (password reset, invite). An empty array means the
+    file fits the stack. Deploy.ps1 runs this in its preflight, before the API is taken
+    offline, so a wrong file stops the deploy while the stack keeps running its old build.
+
+    Email:AppBaseUrl is REQUIRED for the staging stack: the API's built-in default is the
+    production origin, so a staging file that omits it emails links that open production
+    (where the reset token, signed with staging's DataProtection keys, is not valid). This
+    is exactly what happened on 12 October 2026. Production may omit it (the default is its
+    own origin) but must not name staging.
+#>
+function Get-StackSettingsProblems {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SettingsText,
+        [Parameter(Mandatory)][ValidateSet('Staging', 'Production')][string]$AspNetEnvironment,
+        # The stack's own values; the defaults are the names in docs/deployment/staging-prod.md.
+        [string]$ExpectedDatabase = $(if ($AspNetEnvironment -eq 'Staging') { 'ZeroBudgetStaging' } else { 'ZeroBudgetProd' }),
+        [string]$ExpectedAppBaseUrl = $(if ($AspNetEnvironment -eq 'Staging') { 'https://staging.allotjar.com' } else { 'https://www.allotjar.com' })
+    )
+    $problems = @()
+    # Drop whole-line // comments so a commented-out setting can neither satisfy nor fail a check.
+    $text = [regex]::Replace($SettingsText, '(?m)^\s*//[^\r\n]*', '')
+
+    $cs = [regex]::Match($text, '"DefaultConnection"\s*:\s*"((?:[^"\\]|\\.)*)"')
+    if (-not $cs.Success) {
+        $problems += 'ConnectionStrings:DefaultConnection is missing, so the API would start with no connection string.'
+    } else {
+        $value = $cs.Groups[1].Value -replace '\\\\', '\'
+        $db = if ($value -match '(?i)(?:^|;)\s*(?:Database|Initial Catalog)\s*=\s*([^;]*)') { $Matches[1].Trim() } else { '' }
+        if (-not $db) {
+            $problems += 'ConnectionStrings:DefaultConnection names no database (no Database= or Initial Catalog=).'
+        } elseif ($db -ine $ExpectedDatabase) {
+            $problems += "ConnectionStrings:DefaultConnection names Database=$db; the $AspNetEnvironment stack's database is $ExpectedDatabase."
+        }
+    }
+
+    $urls = [regex]::Matches($text, '"AppBaseUrl"\s*:\s*"((?:[^"\\]|\\.)*)"')
+    if ($urls.Count -gt 1) {
+        $problems += "Email:AppBaseUrl appears $($urls.Count) times; keep exactly one."
+    } elseif ($urls.Count -eq 0) {
+        if ($AspNetEnvironment -eq 'Staging') {
+            $problems += "Email:AppBaseUrl is missing; the API's built-in default is https://www.allotjar.com, so every emailed link (password reset, invite) would open production. Set it to $ExpectedAppBaseUrl in the Email section."
+        }
+    } else {
+        $url = $urls[0].Groups[1].Value
+        $origin = Get-UrlOrigin -Url $url
+        $expected = Get-UrlOrigin -Url $ExpectedAppBaseUrl
+        if (-not $origin) {
+            $problems += "Email:AppBaseUrl '$url' is not an absolute http(s) URL."
+        } elseif ($origin -ne $expected) {
+            $problems += "Email:AppBaseUrl is $url, so every emailed link (password reset, invite) would open $origin; the $AspNetEnvironment stack's origin is $ExpectedAppBaseUrl."
+        }
+    }
+    return ,$problems
+}
+
+<#
+.SYNOPSIS
+    scheme://host[:port] of an absolute http(s) URL, lower-cased, with any path dropped;
+    $null when the value is not one. Lets two settings be compared as origins, so a trailing
+    slash or a capital letter never counts as a mismatch.
+#>
+function Get-UrlOrigin {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Url)
+    $uri = $null
+    if (-not [Uri]::TryCreate($Url.Trim(), [UriKind]::Absolute, [ref]$uri)) { return $null }
+    if ($uri.Scheme -ne 'http' -and $uri.Scheme -ne 'https') { return $null }
+    return $uri.GetLeftPart([UriPartial]::Authority).ToLowerInvariant()
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin

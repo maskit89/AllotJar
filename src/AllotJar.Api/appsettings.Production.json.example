@@ -29,6 +29,7 @@
     "//AccountId": "Cloudflare ONLY - its send endpoint is account-scoped (/client/v4/accounts/{id}/email/sending/send). Omit for Resend. Must be the FULL 32-character hex id from the dashboard URL - a truncated/ellipsis paste starts up looking healthy and then 404s on every send (startup warns if it isn't 32 hex chars).",
     "AccountId": "REPLACE_WITH_32_HEX_CHAR_CLOUDFLARE_ACCOUNT_ID",
     "FromAddress": "AllotJar <no-reply@allotjar.com>",
+    "//AppBaseUrl": "The origin inside emailed links (password reset, invite). Production: https://www.allotjar.com. Staging MUST set https://staging.allotjar.com - the built-in default is the production origin, so a staging file without this line emails links that open production, where staging's token is not valid. Deploy.ps1 refuses a file whose AppBaseUrl or Database names the other stack.",
     "AppBaseUrl": "https://www.allotjar.com"
   },
 
