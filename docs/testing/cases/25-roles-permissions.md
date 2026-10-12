@@ -277,8 +277,8 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Negative
 - **Preconditions:** H1 is shared (≥2 members, so `/allocation` is reachable). Test as Adam, Lena, Rhea.
 - **Steps:**
-  1. On `/allocation`, as Adam confirm the settings panel and "Save allocation settings" are present (`canWrite`).
-  2. As Lena then Rhea, confirm the settings/edit affordances are absent.
+  1. On `/allocation`, as Adam confirm the Steps card's **Settings** button (named "Allocation settings") is present and opens the settings dialog, whose **Save** is named "Save allocation settings" (`canWrite`).
+  2. As Lena then Rhea, confirm the settings/edit affordances are absent: no **Settings** button, no **Link account** chip on a Savings row, and no action on the "No account to pay from" or pocket-money strips.
   3. As Lena, direct-call `PUT /allocation/profile` with a rule spec.
 - **Expected:** Only Owner/Admin can open/save the profile (`showSettings && canWrite`). Lena's direct `PUT /allocation/profile` → **403** (`UpsertAllocationProfileCommand` is plain Admin+). Read-only likewise 403. Configuring *how* income splits is an admin act.
 - **Automated:** No
@@ -288,9 +288,9 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Happy
 - **Preconditions:** Shared H1 with a saved allocation profile and a source account set (so "Allocate" is enabled). Test as Lena (Limited) and Rhea (Read-only).
 - **Steps:**
-  1. As Lena on `/allocation`, click the commit/allocate button (rendered under `canEnterData`).
-  2. As Rhea, confirm the commit control is absent, then direct-call `POST /allocation/commit/{y}/{m}`.
-- **Expected:** Lena — the "Allocate"/commit button is present (`canEnterData`) and `POST /allocation/commit/{y}/{m}` returns 200, creating the member savings transfers (idempotent on rerun). Rhea — control hidden; direct call **403**. `AllocateIncomeCommand` is `[AllowLimited]`, so running the waterfall is day-to-day entry even though editing the profile (ROLE-020) is not.
+  1. As Lena on `/allocation`, press **Allocate** (named "Allocate {month}"; rendered under `canEnterData`), tick **I’ve completed these transfers** and press **Record transfers**.
+  2. As Rhea, confirm the Allocate button is absent, then direct-call `POST /allocation/commit/{y}/{m}`.
+- **Expected:** Lena — the **Allocate** button is present (`canEnterData`) and `POST /allocation/commit/{y}/{m}` returns 200, creating the member savings transfers (idempotent on rerun). Rhea — control hidden; direct call **403**. `AllocateIncomeCommand` is `[AllowLimited]`, so running the waterfall is day-to-day entry even though editing the profile (ROLE-020) is not.
 - **Automated:** Partial (`AuthorizationBehaviourTests.cs` — "Limited only AllowLimited commands"; `AllocationTests.cs` covers commit semantics, not per-role HTTP)
 
 ### ROLE-022 - Allocation profile GET and preview are readable by every role incl. Read-only
@@ -299,7 +299,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Preconditions:** Shared H1 with a profile. Rhea (Read-only).
 - **Steps:**
   1. As Rhea, GET `/allocation/profile` and `/allocation/preview/{y}/{m}`.
-- **Expected:** Both return **200** — `GetAllocationProfileQuery` and `PreviewIncomeAllocationQuery` are Queries, so all roles read the waterfall preview and per-member surplus. Only the mutations (profile save = Admin+, commit = Limited+) are gated.
+- **Expected:** Both return **200** — `GetAllocationProfileQuery` and `PreviewIncomeAllocationQuery` are Queries, so all roles read the preview (the KPI row, the Steps card and each person's share on the Savings card). Only the mutations (profile save = Admin+, commit = Limited+) are gated.
 - **Automated:** No
 
 ---
@@ -587,7 +587,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Steps:**
   1. As Rhea, walk `/` (budget), `/transactions`, `/accounts` (+ detail), `/jars`, `/people`, `/allocation`, `/reports`, `/import` (direct URL), `/account`.
   2. On each, enumerate every mutating control.
-- **Expected:** Zero write affordances render: no add/edit/delete/reorder on budget; no "Add transaction"/edit/assign/split/transfer; no account or jar management; no member CRUD, invite, role, remove, or "Other sign-ins"; no allocation settings or commit; no Import link. The read-only banner shows on every authenticated page. `/account` self-service (password/prefs/consent/switch/start-own/leave) remains fully available (ROLE-032/033). Any direct API mutation → 403.
+- **Expected:** Zero write affordances render: no add/edit/delete/reorder on budget; no "Add transaction"/edit/assign/split/transfer; no account or jar management; no member CRUD, invite, role, remove, or "Other sign-ins"; no allocation Settings, Allocate or Link account; no Import link. The read-only banner shows on every authenticated page. `/account` self-service (password/prefs/consent/switch/start-own/leave) remains fully available (ROLE-032/033). Any direct API mutation → 403.
 - **Automated:** Partial (`RoleGating.test.tsx` covers Transactions + banner for role 3; not a full-page sweep)
 
 ### ROLE-047 - Admin has full write parity EXCEPT household-access management and owner ops

@@ -118,8 +118,8 @@
   1. Open the modal from its trigger button.
   2. Tab repeatedly past the last control; Shift+Tab past the first.
   3. Press Escape (and separately, click the dimmed backdrop, and the ✕).
-- **Expected:** On open, focus moves into the dialog and autofocuses (via `useDialogA11y`); Tab cycles within `role="dialog" aria-modal="true"` and never reaches page content behind it; `document.body.style.overflow='hidden'` locks background scroll. Escape, backdrop click (`bg-black/40`), and the `aria-label="Close"` ✕ all close it, and focus is restored to the element that opened it.
-- **Automated:** Partial (`client/e2e/a11y.spec.ts` scans open dialogs; trap/restore behaviour via `useDialogA11y` is covered indirectly by onboarding tests in `05-onboarding.md`)
+- **Expected:** On open, focus moves into the dialog and autofocuses (via `useDialogA11y`); Tab cycles within `role="dialog" aria-modal="true"` and never reaches page content behind it; `document.body.style.overflow='hidden'` locks background scroll. Escape, backdrop click (`bg-black/40`), and the `aria-label="Close"` ✕ all close it, and focus is restored to the element that opened it. The Allocation page's two dialogs (Allocate and Allocation settings) use the sheet frame (`Modal sheet`): focus opens on the Close control, not the first field; below 700px they are bottom sheets whose grab handle is the one Close (no ✕); the actions stay in view while only the middle scrolls; Escape first closes an open (i), then the dialog, and focus returns to **Allocate** or **Settings**.
+- **Automated:** Partial (`client/e2e/a11y.spec.ts` scans open dialogs; trap/restore behaviour via `useDialogA11y` is covered indirectly by onboarding tests in `05-onboarding.md`; the sheet frame by `client/src/components/Modal.test.tsx` and, in a browser, `client/e2e/allocation.spec.ts` — focus on Close, Tab stays inside, Escape back to Allocate / Settings)
 
 ### UX-012 - Reorder arrows are labelled buttons, unique per row, disabled at the ends
 - **Priority:** P2
@@ -202,8 +202,8 @@
 - **Preconditions:** Real backend, `/account`.
 - **Steps:**
   1. Save preferences; separately change the password; separately run an allocation action.
-- **Expected:** Each success renders a polite `role="status"` message — "Your preferences have been saved.", "Your password has been changed." (AccountPage), and the AllocationPage status region — so assistive tech announces the outcome without stealing focus. (Functional detail in `04-account-preferences.md` / `14-allocation.md`; this asserts the announcement convention.)
-- **Automated:** Partial (`client/src/pages/AccountPage.test.tsx` asserts the success copy)
+- **Expected:** Each success renders a polite `role="status"` message — "Your preferences have been saved.", "Your password has been changed." (AccountPage), and on `/allocation` the short line of a strip ("Allocated July · 2 transfers in transit", "Pocket money added to July’s budget.", "No income in July 2026’s budget yet") — only that line is the live region, not its (i), so opening the (i) is not announced again — so assistive tech announces the outcome without stealing focus. (Functional detail in `04-account-preferences.md` / `14-allocation.md`; this asserts the announcement convention.)
+- **Automated:** Partial (`client/src/pages/AccountPage.test.tsx` asserts the success copy; `client/src/pages/AllocationPage.catalog.test.tsx` ALLOC-050 and `AllocationPage.restyle.test.tsx` "keeps today’s live-region roles" assert the Allocation strips' roles)
 
 ### UX-021 - Errors are announced via role="alert" through the shared ErrorBanner
 - **Priority:** P1
@@ -347,11 +347,12 @@
 ### UX-035 - Dialogs fit a phone screen without overflow
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** `/jars` at 375 px.
+- **Preconditions:** `/jars` at 375 px; `/allocation` at 375x667.
 - **Steps:**
   1. Open "New jar" (a 2-column grid inside a dialog); check for horizontal overflow.
-- **Expected:** The modal (`max-w-md`, `p-4` outer, scrollable `overflow-y-auto`) fits 375 px with no sideways scroll; the 2-col field grid reflows/stays within the dialog. Long content scrolls vertically inside the dialog, not the page.
-- **Automated:** Yes (`client/e2e/mobile-layout.spec.ts` "the jar modal fits a phone screen")
+  2. On `/allocation` open the Allocate dialog, then the Allocation settings dialog.
+- **Expected:** The modal (`max-w-md`, `p-4` outer, scrollable `overflow-y-auto`) fits 375 px with no sideways scroll; the 2-col field grid reflows/stays within the dialog. Long content scrolls vertically inside the dialog, not the page. The Allocation dialogs are bottom sheets that fit the screen: long names truncate, the amounts, jar fields and actions stay in view, and only the middle scrolls.
+- **Automated:** Yes (`client/e2e/mobile-layout.spec.ts` "the jar modal fits a phone screen"; `client/e2e/allocation.spec.ts` — the Allocate dialog and the settings dialog at 375x667, and the Allocate sheet on a narrow phone)
 
 ### UX-036 - Account-detail and reconciliation tables at 375 px
 - **Priority:** P2

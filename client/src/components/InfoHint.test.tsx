@@ -1,5 +1,5 @@
-import { afterEach, describe, it, expect, vi } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { InfoHint } from './InfoHint'
 import { Modal } from './Modal'
 
@@ -88,6 +88,106 @@ describe('InfoHint', () => {
       render(<InfoHint label="Hint">Text</InfoHint>)
       fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
       expect(screen.getByRole('tooltip').parentElement!.style.marginLeft).toBe('')
+    })
+  })
+
+  describe('fixed (placed against the screen, opt-in)', () => {
+    const rect = (left: number, top: number, width: number, height: number) =>
+      ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect
+    let iconBox = rect(100, 300, 22, 22)
+    beforeEach(() => {
+      Object.defineProperty(document.documentElement, 'clientWidth', { value: 390, configurable: true })
+      vi.stubGlobal('innerHeight', 700)
+      iconBox = rect(100, 300, 22, 22)
+      vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+        return this.matches('[data-tabbar]') ? rect(0, 620, 390, 80) : iconBox
+      })
+      // The popover's own size: 256 x 120.
+      vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockReturnValue(256)
+      vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(120)
+    })
+    afterEach(() => {
+      vi.restoreAllMocks()
+      vi.unstubAllGlobals()
+      Reflect.deleteProperty(document.documentElement, 'clientWidth')
+      document.querySelectorAll('[data-tabbar]').forEach((el) => el.remove())
+    })
+
+    it('opens below the icon, from its left edge, outside any scrolling box; it stays the wrapper’s child', () => {
+      render(
+        <div style={{ overflow: 'auto' }}>
+          <InfoHint fixed label="Hint">
+            Text
+          </InfoHint>
+        </div>,
+      )
+      const trigger = screen.getByRole('button', { name: 'Hint' })
+      fireEvent.focus(trigger)
+      const hanger = screen.getByRole('tooltip').parentElement!
+      expect(hanger).toHaveClass('fixed', 'pt-1.5')
+      expect(hanger).not.toHaveClass('absolute')
+      expect(hanger).toHaveStyle({ top: '322px', left: '100px' })
+      expect(hanger).toHaveAttribute('data-placement', 'below')
+      expect(trigger.parentElement).toContainElement(hanger)
+      expect(trigger).toHaveAttribute('aria-describedby', screen.getByRole('tooltip').id)
+    })
+
+    it('opens above the icon when there is no room below, and keeps inside the screen sideways', () => {
+      iconBox = rect(300, 640, 22, 22)
+      render(
+        <InfoHint fixed label="Hint">
+          Text
+        </InfoHint>,
+      )
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      const hanger = screen.getByRole('tooltip').parentElement!
+      expect(hanger).toHaveAttribute('data-placement', 'above')
+      expect(hanger).toHaveClass('pb-1.5')
+      // 640 - 120 = 520 from the top; 390 - 8 - 256 = 126 from the left.
+      expect(hanger).toHaveStyle({ top: '520px', left: '126px' })
+    })
+
+    it('on a page, the phone’s tab bar counts as the bottom of the screen', () => {
+      const bar = document.createElement('nav')
+      bar.setAttribute('data-tabbar', '')
+      document.body.appendChild(bar)
+      // 120 high from 522 would end at 642: under the tab bar at 620 (though inside the 700 screen).
+      iconBox = rect(100, 500, 22, 22)
+      render(
+        <InfoHint fixed label="Hint">
+          Text
+        </InfoHint>,
+      )
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      expect(screen.getByRole('tooltip').parentElement).toHaveAttribute('data-placement', 'above')
+    })
+
+    it('follows its icon when anything scrolls', () => {
+      render(
+        <InfoHint fixed label="Hint">
+          Text
+        </InfoHint>,
+      )
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      const hanger = screen.getByRole('tooltip').parentElement!
+      expect(hanger).toHaveStyle({ top: '322px' })
+      iconBox = rect(100, 200, 22, 22)
+      act(() => {
+        document.body.dispatchEvent(new Event('scroll'))
+      })
+      expect(hanger).toHaveStyle({ top: '222px' })
+    })
+
+    it('in a test DOM with no layout, it simply shows', () => {
+      vi.restoreAllMocks()
+      Reflect.deleteProperty(document.documentElement, 'clientWidth')
+      render(
+        <InfoHint fixed label="Hint">
+          Text
+        </InfoHint>,
+      )
+      fireEvent.focus(screen.getByRole('button', { name: 'Hint' }))
+      expect(screen.getByRole('tooltip').parentElement!.style.visibility).toBe('')
     })
   })
 })

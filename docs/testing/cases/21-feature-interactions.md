@@ -156,7 +156,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Type:** Happy
 - **Preconditions:** shared household; allocation profile with source account **Joint**; Alex's personal savings account **Alex-Savings** (opening 0.00) and Sam's **Sam-Savings** (opening 0.00) set on the People page; a balanced/positive month so both residuals > 0.
 - **Steps:**
-  1. On `/allocation` press **Allocate** and confirm the transfers-created banner (ALLOC-050).
+  1. On `/allocation` press **Allocate**, tick **I’ve completed these transfers**, press **Record transfers** and confirm the "Allocated {month} · 2 transfers in transit" strip (ALLOC-050).
   2. Open `/accounts` and read the balances; open **Joint**'s register.
 - **Expected:** one `Transfer` transaction per member with residual > 0 is written from **Joint** to that member's savings account, `BankReference = alloc:{year}-{month}:{memberId}`. **Joint**'s derived balance drops by the sum of residuals; **Alex-Savings** and **Sam-Savings** rise by each residual (AccountBalances: `− transferOut + transferIn`). Net worth across accounts is unchanged (a transfer moves, never creates, money — TRF-028).
 - **Automated:** Partial (tests/AllotJar.IntegrationTests/AllocationRerunTests.cs + tests/AllotJar.Application.Tests/Application/AllocationTests.cs)
@@ -178,7 +178,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Preconditions:** shared household; "Send savings to" = **Balance** with a balance lean (ALLOC-014/015); Alex-Savings and Sam-Savings set.
 - **Steps:**
   1. Before allocating, record a manual transfer of 500.00 into **Alex-Savings** (or import one).
-  2. Open `/allocation`, note the per-member tilt in the waterfall, press **Allocate**, then press **Allocate** a second time.
+  2. Open `/allocation`, note each person's share on the Savings card, press **Allocate** and record the transfers, then do it a second time.
 - **Expected:** the water-fill tilt leans the pooled remainder toward **Sam** (lower savings balance) because `SavingsBalancesAsync` counts the pre-existing 500.00 transfer into Alex-Savings. On the SECOND Allocate the tilt is IDENTICAL to the first, because balances used for the tilt EXCLUDE transfers whose reference starts with `alloc:{year}-{month}:` — the commit stays stable and idempotent, and a member's own just-written allocation never feeds back into their next tilt.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AllocationTests.cs covers balance-tilt inputs)
 
@@ -220,8 +220,8 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Preconditions:** shared household; a member with a personal savings account that is then deleted (`PersonalSavingsAccountId` left dangling — soft hint, no FK); that member's residual > 0.
 - **Steps:**
   1. Delete the member's savings account on `/accounts`.
-  2. Open `/allocation`; observe the per-member tile; press **Allocate**.
-- **Expected:** `AllocationPlanner` nulls the dangling savings id (it is not in `savingsBalances`), so the member tile shows the "stranded surplus / no savings account set" note (ALLOC-046/055) and **Allocate** skips that member (`Residual > 0 && SavingsAccountId is Guid` gate — ALLOC-057) rather than writing a broken `TransferAccountId` FK. Other members still receive their transfers. No 500.
+  2. Open `/allocation`; observe the person's row on the Savings card; press **Allocate** and record the transfers.
+- **Expected:** `AllocationPlanner` nulls the dangling savings id (it is not in `savingsBalances`), so the person's Savings row reads "Stays in {source}" and the Allocate dialog lists them as staying there (ALLOC-046/055), and **Allocate** skips that member (`Residual > 0 && SavingsAccountId is Guid` gate — ALLOC-057) rather than writing a broken `TransferAccountId` FK. Other members still receive their transfers. No 500.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AllocationTests.cs)
 
 ---
@@ -356,7 +356,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Steps:**
   1. Archive Sam on `/people` (PPL-022).
   2. Open `/reports` member spending (with archived shown) and `/transactions`; then open `/allocation`.
-- **Expected:** Sam's transactions retain their `MemberId` (attribution survives — reports/member-spending still attribute them, PPL-023/025), but `AllocationPlanner` loads only `!IsArchived` members, so the pool drops to Alex's income alone (2,000.75 → 1,200.50), the waterfall splits shared costs across Alex only, and the per-member tiles no longer include Sam. Archiving is a household-membership change that reshapes allocation without orphaning history.
+- **Expected:** Sam's transactions retain their `MemberId` (attribution survives — reports/member-spending still attribute them, PPL-023/025), but `AllocationPlanner` loads only `!IsArchived` members, so the pool drops to Alex's income alone (2,000.75 → 1,200.50), the shared-cost step is split across Alex only, and the Savings card no longer has a row for Sam. Archiving is a household-membership change that reshapes allocation without orphaning history.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AllocationTests.cs + HouseholdMembersTests.cs + MemberSpendingTests.cs)
 
 ### CMB-026 - Un-archiving a member restores them to the allocation pool with income intact
@@ -375,7 +375,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Origin:** `AllocationPlanner` filters `!c.ExcludeFromAllocation`; `CreateBudgetMonth` carries the flag forward (its comment: dropping it "folds an excluded category back into the shared obligation total and corrupts every copied month's member split"). No client UI sets the flag — it is a seed/data-level attribute (e.g. a "Personal Savings" surplus category).
 - **Preconditions:** shared household; a month with an Expense category flagged `ExcludeFromAllocation` (planned 9,999) plus normal Expense and Savings categories.
 - **Steps:**
-  1. Open `/allocation` and read the "Shared spending" / "To savings" hero and the FundEnvelopes / FundJars step totals.
+  1. Open `/allocation` and read the "Shared spending" / "To savings" KPI tiles and the FundEnvelopes / FundJars step totals ("Cover shared costs" / "Fund the jars").
   2. Create the next month with copy-from-previous; re-open `/allocation`.
 - **Expected:** the excluded category's 9,999 is absent from BOTH the envelopes total (FundEnvelopes) and the funds total (FundJars) — it is an allocation OUTPUT, not a cost, so the pool is not reduced by it. After copy the flag is preserved, so the copied month's allocation is identical; had the flag been dropped, every future month would double-subtract the surplus. Assert the totals match pre- and post-copy.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/AllocationTests.cs + CreateBudgetMonthTests.cs both exercise the flag)
@@ -670,9 +670,9 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Steps:**
   1. Read the dashboard hero: Income / Allotted / Remaining and any footnote/badge.
   2. Open `/allocation`: read "Income to allocate", "Shared spending", and the "Cover shared costs" (FundEnvelopes) step total.
-- **Expected:** the **dashboard** counts the excluded 800 in `TotalPlanned` → Allotted **2,300.00**, `RemainingToBudget = 2,000 − 2,300 = −300.00` → the hero reads **"€300.00 over-budgeted — trim a line"** and the balanced badge never appears (even though the user feels they "gave every euro a job"). The **allocation** engine EXCLUDES the 800 from FundEnvelopes, so its "Cover shared costs" total is driven by the 1,500 only and the hero reconciles on the smaller obligation. The same flag is honoured by one subsystem and ignored by the other — a genuine cross-feature inconsistency to surface. After copy-to-next-month the flag survives (CMB-027), so the divergence is stable, not transient.
+- **Expected:** the **dashboard** counts the excluded 800 in `TotalPlanned` → Allotted **2,300.00**, `RemainingToBudget = 2,000 − 2,300 = −300.00` → the hero reads **"€300.00 over-budgeted — trim a line"** and the balanced badge never appears (even though the user feels they "gave every euro a job"). The **allocation** engine EXCLUDES the 800 from FundEnvelopes, so its "Cover shared costs" total is driven by the 1,500 only and the KPI tiles reconcile on the smaller obligation. The same flag is honoured by one subsystem and ignored by the other — a genuine cross-feature inconsistency to surface. After copy-to-next-month the flag survives (CMB-027), so the divergence is stable, not transient.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AllocationTests.cs asserts the allocation-side exclusion; Domain/RemainingToBudgetTests.cs asserts the unfiltered TotalPlanned; the divergence between them is not asserted together)
-- **Resolution note (pocket-money coherence PR):** this asymmetry is now the DESIGNED coherence mechanism, not an accident: an allocation-output category (flagged) is *supposed* to count into the budget's zero while staying out of the engine's envelopes — that is exactly what lets both systems reach zero at once. The Allocation page's reconciliation banner (ALLOC-068/069) surfaces any month where engine promises (pocket money, positive savings) are NOT yet materialized as flagged lines, with a one-click `POST /allocation/pocket-lines/{y}/{m}` fix, and `excludeFromAllocation` is now visible on `BudgetCategoryDto`. The dashboard math is deliberately untouched (PR #172 invariant).
+- **Resolution note (pocket-money coherence PR):** this asymmetry is now the DESIGNED coherence mechanism, not an accident: an allocation-output category (flagged) is *supposed* to count into the budget's zero while staying out of the engine's envelopes — that is exactly what lets both systems reach zero at once. The Allocation page's reconciliation strip (ALLOC-068/069) surfaces any month where engine promises (pocket money, positive savings) are NOT yet materialized as flagged lines, with a one-click `POST /allocation/pocket-lines/{y}/{m}` fix, and `excludeFromAllocation` is now visible on `BudgetCategoryDto`. The dashboard math is deliberately untouched (PR #172 invariant).
 
 ---
 
@@ -702,7 +702,7 @@ Four seams that the single-feature files and the cases above leave uncovered: th
 - **Origin:** `AllocateIncomeCommandHandler` writes one `Transfer` per positive-residual member FROM the profile source account (`AccountId = sourceId`) to that member's personal savings account, with **no** check that the source can cover the total (`AllocateIncomeCommandHandler.cs:56-79` — the only gate is `Residual > 0 && SavingsAccountId is Guid`). `AccountBalances` then moves the source down by Σ residuals; reconciliation is `Float = CurrentBalance − BackedJarsTotal` (`GetAccountReconciliationQueryHandler.cs:62`) where `BackedJarsTotal` sums, for jars whose `FundingAccountId` is that account, `OpeningBalance + JarBalances` (planned − spend) — a figure allocation transfers never change.
 - **Preconditions:** shared household; allocation profile source account **Joint** (opening **1,250.00**); Alex-Savings and Sam-Savings set on `/people` (opening 0); a Recurring jar **"Emergency Fund"** Held in **Joint** (JAR-021) with tracked balance **300.00**; the 2026-mm month carries little/no shared obligation, so both residuals are large and Σ residuals ≈ the pool **2,000.75** — comfortably more than Joint's 1,250.00.
 - **Steps:**
-  1. On `/allocation` press **Allocate** and confirm the transfers-created banner (ALLOC-050).
+  1. On `/allocation` press **Allocate**, tick **I’ve completed these transfers**, press **Record transfers** and confirm the "Allocated {month} · 2 transfers in transit" strip (ALLOC-050).
   2. Open `/accounts` (Joint's balance and its reconciliation Float), `/jars` (Emergency Fund), and Joint's detail reconciliation table (ACCT-052).
 - **Expected:** the commit **SUCCEEDS with no overdraft or validation error** — there is no guard, so allocation happily moves more out of Joint than it holds. Joint's derived balance goes **1,250.00 − 2,000.75 = −856.61** (AccountBalances nets both transfers out; Alex-Savings and Sam-Savings rise by each residual — CMB-007). The jar's tracked balance on `/jars` is **UNCHANGED at 300.00** (JarBalances = planned − spend; allocation transfers are not contributions — CMB-012). So Joint's reconciliation row reads `CurrentBalance = −856.61`, `BackedJarsTotal = 300.00`, **Float = −1,156.61**, rendered in the rose tone (ACCT-054) with **no 500** (Float is a plain subtraction that tolerates a negative). Allocation has physically emptied — and overdrawn — the very account backing the jars, while the jars still "promise" 300; the honest shortfall surfaces exactly in the Float, but nothing blocks the drain. This is the allocation-OUT mirror of CMB-012 (transfer IN raising Float): CMB-007's happy path only asserts a positive-remainder drop, never the overdraft × jar-backing interaction.
 - **Automated:** No (tests/AllotJar.IntegrationTests/AllocationRerunTests.cs covers the happy-path transfers; the source-overdraft driving a negative jar-backing Float is not covered)

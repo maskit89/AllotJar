@@ -166,7 +166,7 @@
 - **Type:** Edge
 - **Preconditions:** Shared H1 with an allocation profile (source = Joint), month 2026-07, members Alex & Sam each with a personal savings account and a positive residual.
 - **Steps:**
-  1. Both click "Allocate" so two `AllocateIncome` commits interleave. Each `RemoveRange`s this month's prior `alloc:2026-7:*` transfers, then inserts one transfer per member keyed `BankReference = "alloc:2026-7:{memberId}"`.
+  1. Both press "Allocate", tick "I’ve completed these transfers" and press "Record transfers", so two `AllocateIncome` commits interleave. Each `RemoveRange`s this month's prior `alloc:2026-7:*` transfers, then inserts one transfer per member keyed `BankReference = "alloc:2026-7:{memberId}"`.
 - **Expected:** The unique `(OwnerId, BankReference)` index makes the per-member reference unique, so two concurrent inserts of `alloc:2026-7:{Alex}` cannot both persist. If the commits truly interleave at `SaveChanges`, the loser hits a `DbUpdateException` — and `AllocateIncomeCommandHandler` has a **single `SaveChangesAsync` with no recovery loop** (unlike import), so it surfaces as the generic allocation error banner (500). Net effect: exactly **one** set of member transfers exists, **never doubled**; the money is correct either way (re-run is idempotent — allocation file re-run case). If the commits serialize, the second simply deletes-and-recreates the same set (last-write-wins, single set). Retrying the failed commit succeeds.
 - **Automated:** Partial (`tests/AllotJar.IntegrationTests/AllocationRerunTests.cs` — `Rerunning_an_allocation_recreates_the_same_references_without_tripping_the_unique_index` covers sequential idempotency; the concurrent-500 path is manual)
 

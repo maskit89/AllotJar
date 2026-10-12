@@ -138,6 +138,9 @@
   /* The approved palette's slate blue (restyle PR 6): the Accounts page's "Not in jars" icon, money
      resting in the accounts. Not the sage-grey slate ramp, and not a category hue. */
   --color-steel: #4b6680;
+  /* The approved palette's sky blue (restyle PR 10): the Allocation page's "To savings" icon and its
+     last step, money going on to each person's savings. Not a category hue. */
+  --color-sky: #2f7db5;
 
   /* Brand-mark tokens (see brand/README §6): the theme-aware logo SVG fills its
      jar body with --accent and its lid + coin fill with --gold. Referenced only
@@ -211,6 +214,7 @@
   --color-cat-rose: #d98098;
   --color-clay: #e2906a;
   --color-steel: #8fabc6;
+  --color-sky: #7fb7e3;
 
   --shadow-hero: 0 22px 46px -24px rgb(0 0 0 / 0.7);
   --hero-grad: linear-gradient(135deg, #155339, #1e6e4e 45%, #2a8a60);
@@ -1320,4 +1324,174 @@ html {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--color-slate-400) 65%, var(--color-background)),
     0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+/* The Allocation page's dialogs (Modal `sheet`, restyle PR 10): the mock-ups' dialog frame. The
+   dialog is the card (one step lighter than the cards in dark mode) and its fields one step in. */
+.sheet-dlg {
+  --dlg-surface: var(--color-card);
+  --dlg-field: var(--color-surface-2);
+  --dlg-edge: color-mix(in srgb, var(--color-slate-400) 80%, var(--dlg-field));
+  background: var(--dlg-surface);
+}
+.dark .sheet-dlg {
+  --dlg-surface: var(--color-surface-2);
+  --dlg-field: var(--color-card);
+  --dlg-edge: color-mix(in srgb, var(--color-slate-400) 65%, var(--dlg-field));
+}
+/* The middle scrolls when the screen is short; a soft shadow shows there is more above or below.
+   A control reached by Tab scrolls clear of those shadows (and its focus ring with it). */
+.sheet-dlg-body {
+  scroll-padding-block: 16px;
+  background:
+    linear-gradient(var(--dlg-surface) 60%, transparent) top / 100% 28px no-repeat local,
+    linear-gradient(transparent, var(--dlg-surface) 40%) bottom / 100% 28px no-repeat local,
+    radial-gradient(farthest-side at 50% 0, rgb(0 0 0 / 0.14), transparent) top / 100% 9px no-repeat scroll,
+    radial-gradient(farthest-side at 50% 100%, rgb(0 0 0 / 0.14), transparent) bottom / 100% 9px no-repeat scroll;
+}
+/* A dialog's amount field: the sign-in field's edge (3:1 against its fill and the dialog), the
+   currency sign joined to the figure at the right, a ring on focus. */
+.dlg-in {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 9px;
+  cursor: text;
+  background: var(--dlg-field);
+  box-shadow: inset 0 0 0 1px var(--dlg-edge);
+}
+.dlg-in:focus-within {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-ring),
+    0 0 0 3px color-mix(in srgb, var(--color-ring) 14%, transparent);
+}
+.dlg-in > span {
+  font-weight: 600;
+  color: var(--color-slate-400);
+}
+.dlg-in input {
+  align-self: stretch;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-foreground);
+  background: none;
+  border: 0;
+  outline: 0;
+}
+@supports (field-sizing: content) {
+  .dlg-in input {
+    field-sizing: content;
+    width: auto;
+    min-width: 2px;
+    max-width: 100%;
+  }
+}
+.dlg-in input::placeholder {
+  color: var(--color-slate-400);
+  font-weight: 500;
+}
+/* A dialog's select: the same edge and fill, a chevron at the right. */
+.dlg-sel {
+  position: relative;
+}
+.dlg-sel select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 40px;
+  padding: 0 34px 0 12px;
+  border-radius: 9px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-foreground);
+  background: var(--dlg-field);
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--dlg-edge);
+  outline: 0;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+.dlg-sel select:focus-visible {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-ring),
+    0 0 0 3px color-mix(in srgb, var(--color-ring) 14%, transparent);
+}
+.dlg-sel svg {
+  position: absolute;
+  right: 11px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  color: var(--color-slate-500);
+  pointer-events: none;
+}
+/* A dialog's checkbox: the sign-in page's box at 20px, solid brand with a white tick when ticked. */
+.dlg-check input {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border-radius: 6px;
+  border: 1.5px solid color-mix(in srgb, var(--color-slate-400) 85%, var(--dlg-surface));
+  background: var(--dlg-field) center / 13px no-repeat;
+  cursor: pointer;
+}
+.dlg-check input:checked {
+  border-color: var(--color-brand-600);
+  background-color: var(--color-brand-600);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 6.2 5 8.6l4.6-5'/%3E%3C/svg%3E");
+}
+.dark .dlg-check input:checked {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+}
+.dlg-check input:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+/* Recorded while unticked: the box takes the message's colour until it is ticked. */
+.dlg-check input[aria-invalid='true'] {
+  border-color: var(--color-bad);
+}
+@media (forced-colors: active) {
+  .dlg-check input {
+    appearance: auto;
+    -webkit-appearance: auto;
+  }
+  /* A contrast theme drops box-shadows: the fields keep a real edge, and focus a real outline. */
+  .dlg-in,
+  .dlg-sel select {
+    border: 1px solid CanvasText;
+  }
+  .dlg-in:focus-within,
+  .dlg-sel select:focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 1px;
+  }
+}
+@media (max-width: 699.98px) {
+  .dlg-in {
+    height: 44px;
+  }
+  /* 16px: iOS Safari does not zoom the page on focus. */
+  .dlg-in input,
+  .dlg-sel select {
+    font-size: 16px;
+  }
+  .dlg-sel select {
+    height: 44px;
+  }
 }

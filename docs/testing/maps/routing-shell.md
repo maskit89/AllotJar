@@ -24,7 +24,7 @@ All routes declared in `client/src/App.tsx`. Feature-flag-gated routes are **con
 | `/people` | `PeoplePage` | `RequireAuth` + `features.householdAllocation` | People is always in nav (when flag on) regardless of solo/shared |
 | `/members` | `<Navigate to="/people" replace/>` | **Unconditionally mounted** (App.tsx:131) | Legacy redirect (old Members page) |
 | `/access` | `<Navigate to="/people" replace/>` | Unconditionally mounted (App.tsx:132) | Legacy redirect (old Members & access page) |
-| `/allocation` | `AllocationPage` | `RequireAuth` + `features.householdAllocation`; **plus in-page solo guard**: `!householdLoading && !isShared` → EmptyState "Add people first" with an "Add people" button → `navigate('/people')` (AllocationPage.tsx:212-226) | |
+| `/allocation` | `AllocationPage` | `RequireAuth` + `features.householdAllocation`; **plus in-page solo guard**: `!householdLoading && !isShared` → EmptyState "Add people first" with an "Add people" button → `navigate('/people')` (AllocationPage.tsx:643-655) | |
 | `/reports` | `ReportsPage` | `RequireAuth` + `features.reports` | |
 | `/account` | `AccountPage` | `RequireAuth` (always mounted) | Account settings; reached from UserMenu "Account settings" |
 | `/import` | `ImportPage` | `RequireAuth` + `features.camtImport` | |

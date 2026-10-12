@@ -21,6 +21,7 @@ import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
 import { jointCurrent, preview, profile } from '../test/fixtures/allocation'
+import { findSteps } from '../test/allocationPage'
 
 /** August's preview: a pool of 100 so the two months cannot be confused. */
 function augustPreview(): AllocationResultDto {
@@ -59,12 +60,12 @@ describe('AllocationPage: answers that land after the month changed', () => {
     mockPost.mockImplementation((url: string) => (url === '/allocation/commit/2026/7' ? commit.promise : Promise.resolve({ data: {} })))
 
     const view = renderWithProviders(<AllocationPage />)
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
     expect(screen.getByLabelText(/^Income to allocate:/)).toHaveTextContent('€8,000.75')
 
-    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
-    await user.click(await screen.findByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    await user.click(screen.getByRole('button', { name: 'Allocate July' }))
+    await user.click(await screen.findByLabelText('I’ve completed these transfers'))
+    await user.click(screen.getByRole('button', { name: 'Record transfers' }))
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', expect.anything()))
 
     // The user moves to August while July's commit is still in flight.
@@ -72,7 +73,7 @@ describe('AllocationPage: answers that land after the month changed', () => {
     monthState.month = 8
     monthState.label = 'August 2026'
     view.rerender(<AllocationPage />)
-    await screen.findByText('How August is allocated', {}, { timeout: 5000 })
+    await findSteps('August')
     await waitFor(() => expect(screen.getByLabelText(/^Income to allocate:/)).toHaveTextContent('€100.00'))
 
     // July's commit answers now.
