@@ -20,6 +20,7 @@ import { mockGet, mockPost, mockPut, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
 import { jointCurrent, preview, profile } from '../test/fixtures/allocation'
+import { allocateButton, findSteps, hintText, openAllocate, recordTransfers, savingsRow, strip } from '../test/allocationPage'
 
 const accountsData: AccountDto[] = [jointCurrent]
 
@@ -89,22 +90,34 @@ describe('AllocationPage', () => {
       url.startsWith('/allocation/preview/') ? Promise.resolve({ data: withPrivate }) : answer(url),
     )
 
+    const user = userEvent.setup()
+
     renderPage()
 
     expect(await screen.findByText(/^Private savings account/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText(/Sam’s savings account is private, so only Sam can record this transfer/)).toBeInTheDocument()
+    // The sentence is behind the row's (i).
+    expect(await hintText(user, 'About Sam’s share', savingsRow('Sam'))).toMatch(
+      /Sam’s savings account is private, so only Sam can record this transfer/,
+    )
     expect(screen.queryByText(/^No savings account/)).not.toBeInTheDocument()
     expect(screen.queryByText(/has no savings account/)).not.toBeInTheDocument()
+    // Not "missing": no "Stays in …" line and no Link account chip on Sam's row.
+    expect(within(savingsRow('Sam')).queryByText(/^Stays in/)).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Link account for Sam’s savings' })).not.toBeInTheDocument()
   })
 
   it('disables Allocate and explains when no source account is set', { timeout: 15000 }, async () => {
     profileData = { ...profile(), sourceAccountId: null }
 
+    const user = userEvent.setup()
+
     renderPage()
 
-    await screen.findByText('How June is allocated', {}, { timeout: 5000 })
-    expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeDisabled()
-    expect(screen.getByText(/Set the account to pay shared costs from/)).toBeInTheDocument()
+    await findSteps('June')
+    expect(allocateButton('June')).toBeDisabled()
+    // The strip's short line; today's sentence is behind its (i).
+    expect(within(strip('no-source')!).getByText('No account to pay from')).toBeInTheDocument()
+    expect(await hintText(user, 'About the account to pay from')).toMatch(/Set the account to pay shared costs from/)
   })
 
   // S-P2-2 (P53): the source's holder made it private, so the profile names no id. The page still
@@ -117,9 +130,10 @@ describe('AllocationPage', () => {
 
     renderPage()
 
-    await screen.findByText('How June is allocated', {}, { timeout: 5000 })
-    expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeEnabled()
-    expect(screen.queryByText(/Set the account to pay shared costs from/)).not.toBeInTheDocument()
+    await findSteps('June')
+    expect(allocateButton('June')).toBeEnabled()
+    expect(strip('no-source')).toBeNull()
+    expect(screen.queryByText('No account to pay from')).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Allocation settings' }))
     const source = (await screen.findByLabelText('Source account')) as HTMLSelectElement
@@ -138,24 +152,29 @@ describe('AllocationPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
     // Rules 7/29: the plan becomes recorded transfers only after "I've completed these transfers".
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    const dialog = within(await openAllocate(user, 'June'))
+    await user.click(dialog.getByRole('button', { name: 'Record transfers' }))
     expect(await screen.findByText(/Confirm that you’ve completed these transfers/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
 
+    // The date is a "Sent today" pill that opens the date field.
+    await user.click(dialog.getByRole('button', { name: /^Sent today: the date the money left Joint Current$/ }))
     await user.clear(dialog.getByLabelText('Allocation departure date'))
     await user.type(dialog.getByLabelText('Allocation departure date'), '2026-06-03')
-    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    await user.click(dialog.getByRole('checkbox', { name: 'I’ve completed these transfers' }))
+    // Leaving the field shows the pill again, with the date picked.
+    expect(dialog.queryByLabelText('Allocation departure date')).not.toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: /^Sent .*3.*: the date the money left Joint Current$/ })).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Record transfers' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/6', {
         departedOn: '2026-06-03', receivedOn: null, confirmedCompleted: true,
       }),
     )
-    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Allocated June · 2 transfers in transit', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(/2 savings transfers recorded as in transit/)
   })
 
   it('reports an unchanged re-run instead of pretending nothing was needed', { timeout: 15000 }, async () => {
@@ -165,11 +184,9 @@ describe('AllocationPage', () => {
 
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    await recordTransfers(user, await openAllocate(user, 'June'))
 
-    expect(await screen.findByText(/the 2 recorded transfers are unchanged/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Allocated June · 2 transfers unchanged', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(/the 2 recorded transfers are unchanged/)
   })
 })

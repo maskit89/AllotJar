@@ -80,23 +80,23 @@
   2. Click **"+ Add person"**, add "Sam" with **"Net monthly income"** 2,000.00 and a **"Savings account"** = "Sam Savings" (create that account first on `/accounts` if needed), submit **"Add person"** (people suite).
   3. Observe the nav after the add.
   4. Set Alex's own person income to 3,000.00 via the row **✎** inline edit.
-  5. Go to `/allocation`; if prompted, click **"Set up allocation"**; in **"Allocation settings"** set **"Pay shared costs from"** = "Joint", **"Split shared costs"** = "By income", **"Send savings to"** = "Balance", **"Balance lean (0–100)"** = 25; **"Set up"** (as ALLOC-010).
-  6. Read the waterfall preview and per-member tiles.
+  5. Go to `/allocation`; if prompted, click **"Set up allocation"**; in **"Allocation settings"** set **"Pay shared costs from"** = "Joint", **"Split shared costs"** = "By income", **"Send savings to"** = "Balance", **"Balance lean"** = 25; **"Set up"** (as ALLOC-010).
+  6. Read the KPI row, the **Steps** card and each person's row in the **Savings** card.
   7. Back on `/people`, on Sam's row click **"Invite to sign in"** → in the modal keep **"Email an invite link"**, set **"Access level"** = "Admin", submit **"Send invite"**, then read the link (`{origin}/accept-invite?code=…`) from the invitation email in the dev mailbox (`/api/dev/emails`); the page itself never shows it.
   8. In a separate signed-out browser context, open the emailed `/accept-invite?code=…` link. Fill **"Your name (optional)"** "Sam", **"Password"** (random), tick terms, click **"Accept invite"** (as invite.spec).
   9. Observe Sam's landing.
   10. As Sam, add a transaction on `/transactions` attributed to herself (Member = Sam) against a shared expense line.
   11. As Alex, refresh `/people` and read the members table (income shares, "Shared this month").
-  12. As Alex, run **"Allocate {month}"** on `/allocation`; then open `/accounts` reconciliation.
+  12. As Alex, on `/allocation` press **Allocate** (named "Allocate {month}"), tick **"I’ve completed these transfers"** and press **"Record transfers"**; then open `/accounts` reconciliation.
 - **Expected:**
   - CP1: `/people` shows the "You"-tagged owner row only; **Allocation** nav is absent (isShared requires ≥2 members).
   - CP2-CP3: after the add, `HouseholdContext.refresh()` makes `isShared` true → the **Allocation** nav item appears live without reload; combined-income hero updates.
-  - CP5-CP6: the profile saves; the preview reproduces the waterfall (Cover shared costs → Fund the jars → Pocket money → Split remainder to savings) with By-income cost split; the two hero tiles ("Shared spending" + "To savings") reconcile to the pool by construction.
+  - CP5-CP6: the profile saves; the Steps card lists the four steps (Cover shared costs → Fund the jars → Pocket money → Split remainder to savings) with a By-income cost split; the KPI tiles "Shared spending" + "To savings" reconcile to the pool ("Income to allocate") by construction.
   - CP7: the link modal returns the raw token **once**; the pending membership shows the amber **"Invited"** badge on Sam's row; re-opening cannot retrieve the token again.
   - CP8-CP9: acceptance creates Sam's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Sam's active household to Alex's (`SetActiveHouseholdAsync`). Sam lands via full reload on `/?joined=1` showing the **"You've joined this household…"** greeting and Alex's shared budget (Remaining-to-budget matches Alex's), NOT an own empty budget (PR #156). Sam is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the "Your own budget" card.
   - CP10: Sam (Admin) can add/attribute a transaction; the actual lands on the shared line the moment it's read (tx-derived).
   - CP11: Sam's spending appears attributed to her member row; income shares compute over active members (Alex 60% / Sam 40% by 3000/2000; rounded display may not sum to exactly 100%).
-  - CP12: Allocate writes one `Transfer` per member with `Residual > 0` and a valid savings account (`BankReference = "alloc:{y}-{m}:{memberId}"`), moving money Joint → each personal savings; reconciliation on `/accounts` now shows the Joint float against any jars it backs. Re-running Allocate replaces, never doubles.
+  - CP12: Allocate writes one `Transfer` per member with `Residual > 0` and a valid savings account (`BankReference = "alloc:{y}-{m}:{memberId}"`), moving money Joint → each personal savings; reconciliation on `/accounts` now shows the Joint float against any jars it backs. Re-running Allocate keeps unchanged transfers, never doubles.
 - **Automated:** Partial (`client/e2e-journey/invite.spec.ts` covers owner-adds-person → invite link → accept → lands-in-household; allocation/reconciliation legs unautomated against a real backend)
 
 ### JRN-004 - Direct temp-password invite: first sign-in hits the consent gate, then limited daily use
@@ -185,7 +185,7 @@
 - **Steps:**
   1. In M1, confirm the Savings group carries a funded line per jar (accrual-planned) and the month is balanced (Remaining 0).
   2. Record real spending and income transactions for M1 across expense + savings lines.
-  3. Run **"Allocate {M1}"** on `/allocation`; note transfers created.
+  3. On `/allocation` press **Allocate** (named "Allocate {M1}"), tick **"I’ve completed these transfers"** and press **"Record transfers"**; note the transfers in the "Allocated" strip.
   4. Open `/jars` and read each jar's balance, status chip and pace label.
   5. TopBar **"Next month"** → create M2 with **"Copy {M1}"**.
   6. Inspect M2's re-seeded jar lines vs M1.
@@ -196,7 +196,7 @@
 - **Expected:**
   - CP1: each jar's planned contribution = the schedule's figure for that month (`JarPlanner.PlanMonthAsync`: by a deadline the remainder splits exactly over the contribution months up to the month before the deadline, remainder last; a fixed monthly jar plans its fixed amount — rules 12, 16, 35); month balanced with income > 0 (PR #172).
   - CP2: actuals roll up tx-derived; savings-line "avail." rolls (planned − spend across months ≤ viewed); the Jars-page balance includes opening while the grid "avail." excludes it (two-flavour design).
-  - CP3: Allocate creates member transfers (idempotent, `AllocationKey` `alloc:{M1}:{memberId}`); re-running replaces them; savings-balance tilt excludes this month's own alloc transfers so preview == re-commit.
+  - CP3: Allocate creates member transfers (idempotent, `AllocationKey` `alloc:{M1}:{memberId}`); re-running keeps unchanged ones and replaces changed ones; savings-balance tilt excludes this month's own alloc transfers so preview == re-commit.
   - CP5-CP6: M2 copy carries structure + `DueDay` + `SavingsId` + `ExcludeFromAllocation`, resets IsPaid, and **re-seeds** seedable jar lines from the accrual calculator (NOT M1's flat planned) using the as-of-M2 balance (strictly-before months only); archived-jar lines drop, dangling-SavingsId lines copy as-is (BUDG-015/BUDG-017/BUDG-018).
   - CP7-CP8: the trend shows one point per budgeted month (most-recent-N budgets, gaps skipped), annual overview lists M1–M3 with income/spent/net; reports are tx-derived so any deleted historical tx would lower them retroactively (RPT-026).
   - CP9-CP10: archiving Holiday removes it from the jars list, from reconciliation, and from M4's copy (its line is dropped); Car insurance re-arms virtually if its due date passed (recurrence is a pure view — the stored anchor is never rewritten) and reads OnTrack not Behind (JAR-044).
@@ -207,20 +207,20 @@
 - **Type:** Happy
 - **Preconditions:** Shared couple household with the canonical figures — Alex net 3,000.00, Sam net 2,000.00, Joint EUR source account, each member with a personal savings account, a saved profile (cost split By income, savings split Balance lean 25). Current month has expense + savings planned so the waterfall has real deductions.
 - **Steps:**
-  1. On `/allocation` read the hero ("Income to allocate" = pool) and the four waterfall steps.
-  2. Read each per-member tile (Savings →, residual, Projected balance).
-  3. Click **"Allocate {month}"**.
-  4. Read the committed banner.
+  1. On `/allocation` read the KPI row (the hero "Income to allocate" = pool) and the four steps in the **Steps** card.
+  2. Read each person's row in the **Savings** card (the share, the savings account, the projected balance behind the row's (i)).
+  3. Press **Allocate** (named "Allocate {month}"), tick **"I’ve completed these transfers"** and press **"Record transfers"**.
+  4. Read the "Allocated" strip and open its (i).
   5. Open `/transactions`, filter to confirm the allocation transfer rows.
   6. Open `/accounts` and read the Joint balance + the **"Jar reconciliation"** float.
   7. Change one member's savings account to blank on `/people`, return to `/allocation`, and re-preview + re-commit.
 - **Expected:**
-  - CP1-CP2: pool = 3,000 + 2,000 = 5,000.00; the two hero tiles reconcile to the pool by construction; residuals reflect the keep-own / tilt math (golden anchor Alex 1,200.50 / Sam 800.25 when the profile is keep-own; with Balance-tilt the shares differ but sum exactly).
-  - CP3-CP4: commit writes one Joint→personal-savings `Transfer` per member with residual > 0 and a valid savings account; banner reads "Allocated {month} — N savings transfer(s) created. Re-running Allocate replaces them, never doubles up." A brand-new equal/zero-balance couple must NOT 500 (WaterFill overflow fix, PR #162 / ALLOC-057).
+  - CP1-CP2: pool = 3,000 + 2,000 = 5,000.00; the "Shared spending" and "To savings" tiles reconcile to the pool by construction; residuals reflect the keep-own / tilt math (golden anchor Alex 1,200.50 / Sam 800.25 when the profile is keep-own; with Balance-tilt the shares differ but sum exactly).
+  - CP3-CP4: commit writes one Joint→personal-savings `Transfer` per member with residual > 0 and a valid savings account; the strip reads "Allocated {month} · N transfer(s) in transit" and its (i) "Allocated {month} — N savings transfer(s) recorded as in transit; confirm each receipt on the Transactions page. Re-running Allocate keeps unchanged transfers, never doubles up." A brand-new equal/zero-balance couple must NOT 500 (WaterFill overflow fix, PR #162 / ALLOC-057).
   - CP5: the register shows the alloc transfers as unsigned grey Transfer rows (excluded from money-in/out).
   - CP6: the Joint balance dropped by the sum of transfers out; personal savings accounts rose; reconciliation float recomputes.
-  - CP7: with a member's savings account gone, preview shows "No savings account set — won't transfer on commit." and commit **skips** that member instead of 500-ing (dangling-account fix, ALLOC-047); the stranded surplus note appears; re-commit stays idempotent.
-- **Automated:** No (allocation preview/commit + skip-dangling covered by `AllocationTests` + `AllocationRerunTests` at unit/integration level, not as a journey)
+  - CP7: with a member's savings account gone, their Savings row reads "Stays in Joint" (its (i): "No savings account linked — {name}’s share stays in Joint when you allocate.") and commit **skips** that member instead of 500-ing (dangling-account fix, ALLOC-054); the Allocate dialog is titled "Allocate without {name}?" and lists them as "Stays in Joint", and the "Allocated" strip's (i) says what stayed in Joint; re-commit stays idempotent.
+- **Automated:** Partial (`client/e2e-journey/allocation-commit.spec.ts` — the reconciling KPI row, commit, the unchanged re-commit, real balances and the stranded share against a real backend; skip-dangling covered by `AllocationTests` + `AllocationRerunTests` at unit/integration level)
 
 ---
 

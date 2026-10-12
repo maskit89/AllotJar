@@ -1,4 +1,4 @@
-import { Fragment, useId, useRef, type ReactNode } from 'react'
+import { Fragment, useId, useRef, type ReactElement, type ReactNode } from 'react'
 import { Ellipsis } from 'lucide-react'
 import {
   DropdownMenu,
@@ -58,6 +58,8 @@ export function RowMenu({
   note,
   triggerClassName = '',
   describedBy,
+  trigger: customTrigger,
+  menuLabel,
 }: {
   /** The ⋯ button's accessible name, e.g. "Rent: more actions". */
   label: string
@@ -69,6 +71,14 @@ export function RowMenu({
    * two rows with the same name can be told apart. Optional; nothing is shown.
    */
   describedBy?: string
+  /**
+   * Opt-in (the Allocation page's "+ Link account" chip, restyle PR 10): the button that opens the
+   * menu, in place of the ⋯ (one element; it keeps its own look and name, and `label` is then
+   * unused). Left out, the trigger is the ⋯.
+   */
+  trigger?: ReactElement
+  /** The menu's own accessible name (e.g. "Savings account for Sam"). Optional. */
+  menuLabel?: string
 }) {
   const trigger = useRef<HTMLButtonElement>(null)
   // An action that waits for the menu to close (see RowAction.after).
@@ -77,14 +87,22 @@ export function RowMenu({
   if (actions.length === 0) return null
   return (
     <DropdownMenu modal={false}>
-      {/* data-row-trigger: where a row gives focus back when one of its inline editors closes. */}
-      <DropdownMenuTrigger ref={trigger} data-row-trigger="" aria-label={label} aria-describedby={describedBy} className={`${ROW_MENU_TRIGGER} ${triggerClassName}`}>
-        <Ellipsis aria-hidden strokeWidth={1.8} className="size-[18px]" />
-      </DropdownMenuTrigger>
+      {customTrigger ? (
+        <DropdownMenuTrigger ref={trigger} asChild aria-describedby={describedBy}>
+          {customTrigger}
+        </DropdownMenuTrigger>
+      ) : (
+        // data-row-trigger: where a row gives focus back when one of its inline editors closes.
+        <DropdownMenuTrigger ref={trigger} data-row-trigger="" aria-label={label} aria-describedby={describedBy} className={`${ROW_MENU_TRIGGER} ${triggerClassName}`}>
+          <Ellipsis aria-hidden strokeWidth={1.8} className="size-[18px]" />
+        </DropdownMenuTrigger>
+      )}
       <DropdownMenuContent
         align="end"
         sideOffset={6}
         className="min-w-[196px] rounded-xl p-1.5 shadow-[var(--shadow-frame-lg)]"
+        // A menu with its own name is named by it, not by its trigger (Radix's default).
+        {...(menuLabel ? { 'aria-label': menuLabel, 'aria-labelledby': undefined } : {})}
         aria-describedby={note ? noteId : undefined}
         onCloseAutoFocus={(e) => {
           const action = pending.current

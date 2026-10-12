@@ -20,6 +20,7 @@ import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
 import { jointCurrent, preview, profile } from '../test/fixtures/allocation'
+import { hintText, openAllocate, recordTransfers } from '../test/allocationPage'
 
 // Rule 78 on the allocation commit: Alex's savings account backs the Holiday jar, Sam's backs
 // none, so only Alex's transfer asks how it is divided.
@@ -63,17 +64,21 @@ describe('AllocationPage jar prompt on commit', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    const opened = await openAllocate(user, 'June')
+    const dialog = within(opened)
 
     // Alex's account backs a jar; Sam's does not.
     expect(await dialog.findByTestId('alloc-m1-jar-allocation')).toBeInTheDocument()
     expect(dialog.queryByTestId('alloc-m2-jar-allocation')).not.toBeInTheDocument()
-    expect(dialog.getByText(/Alex ·/)).toBeInTheDocument()
+    // Whose money and which account: the fields' name, and the "Into jars" (i).
+    expect(dialog.getByRole('group', { name: 'Put into jars in Alex Savings' })).toBeInTheDocument()
+    expect(dialog.getByText('Into jars')).toBeInTheDocument()
+    expect(await hintText(user, 'About putting it into jars', opened)).toMatch(/Alex’s €1,250\.47 lands in Alex Savings/)
 
     await user.type(dialog.getByLabelText('Amount for Holiday'), '1000')
-    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    // What's left of Alex's transfer stays unallocated, said beside the fields.
+    expect(dialog.getByText(/^Stays unallocated/).parentElement).toHaveTextContent('Stays unallocated: €250.47')
+    await recordTransfers(user, opened)
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(
@@ -84,7 +89,8 @@ describe('AllocationPage jar prompt on commit', () => {
         }),
       ),
     )
-    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Allocated June · 2 transfers in transit', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(/2 savings transfers recorded as in transit/)
   })
 
   it('sends no jarAllocations when the prompt is left empty', { timeout: 15000 }, async () => {
@@ -92,11 +98,9 @@ describe('AllocationPage jar prompt on commit', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await dialog.findByTestId('alloc-m1-jar-allocation')
-    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    const opened = await openAllocate(user, 'June')
+    await within(opened).findByTestId('alloc-m1-jar-allocation')
+    await recordTransfers(user, opened)
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
     expect(mockPost.mock.calls[0][1]).not.toHaveProperty('jarAllocations')
@@ -108,11 +112,9 @@ describe('AllocationPage jar prompt on commit', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.type(await dialog.findByLabelText('Amount for Holiday'), '1300')
-    await user.click(dialog.getByLabelText('Allocation completed confirmation'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm allocation' }))
+    const opened = await openAllocate(user, 'June')
+    await user.type(await within(opened).findByLabelText('Amount for Holiday'), '1300')
+    await recordTransfers(user, opened)
 
     expect(await screen.findByText(message, {}, { timeout: 5000 })).toBeInTheDocument()
   })

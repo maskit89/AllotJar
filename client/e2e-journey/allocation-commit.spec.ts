@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { firstOfMonthAhead, groupAction, lineAction, personAction, register, txRows } from './helpers'
 
 /**
@@ -278,14 +278,36 @@ function heroTile(page: Page, label: string) {
   return page.locator('div', { has: page.getByText(label, { exact: true }) }).last()
 }
 
-/** One per-member savings tile below the waterfall, located by the member's exact name. */
+/**
+ * One person's row in the Savings card (restyle PR 10: a list "Savings by person"), located by the
+ * member's exact name: their avatar, name, share, and where their savings go.
+ */
 function memberTile(page: Page, name: string) {
-  return page.locator('div', { has: page.getByText(name, { exact: true }) }).last()
+  return page
+    .getByRole('list', { name: 'Savings by person' })
+    .getByRole('listitem')
+    .filter({ has: page.getByText(name, { exact: true }) })
 }
 
-/** One waterfall step row by its label. */
+/** One waterfall step row by its label (a row of the Steps card's list "How {month} is allocated"). */
 function waterfallRow(page: Page, label: string) {
-  return page.locator('li', { hasText: label })
+  return page.getByRole('list', { name: /^How \w+ is allocated$/ }).getByRole('listitem').filter({ hasText: label })
+}
+
+/**
+ * Open the (i) named `name` inside `scope` (restyle PR 10: a strip's or a row's full sentence sits
+ * behind its (i), and is only in the page while it is open) and return its tooltip. A tooltip
+ * inside a strip is part of that strip's text while it is open. An open tooltip stays open while
+ * the pointer is on it (hoverable content) and can cover the next row's (i), so the pointer first
+ * moves clear, as a person's would, and the last one closes.
+ */
+async function openHint(page: Page, scope: Locator | Page, name: string) {
+  await page.mouse.move(0, 0)
+  await expect(page.getByRole('tooltip')).toHaveCount(0)
+  await scope.getByRole('button', { name, exact: true }).hover()
+  const tip = page.getByRole('tooltip')
+  await expect(tip).toBeVisible()
+  return tip
 }
 
 /** Save the allocation settings modal and wait for the PUT + the preview reload. */
@@ -314,13 +336,20 @@ async function commitAllocation(
   const post = page.waitForResponse(
     (r) => r.request().method() === 'POST' && new URL(r.url()).pathname.startsWith('/api/allocation/commit/') && r.ok(),
   )
-  await page.getByRole('button', { name: 'Commit allocation', exact: true }).click()
+  await page.getByRole('button', { name: `Allocate ${currentPeriod().name}`, exact: true }).click()
   const dialog = page.getByRole('dialog')
   if (opts.confirmStranded) {
-    await expect(dialog).toContainText('no savings account linked')
+    // The dialog asks "Allocate without {names}?" and lists the stranded share as staying in the
+    // source; the reason is behind that line's (i).
+    await expect(dialog).toHaveAccessibleName(/^Allocate without /)
+    const stays = dialog.getByRole('list', { name: 'Transfers' }).getByRole('listitem').filter({ hasText: 'Stays in' })
+    await stays.getByRole('button', { name: /^About .+’s share$/ }).hover()
+    await expect(page.getByRole('tooltip')).toContainText('no savings account linked')
+    // In full, on screen: the sheet's scrolling middle doesn't cut it off.
+    await expect(page.getByRole('tooltip')).toBeInViewport({ ratio: 1 })
   }
-  await dialog.getByLabel('Allocation completed confirmation').check()
-  await dialog.getByRole('button', { name: 'Confirm allocation', exact: true }).click()
+  await dialog.getByRole('checkbox', { name: 'I’ve completed these transfers', exact: true }).check()
+  await dialog.getByRole('button', { name: 'Record transfers', exact: true }).click()
   return await (await post).json()
 }
 
@@ -394,8 +423,12 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
 
   // --- ALLOC-049: no source → Allocate disabled with the amber Settings hint, while
   // hero + waterfall still render fine (the source only affects the commit).
-  await expect(page.getByRole('button', { name: 'Commit allocation', exact: true })).toBeDisabled()
-  await expect(page.getByText(/Set the account to pay shared costs from in/)).toBeVisible()
+  await expect(page.getByRole('button', { name: `Allocate ${monthName}`, exact: true })).toBeDisabled()
+  const noSource = page.locator('[data-strip="no-source"]')
+  await expect(noSource).toContainText('No account to pay from')
+  await expect(await openHint(page, noSource, 'About the account to pay from')).toContainText(
+    /Set the account to pay shared costs from in/,
+  )
 
   // --- ALLOC-029 + ALLOC-030: hero — pool 5,000.00 (Σ member net income), and the two
   // tiles reconcile to it exactly: shared spending 2,500.00 (2,000 envelopes + 500 jars
@@ -406,8 +439,9 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
 
   // --- ALLOC-007 + ALLOC-033 + ALLOC-034 (zero leg): the "How {month} is allocated"
   // card walks the four named steps with per-step totals; pocket 0 shows no "· each".
-  await expect(page.getByRole('heading', { name: `How ${monthName} is allocated` })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Commit allocation', exact: true })).toHaveText(`Allocate ${monthName}`)
+  await expect(page.getByRole('heading', { name: 'Steps', exact: true })).toBeVisible()
+  await expect(page.getByRole('list', { name: `How ${monthName} is allocated` })).toBeVisible()
+  await expect(page.getByRole('button', { name: `Allocate ${monthName}`, exact: true })).toHaveText('Allocate')
   await expect(waterfallRow(page, 'Cover shared costs')).toContainText('2,000.00')
   await expect(waterfallRow(page, 'Fund the jars')).toContainText('500.00')
   await expect(waterfallRow(page, 'Pocket money')).toContainText('0.00')
@@ -415,16 +449,20 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await expect(waterfallRow(page, 'Split remainder to savings')).toContainText('2,500.00')
 
   // --- ALLOC-039 + ALLOC-044: savings sent Equally — the pooled 2,500.00 remainder
-  // splits 1,250.00 each; tiles show pre-allocation balance → residual → projected.
+  // splits 1,250.00 each; each row shows the residual and where it goes, and its (i) the
+  // pre-allocation balance and the projected one.
   const chrisTile = memberTile(page, 'Alex')
-  await expect(chrisTile).toContainText('1,000.00 → saves')
   await expect(chrisTile).toContainText('1,250.00')
-  await expect(chrisTile).toContainText('Projected balance')
-  await expect(chrisTile).toContainText('2,250.00')
+  await expect(chrisTile).toContainText('Alex Pot')
+  const chrisHint = await openHint(page, chrisTile, 'About Alex’s savings')
+  await expect(chrisHint).toContainText('1,000.00 in Alex Pot today')
+  await expect(chrisHint).toContainText('Projected balance')
+  await expect(chrisHint).toContainText('2,250.00')
   const robinTile = memberTile(page, 'Robin')
-  await expect(robinTile).toContainText('500.00 → saves')
   await expect(robinTile).toContainText('1,250.00')
-  await expect(robinTile).toContainText('1,750.00')
+  const robinHint = await openHint(page, robinTile, 'About Robin’s savings')
+  await expect(robinHint).toContainText('500.00 in Robin Pot today')
+  await expect(robinHint).toContainText('1,750.00')
 
   // --- ALLOC-019 + ALLOC-015 (hide leg): the settings modal against the EXISTING
   // profile — titled "Allocation settings", primary button "Save", and with the saved
@@ -459,28 +497,33 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
 
   // The guard lifts: hint gone, Allocate enabled.
   await expect(page.getByText(/Set the account to pay shared costs from in/)).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Commit allocation', exact: true })).toBeEnabled()
+  await expect(page.getByText('No account to pay from')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: `Allocate ${monthName}`, exact: true })).toBeEnabled()
 
   // --- ALLOC-050: commit records 2 member transfers (departed, receipt pending) and shows the count banner.
   const first = await commitAllocation(page)
   expect(first.transfersCreated).toBe(2)
   await expect(page.getByRole('status')).toContainText(`Allocated ${monthName}`)
-  await expect(page.getByRole('status')).toContainText('2 savings transfers recorded as in transit')
-  await expect(page.getByRole('status')).toContainText('Re-running Allocate keeps unchanged transfers, never doubles up.')
+  // The full sentence is behind the strip's (i), beside the status line (the live region is the
+  // short line alone, so opening the (i) isn't announced as a change).
+  const allocated = await openHint(page, page, 'About the allocation')
+  await expect(allocated).toContainText('2 savings transfers recorded as in transit')
+  await expect(allocated).toContainText('Re-running Allocate keeps unchanged transfers, never doubles up.')
 
   // --- ALLOC-047: a fresh preview after the commit still shows the PRE-allocation
   // balances (this month's alloc: transfers are excluded), so a re-run sees the same
   // tilt inputs as the first — tiles are byte-stable across runs.
   await page.reload()
-  await expect(memberTile(page, 'Alex')).toContainText('1,000.00 → saves')
+  await expect(await openHint(page, memberTile(page, 'Alex'), 'About Alex’s savings')).toContainText('1,000.00 in Alex Pot today')
   await expect(memberTile(page, 'Alex')).toContainText('1,250.00')
-  await expect(memberTile(page, 'Robin')).toContainText('500.00 → saves')
+  await expect(await openHint(page, memberTile(page, 'Robin'), 'About Robin’s savings')).toContainText('500.00 in Robin Pot today')
 
   // --- ALLOC-052: re-running the commit keeps the unchanged recorded transfers, never doubles.
   const second = await commitAllocation(page)
   expect(second.transfersCreated).toBe(0)
   expect(second.transfersRetained).toBe(2)
-  await expect(page.getByRole('status')).toContainText('the 2 recorded transfers are unchanged')
+  await expect(page.getByRole('status')).toContainText(`Allocated ${monthName}`)
+  await expect(await openHint(page, page, 'About the allocation')).toContainText('the 2 recorded transfers are unchanged')
 
   // --- ALLOC-050 + ALLOC-058 (list leg): after TWO commits the Transactions list holds
   // exactly two allocation transfers — Transfer chips, from → to accounts, the confirmed
@@ -582,22 +625,27 @@ test('a member without a savings account strands their share; over-committing th
   await expect(heroTile(page, 'Shared spending')).toContainText('2,100.00')
   await expect(heroTile(page, 'To savings')).toContainText('2,900.00')
 
-  // --- ALLOC-046: Robin's tile carries the amber no-savings-account note and a 0.00
-  // savings balance; the residual itself is a healthy 1,450.00.
+  // --- ALLOC-046: Robin's row carries the amber no-savings-account note (behind its (i)) and,
+  // with no linked account, no balance: it says where the share stays; the residual itself is a
+  // healthy 1,450.00.
   const robinTile = memberTile(page, 'Robin')
-  await expect(robinTile).toContainText('No savings account linked')
-  await expect(robinTile).toContainText('No savings account → saves') // no linked account: no balance to show
+  await expect(robinTile).toContainText('Stays in Joint') // no linked account: no balance to show
   await expect(robinTile).toContainText('1,450.00')
+  const robinWhy = await openHint(page, robinTile, 'About Robin’s share')
+  await expect(robinWhy).toContainText('No savings account linked')
 
-  // --- ALLOC-055: Robin's positive share is stranded — the amber note names the amount.
-  const strandedNote = page.getByText(/won’t be transferred/)
-  await expect(strandedNote).toBeVisible()
-  await expect(strandedNote).toContainText('1,450.00')
+  // --- ALLOC-055: Robin's positive share is stranded: the amber line says it stays in the source,
+  // beside the amount (1,450.00, above), and the (i) says why. One person's stranded total is that
+  // row's own figure, so the "€X won’t be transferred" total is shown only for two or more.
+  await expect(robinWhy).toContainText('Robin’s share stays in Joint when you allocate')
+  await expect(robinTile.getByText('Stays in Joint', { exact: true })).toBeVisible()
+  await expect(robinWhy).not.toContainText('won’t be transferred')
 
   // --- ALLOC-057 + ALLOC-050 (singular): commit records only Alex's transfer.
   const first = await commitAllocation(page, { confirmStranded: true })
   expect(first.transfersCreated).toBe(1)
-  await expect(page.getByRole('status')).toContainText('1 savings transfer recorded as in transit')
+  await expect(page.getByRole('status')).toContainText(`Allocated ${monthName}`)
+  await expect(await openHint(page, page, 'About the allocation')).toContainText('1 savings transfer recorded as in transit')
 
   // Transactions: exactly ONE allocation row; Robin's 1,450.00 stayed in the source.
   await page.getByRole('link', { name: 'Transactions' }).click()
@@ -627,21 +675,27 @@ test('a member without a savings account strands their share; over-committing th
   // --- ALLOC-056/070: nothing stranded now (no positive share); To savings is
   // NEGATIVE, so the rose overshoot note shows (the slate nothing-to-save copy is
   // reserved for exactly zero) and no stranded banner renders.
-  await expect(page.getByText(/overshoot the pooled income by/)).toBeVisible()
-  await expect(page.getByText(/overshoot the pooled income by/)).toContainText('1,100.00')
+  const overshoot = page.getByText(/^Over the pooled income by/)
+  await expect(overshoot).toBeVisible()
+  await expect(overshoot).toContainText('1,100.00')
+  const overshootWhy = await openHint(page, page.locator('[data-strip="overshoot"]'), 'About the overshoot')
+  await expect(overshootWhy).toContainText(/overshoot the pooled income by/)
+  await expect(overshootWhy).toContainText('1,100.00')
   await expect(page.getByText(/won’t be transferred/)).toHaveCount(0)
+  await expect(await openHint(page, memberTile(page, 'Robin'), 'About Robin’s share')).not.toContainText('won’t be transferred')
 
   // --- ALLOC-045: keep-own residuals gone negative render in the rose tone —
   // Alex −50.00 (3,000 − 3,000 − 50), Robin −1,050.00 (2,000 − 3,000 − 50).
-  await expect(memberTile(page, 'Alex').locator('.text-rose-600')).toContainText('50.00')
-  await expect(memberTile(page, 'Robin').locator('.text-rose-600')).toContainText('1,050.00')
+  await expect(memberTile(page, 'Alex').locator('[data-tone="bad"]')).toContainText('50.00')
+  await expect(memberTile(page, 'Robin').locator('[data-tone="bad"]')).toContainText('1,050.00')
 
   // --- ALLOC-051 + ALLOC-052 (replace-to-zero leg): the re-commit needs no transfers,
   // says so in the 0-variant banner, and REPLACES the prior run — deleting Alex's
   // earlier 1,450.00 transfer rather than leaving it stacked.
   const second = await commitAllocation(page)
   expect(second.transfersCreated).toBe(0)
-  await expect(page.getByRole('status')).toContainText(
+  await expect(page.getByRole('status')).toContainText(`Allocated ${monthName}`)
+  await expect(await openHint(page, page, 'About the allocation')).toContainText(
     `Allocated ${monthName} — nothing was transferred because shared spending overshoots the pooled income.`,
   )
   await page.getByRole('link', { name: 'Transactions' }).click()
@@ -707,9 +761,9 @@ test('a new couple with equal zero balances previews and commits under the defau
   await expect(page.getByLabel(/^Income to allocate:/)).toContainText('5,000.00')
   await expect(heroTile(page, 'Shared spending')).toContainText('3,000.00')
   await expect(heroTile(page, 'To savings')).toContainText('2,000.00')
-  await expect(memberTile(page, 'Alex')).toContainText('0.00 → saves')
+  await expect(await openHint(page, memberTile(page, 'Alex'), 'About Alex’s savings')).toContainText('0.00 in Pot A today')
   await expect(memberTile(page, 'Alex')).toContainText('1,000.00')
-  await expect(memberTile(page, 'Sam')).toContainText('0.00 → saves')
+  await expect(await openHint(page, memberTile(page, 'Sam'), 'About Sam’s savings')).toContainText('0.00 in Pot B today')
   await expect(memberTile(page, 'Sam')).toContainText('1,000.00')
 
   // --- ALLOC-042 (commit leg): the commit also survives and records the departures evenly;
@@ -717,7 +771,8 @@ test('a new couple with equal zero balances previews and commits under the defau
   // 1,000.00 each in transit.
   const result = await commitAllocation(page)
   expect(result.transfersCreated).toBe(2)
-  await expect(page.getByRole('status')).toContainText('2 savings transfers recorded as in transit')
+  await expect(page.getByRole('status')).toContainText('Allocated')
+  await expect(await openHint(page, page, 'About the allocation')).toContainText('2 savings transfers recorded as in transit')
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,000.00')
   await expect(page.getByText('2,000.00 in transit out')).toBeVisible()

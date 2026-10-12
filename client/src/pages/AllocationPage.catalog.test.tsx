@@ -31,6 +31,18 @@ import { mockGet, mockPut, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AllocationPage } from './AllocationPage'
 import { profile as sharedProfile } from '../test/fixtures/allocation'
+import {
+  allocateButton,
+  findAllocateButton,
+  findSteps,
+  hintText,
+  openAllocate,
+  recordTransfers,
+  savingsRow,
+  stepRow,
+  strip,
+  tileValue,
+} from '../test/allocationPage'
 
 // Two owned accounts so the source-account select has more than one real option (ALLOC-011).
 // Mutable so the savings-link tests can add savings-type accounts; reset in beforeEach.
@@ -144,13 +156,11 @@ function money(text: string | null | undefined): number {
   return neg ? -n : n
 }
 
-/** Read a hero stat-tile's value by its label (the value span is the label span's sibling). */
-function heroTileValue(label: string): number {
-  return money(screen.getByText(label).nextElementSibling?.textContent)
-}
+/** A KPI tile's figure by its label (the tile is a group named by its label). */
+const heroTileValue = tileValue
 
 async function openSettingsFromCard(user: ReturnType<typeof userEvent.setup>) {
-  await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+  await findSteps('July')
   await user.click(screen.getByRole('button', { name: 'Allocation settings' }))
   return within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 }
@@ -199,8 +209,10 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    expect(await screen.findByText('How July is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Commit allocation' })).toHaveTextContent('Allocate July')
+    expect(await findSteps('July')).toBeInTheDocument()
+    // The button reads "Allocate"; its name carries the month the top bar shows.
+    expect(allocateButton('July')).toHaveTextContent('Allocate')
+    expect(allocateButton('July')).toHaveAccessibleName('Allocate July')
     const urls = mockGet.mock.calls.map((c) => c[0] as string)
     expect(urls).toContain('/allocation/preview/2026/7')
     expect(urls).toContain('/budget/2026/7')
@@ -211,7 +223,7 @@ describe('AllocationPage (catalog)', () => {
     profileData = profile()
 
     const view = renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
     // The top bar moves to August: heading, button and preview follow.
     monthState.year = 2026
@@ -219,8 +231,9 @@ describe('AllocationPage (catalog)', () => {
     monthState.label = 'August 2026'
     view.rerender(<AllocationPage />)
 
-    expect(await screen.findByText('How August is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Commit allocation' })).toHaveTextContent('Allocate August')
+    expect(await findSteps('August')).toBeInTheDocument()
+    expect(allocateButton('August')).toHaveTextContent('Allocate')
+    expect(screen.queryByRole('button', { name: 'Allocate July' })).not.toBeInTheDocument()
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/allocation/preview/2026/8'), { timeout: 5000 })
   })
 
@@ -381,10 +394,9 @@ describe('AllocationPage (catalog)', () => {
     renderPage()
 
     // Commit first so the banner is showing.
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
-    expect(await screen.findByText(/2 savings transfers recorded as in transit/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await recordTransfers(user, await openAllocate(user, 'July'))
+    expect(await screen.findByText('Allocated July · 2 transfers in transit', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(/2 savings transfers recorded as in transit/)
 
     // Now edit + save — the figures just changed, so the banner must clear (setCommitted(null)).
     await user.click(screen.getByRole('button', { name: 'Allocation settings' }))
@@ -395,7 +407,8 @@ describe('AllocationPage (catalog)', () => {
     await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
-    await waitFor(() => expect(screen.queryByText(/savings transfers recorded/)).not.toBeInTheDocument(), { timeout: 5000 })
+    await waitFor(() => expect(strip('committed')).toBeNull(), { timeout: 5000 })
+    expect(screen.queryByText(/^Allocated July/)).not.toBeInTheDocument()
   })
 
   it('ALLOC-021: Cancel reverts unsaved edits so a later Save cannot commit them', async () => {
@@ -547,7 +560,7 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
     expect(screen.getByText('Income to allocate')).toBeInTheDocument()
     expect(screen.getByText('€5,000.00')).toBeInTheDocument() // pool
     const shared = heroTileValue('Shared spending')
@@ -573,23 +586,28 @@ describe('AllocationPage (catalog)', () => {
       ],
     })
 
+    const user = userEvent.setup()
+
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
     const shared = heroTileValue('Shared spending')
     const savings = heroTileValue('To savings')
     expect(shared).toBe(5500)
     expect(savings).toBe(-500)
     expect(shared + savings).toBeCloseTo(money('€5,000.00'), 2)
 
-    // Negative residuals render in the rose tone.
+    // Negative residuals render in the bad (red) tone, as does the negative figure tile.
     const roseResiduals = screen.getAllByText('-€250.00')
     expect(roseResiduals.length).toBe(2)
-    expect(roseResiduals[0].className).toContain('text-rose-600')
+    expect(roseResiduals[0]).toHaveAttribute('data-tone', 'bad')
+    expect(roseResiduals[0].className).toContain('text-bad')
 
     // Both members have savings accounts (nothing stranded) and To savings < 0 → the honest
-    // overshoot note (the bland nothing-to-save copy is reserved for exactly zero).
-    expect(screen.getByText(/overshoot the pooled income by €500\.00/)).toBeInTheDocument()
+    // overshoot strip (the bland nothing-to-save copy is reserved for exactly zero).
+    expect(within(strip('overshoot')!).getByText(/^Over the pooled income by €500\.00$/)).toBeInTheDocument()
+    expect(await hintText(user, 'About the overshoot')).toMatch(/overshoot the pooled income by €500\.00/)
+    expect(strip('nothing-to-save')).toBeNull()
   })
 
   it('ALLOC-032: with a profile but a failed preview, no hero renders and the preview error shows', async () => {
@@ -601,7 +619,7 @@ describe('AllocationPage (catalog)', () => {
     expect(await screen.findByText('Could not compute the allocation preview.', {}, { timeout: 5000 })).toBeInTheDocument()
     // Hero needs profile && preview; the preview never arrived, so the eyebrow is absent.
     expect(screen.queryByText('Income to allocate')).not.toBeInTheDocument()
-    expect(screen.queryByText('How July is allocated')).not.toBeInTheDocument()
+    expect(screen.queryByRole('list', { name: 'How July is allocated' })).not.toBeInTheDocument()
   })
 
   // ---- Waterfall steps ------------------------------------------------------
@@ -624,7 +642,7 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    expect(await screen.findByText('How July is allocated', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await findSteps('July')).toBeInTheDocument()
     for (const label of ['Cover shared costs', 'Fund the jars', 'Pocket money', 'Split remainder to savings']) {
       expect(screen.getByText(label)).toBeInTheDocument()
     }
@@ -638,7 +656,7 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
     expect(screen.getByText('Pocket money')).toBeInTheDocument()
     expect(screen.queryByText(/each/)).not.toBeInTheDocument()
   })
@@ -660,17 +678,23 @@ describe('AllocationPage (catalog)', () => {
       ],
     })
 
+    const user = userEvent.setup()
+
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
     expect(screen.getByText('Alex')).toBeInTheDocument()
     expect(screen.getByText('Robin')).toBeInTheDocument()
-    // "Savings €X → saves" + residual + "Projected balance €Y" (Alex 1,000+1,150=2,150; Robin 500+1,150=1,650).
-    expect(screen.getAllByText(/→ saves/).length).toBe(2)
+    // Each row: the residual, where it goes, and behind its (i) the balance today and the projected
+    // balance (Alex 1,000+1,150=2,150; Robin 500+1,150=1,650).
     expect(screen.getAllByText('€1,150.00').length).toBe(2) // both residuals
-    expect(screen.getAllByText(/Projected balance/).length).toBe(2)
-    expect(screen.getByText(/Projected balance €2,150\.00/)).toBeInTheDocument() // Alex 1,000 + 1,150
-    expect(screen.getByText(/Projected balance €1,650\.00/)).toBeInTheDocument() // Robin 500 + 1,150
+    expect(within(savingsRow('Alex')).getByText('€1,150.00')).toBeInTheDocument()
+    const alex = await hintText(user, 'About Alex’s savings')
+    expect(alex).toMatch(/Projected balance €2,150\.00/) // Alex 1,000 + 1,150
+    expect(alex).toMatch(/€1,000\.00 in .+ today, plus this share/)
+    const robin = await hintText(user, 'About Robin’s savings')
+    expect(robin).toMatch(/Projected balance €1,650\.00/) // Robin 500 + 1,150
+    expect(robin).toMatch(/€500\.00 in .+ today, plus this share/)
   })
 
   it('ALLOC-046/055: a member with no savings account gets the note and its positive share shows as stranded', async () => {
@@ -689,16 +713,43 @@ describe('AllocationPage (catalog)', () => {
       ],
     })
 
+    const user = userEvent.setup()
+
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
-    // The card names the person and the consequence (Joint is the source account).
-    expect(screen.getByText(/No savings account linked — Robin’s share stays in Joint/)).toBeInTheDocument()
-    // The stranded amount (Σ residual of accountless members with a positive share) is called out by name.
-    expect(screen.getByText(/€1,150.00 won’t be transferred — Robin has no savings account linked/)).toBeInTheDocument()
+    await findSteps('July')
+    // The row says where the share stays (Joint is the source account), beside the stranded amount
+    // (Σ residual of accountless members with a positive share: Robin's alone here, so it is the
+    // row's own figure); its (i) names the person and the consequence. The "€X won’t be transferred"
+    // total adds nothing to one person's row, so it shows only for two or more (ALLOC-055b).
+    expect(within(savingsRow('Robin')).getByText('Stays in Joint')).toBeInTheDocument()
+    expect(within(savingsRow('Robin')).getByText('€1,150.00')).toBeInTheDocument()
+    const why = await hintText(user, 'About Robin’s share', savingsRow('Robin'))
+    expect(why).toBe('No savings account linked — Robin’s share stays in Joint when you allocate.')
     // No savings-type account exists yet, so the fix path is creating one — not a picker.
     expect(screen.getByRole('button', { name: 'Create a savings account' })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Savings account for Robin')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Link account for Robin’s savings' })).not.toBeInTheDocument()
+  })
+
+  it('ALLOC-055b: with two people stranded, each one’s (i) also names the total that won’t be transferred', async () => {
+    profileData = profile()
+    previewData = mkPreview({
+      pool: 5000, env: 2000, jars: 500, pocketTotal: 0, savingsTotal: 2500,
+      members: [
+        { memberId: 'm1', name: 'Alex', netIncome: 3000, residual: 1000, savingsBalance: 1000, savingsAccountId: 'accC' },
+        { memberId: 'm2', name: 'Robin', netIncome: 1000, residual: 900, savingsBalance: 0, savingsAccountId: null },
+        { memberId: 'm3', name: 'Sam', netIncome: 1000, residual: 600, savingsBalance: 0, savingsAccountId: null },
+      ],
+    })
+    const user = userEvent.setup()
+    renderPage()
+    await findSteps('July')
+
+    for (const name of ['Robin', 'Sam']) {
+      const why = await hintText(user, `About ${name}’s share`, savingsRow(name))
+      expect(why).toMatch(new RegExp(`^No savings account linked — ${name}’s share stays in Joint when you allocate\\.`))
+      expect(why).toMatch(/€1,500\.00 won’t be transferred — Robin and Sam have no savings account linked\.$/)
+    }
   })
 
   it('ALLOC-064: the inline picker links a savings account with a full-echo PUT and reloads the preview', async () => {
@@ -735,17 +786,17 @@ describe('AllocationPage (catalog)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
-    // A unique name match offers the one-click chip — offer-only, nothing links without a click.
-    expect(screen.getByRole('button', { name: 'Use “Robin Savings”' })).toBeInTheDocument()
+    // "+ Link account" opens the picker. A unique name match is offered first, as one click —
+    // offer-only, nothing links without a click; then the other accounts, each named with its type.
+    await user.click(screen.getByRole('button', { name: 'Link account for Robin’s savings' }))
+    const picker = await screen.findByRole('menu', { name: 'Savings account for Robin' }, { timeout: 5000 })
+    const items = within(picker).getAllByRole('menuitem').map((el) => el.getAttribute('aria-label') ?? el.textContent)
+    expect(items).toEqual(['Use “Robin Savings”', 'Joint — Current', 'Savings pot — Current'])
+    expect(mockPut).not.toHaveBeenCalled()
 
-    // The picker sorts savings-type first and labels types.
-    const picker = screen.getByLabelText('Savings account for Robin') as HTMLSelectElement
-    const optionLabels = Array.from(picker.options).map((o) => o.textContent)
-    expect(optionLabels[1]).toBe('Robin Savings — Savings')
-
-    await user.selectOptions(picker, 'accRobinSav')
+    await user.click(within(picker).getByRole('menuitem', { name: 'Use “Robin Savings”' }))
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/members/m2', {
         name: 'Robin',
@@ -757,9 +808,10 @@ describe('AllocationPage (catalog)', () => {
     expect(mockPut).not.toHaveBeenCalledWith('/members/m2', expect.objectContaining({ netMonthlyIncome: 2000 }))
     // The preview reloaded and the warning cleared.
     await waitFor(() =>
-      expect(screen.queryByText(/No savings account linked/)).not.toBeInTheDocument(),
+      expect(within(savingsRow('Robin')).queryByText(/^Stays in/)).not.toBeInTheDocument(),
       { timeout: 5000 },
     )
+    expect(screen.queryByRole('button', { name: 'Link account for Robin’s savings' })).not.toBeInTheDocument()
   })
 
   it('ALLOC-065: no suggestion chip when the name match is ambiguous', async () => {
@@ -777,11 +829,21 @@ describe('AllocationPage (catalog)', () => {
       ],
     })
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(screen.queryByRole('button', { name: /^Use “/ })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Savings account for Robin')).toBeInTheDocument()
+    renderPage()
+    await findSteps('July')
+
+    // Two accounts match "Robin": no suggestion, just the list, savings-type first and named with their types.
+    await user.click(screen.getByRole('button', { name: 'Link account for Robin’s savings' }))
+    const picker = await screen.findByRole('menu', { name: 'Savings account for Robin' }, { timeout: 5000 })
+    expect(within(picker).queryByRole('menuitem', { name: /^Use “/ })).not.toBeInTheDocument()
+    expect(within(picker).getAllByRole('menuitem').map((el) => el.getAttribute('aria-label'))).toEqual([
+      'Robin Savings — Savings',
+      'Robin Savings 2 — Savings',
+      'Joint — Current',
+      'Savings pot — Current',
+    ])
   })
 
   it('ALLOC-066: a Limited user sees the ask-an-admin copy, no picker, and can still allocate', async () => {
@@ -799,12 +861,18 @@ describe('AllocationPage (catalog)', () => {
       ],
     })
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(await screen.findByText(/Ask an admin to link one on the People page/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.queryByLabelText('Savings account for Robin')).not.toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Commit allocation' })).toBeInTheDocument()
+    renderPage()
+    await findSteps('July')
+
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Link account for Robin’s savings' })).not.toBeInTheDocument(),
+    )
+    expect(within(savingsRow('Robin')).getByText('Stays in Joint')).toBeInTheDocument()
+    expect(await hintText(user, 'About Robin’s share', savingsRow('Robin'))).toMatch(/Ask an admin to link one on the People page/)
+    expect(screen.getByRole('button', { name: 'Allocate July' })).toBeInTheDocument()
   })
 
   it('ALLOC-067: allocating with a stranded share needs an explicit confirm; the banner names it', async () => {
@@ -821,12 +889,20 @@ describe('AllocationPage (catalog)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
-    // The record modal names the stranded share; nothing is sent until confirmed.
-    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
-    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/€1,250\.00 will stay in Joint because Robin has no savings account linked/)).toBeInTheDocument()
+    // The record dialog names the stranded share (its title, Robin's line and its (i)); nothing is
+    // sent until confirmed.
+    const opened = await openAllocate(user, 'July')
+    const dialog = within(opened)
+    expect(screen.getByRole('dialog', { name: 'Allocate without Robin?' })).toBe(opened)
+    const robinLine = within(dialog.getByRole('list', { name: 'Transfers' }))
+      .getAllByRole('listitem')
+      .find((li) => within(li).queryByText('Robin') !== null)!
+    expect(within(robinLine).getByText('Stays in Joint')).toBeInTheDocument()
+    expect(await hintText(user, 'About Robin’s share', robinLine)).toMatch(
+      /€1,250\.00 will stay in Joint because Robin has no savings account linked/,
+    )
     expect(mockPost).not.toHaveBeenCalled()
 
     // Cancel aborts entirely.
@@ -834,12 +910,10 @@ describe('AllocationPage (catalog)', () => {
     expect(mockPost).not.toHaveBeenCalled()
 
     // Confirming records the transfers, and the success banner repeats where the money stayed.
-    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
-    const dialog2 = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog2.getByLabelText('Allocation completed confirmation'))
-    await user.click(dialog2.getByRole('button', { name: 'Confirm allocation' }))
+    await recordTransfers(user, await openAllocate(user, 'July'))
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
-    expect(await screen.findByText(/€1,250\.00 stayed in Joint for Robin/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Allocated July · 1 transfer in transit', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(/€1,250\.00 stayed in Joint for Robin/)
   })
 
   // ---- Budget ↔ engine reconciliation (pocket-money coherence) ---------------
@@ -907,21 +981,22 @@ describe('AllocationPage (catalog)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
-    // R (0) < U (500): the honest disagree copy, with the overage named.
-    expect(screen.getByText(/Your budget and your allocation disagree/)).toBeInTheDocument()
-    expect(screen.getByText(/€500\.00 in pocket money/)).toBeInTheDocument()
-    expect(screen.getByText(/€500\.00 more than your income covers/)).toBeInTheDocument()
+    // R (0) < U (500): the honest disagree copy, with the overage named (the short line, and the
+    // full sentence behind its (i)).
+    expect(within(strip('disagree')!).getByText('Budget and allocation disagree by €500.00')).toBeInTheDocument()
+    const why = await hintText(user, 'About the budget and the allocation')
+    expect(why).toMatch(/Your budget and your allocation disagree/)
+    expect(why).toMatch(/€500\.00 in pocket money/)
+    expect(why).toMatch(/€500\.00 more than your income covers/)
 
     await user.click(screen.getByRole('button', { name: "Add pocket money to July's budget" }))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/allocation/pocket-lines/2026/7', {}), { timeout: 5000 })
     // Banner clears (flagged lines now cover the promise) and a status confirms.
-    await waitFor(
-      () => expect(screen.queryByText(/Your budget and your allocation disagree/)).not.toBeInTheDocument(),
-      { timeout: 5000 },
-    )
+    await waitFor(() => expect(strip('disagree')).toBeNull(), { timeout: 5000 })
+    expect(screen.queryByText(/^Budget and allocation disagree/)).not.toBeInTheDocument()
     expect(screen.getByText(/Pocket money added to July’s budget\./)).toBeInTheDocument()
   })
 
@@ -937,7 +1012,7 @@ describe('AllocationPage (catalog)', () => {
     const user = userEvent.setup()
 
     const view = renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
     // July's re-read of the preview after the sync is held until the user has moved on.
     let releasePreview: (value: { data: AllocationResultDto }) => void = () => {}
@@ -951,7 +1026,7 @@ describe('AllocationPage (catalog)', () => {
     monthState.month = 8
     monthState.label = 'August 2026'
     view.rerender(<AllocationPage />)
-    await screen.findByText('How August is allocated', {}, { timeout: 5000 })
+    await findSteps('August')
     releasePreview({ data: overshootPreview() })
     await new Promise((r) => setTimeout(r, 50))
 
@@ -963,10 +1038,13 @@ describe('AllocationPage (catalog)', () => {
     currentBudget = budgetDto({ envelopes: 2000, pocket: { planned: 500, flagged: false } })
     previewData = overshootPreview()
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(screen.getByText(/Pocket money is currently counted twice/)).toBeInTheDocument()
+    renderPage()
+    await findSteps('July')
+
+    expect(within(strip('double-counted')!).getByText('Pocket money is counted twice')).toBeInTheDocument()
+    expect(await hintText(user, 'About the budget and the allocation')).toMatch(/Pocket money is currently counted twice/)
     expect(screen.getByRole('button', { name: "Add pocket money to July's budget" })).toBeInTheDocument()
   })
 
@@ -982,17 +1060,20 @@ describe('AllocationPage (catalog)', () => {
     const user = userEvent.setup()
 
     renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
     expect(heroTileValue('To savings')).toBe(-500)
-    expect(screen.getByText(/overshoot the pooled income by €500\.00 — pocket money can’t be funded/)).toBeInTheDocument()
+    expect(within(strip('overshoot')!).getByText('Over the pooled income by €500.00')).toBeInTheDocument()
+    expect(await hintText(user, 'About the overshoot')).toMatch(/overshoot the pooled income by €500\.00 — pocket money can’t be funded/)
 
-    await user.click(screen.getByRole('button', { name: 'Commit allocation' }))
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
-    expect(
-      await screen.findByText(/Allocated July — nothing was transferred because shared spending overshoots the pooled income\./, {}, { timeout: 5000 }),
-    ).toBeInTheDocument()
+    const dialog = await openAllocate(user, 'July')
+    // Nobody has a share to move: the dialog says so rather than listing nothing.
+    expect(within(dialog).getByText('No savings to transfer this month.')).toBeInTheDocument()
+    await recordTransfers(user, dialog)
+    expect(await screen.findByText('Allocated July · nothing transferred', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(
+      /Allocated July — nothing was transferred because shared spending overshoots the pooled income\./,
+    )
   })
 
   // ALLOC-071 (rewritten for rule 28) — the pool and the budget's income lines come from the same
@@ -1002,10 +1083,15 @@ describe('AllocationPage (catalog)', () => {
     currentBudget = budgetDto({ envelopes: 2000 }) // budget income 3,000
     previewData = workedPreview() // pool 5,000 — read before the budget was edited
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(screen.getByText(/pooled income here \(€5,000\.00\) doesn’t match July’s budgeted income lines \(€3,000\.00\)/)).toBeInTheDocument()
+    renderPage()
+    await findSteps('July')
+
+    expect(within(strip('mismatch')!).getByText('Income here doesn’t match the budget')).toBeInTheDocument()
+    const why = await hintText(user, 'About the income here')
+    expect(why).toMatch(/pooled income here \(€5,000\.00\) doesn’t match July’s budgeted income lines \(€3,000\.00\)/)
+    expect(why).not.toMatch(/People page/)
     expect(screen.queryByText(/People page/)).not.toBeInTheDocument()
   })
 
@@ -1017,9 +1103,9 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
-    await waitFor(() => expect(screen.queryByRole('button', { name: 'Commit allocation' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Allocate July' })).not.toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'Allocation settings' })).not.toBeInTheDocument()
   })
 
@@ -1030,15 +1116,14 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    await recordTransfers(user, await openAllocate(user, 'July'))
 
     await waitFor(
       () => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', expect.objectContaining({ confirmedCompleted: true, receivedOn: null })),
       { timeout: 5000 },
     )
-    expect(await screen.findByText(/no savings transfers were needed this month/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText('Allocated July · no transfers needed', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await hintText(user, 'About the allocation')).toMatch(/no savings transfers were needed this month/)
   })
 
   it('ALLOC-053: a commit failure surfaces the actionable error banner', async () => {
@@ -1048,9 +1133,7 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    await recordTransfers(user, await openAllocate(user, 'July'))
 
     expect(await screen.findByText(/Could not record the allocation/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
@@ -1101,19 +1184,21 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 }))
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    await recordTransfers(user, await openAllocate(user, 'July'))
 
     await waitFor(
       () => expect(mockPost).toHaveBeenCalledWith('/allocation/commit/2026/7', { departedOn: expect.any(String), receivedOn: null, confirmedCompleted: true }),
       { timeout: 5000 },
     )
-    // committed === 1 takes the singular branch: "1 savings transfer recorded" (no plural s).
+    // committed === 1 takes the singular branch: "1 transfer" / "1 savings transfer recorded" (no plural s).
     const banner = await screen.findByRole('status', {}, { timeout: 5000 })
-    expect(banner).toHaveTextContent(
+    expect(banner).toHaveTextContent('Allocated July · 1 transfer in transit')
+    // The full sentence is behind the strip's (i), beside the live region (opening it isn't
+    // announced as a change to the banner).
+    expect(await hintText(user, 'About the allocation', strip('committed')!)).toBe(
       'Allocated July — 1 savings transfer recorded as in transit; confirm each receipt on the Transactions page. Re-running Allocate keeps unchanged transfers, never doubles up.',
     )
+    expect(banner).toHaveTextContent(/^Allocated July · 1 transfer in transit$/)
   })
 
   it('ALLOC-048: the Allocate button is disabled while a commit request is in flight', async () => {
@@ -1125,12 +1210,11 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    const btn = await screen.findByRole('button', { name: 'Commit allocation' }, { timeout: 5000 })
+    const btn = await findAllocateButton('July')
     expect(btn).toBeEnabled()
 
     await user.click(btn)
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByLabelText('Allocation completed confirmation'))
-    await user.click(screen.getByRole('button', { name: 'Confirm allocation' }))
+    await recordTransfers(user, await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // commit() flips busy=true synchronously before awaiting the POST → the button disables.
     await waitFor(() => expect(btn).toBeDisabled(), { timeout: 5000 })
 
@@ -1145,12 +1229,15 @@ describe('AllocationPage (catalog)', () => {
 
     renderPage()
 
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
-    const terminalRow = screen.getByText('Split remainder to savings').closest('li')
-    const costRow = screen.getByText('Cover shared costs').closest('li')
-    // The terminal row carries the brand-tinted highlight; the plain rows do not.
-    expect(terminalRow?.className).toContain('bg-brand-50')
-    expect(costRow?.className).not.toContain('bg-brand-50')
+    await findSteps('July')
+    const terminalRow = stepRow('July', 'Split remainder to savings')
+    const costRow = stepRow('July', 'Cover shared costs')
+    // The terminal row shows whom the remainder goes to (the people's avatars; its amount is the To
+    // savings tile, kept for a screen reader); the plain rows show their amount.
+    expect(within(terminalRow).getByRole('img', { name: 'To Alex and Robin' })).toBeInTheDocument()
+    expect(terminalRow).toHaveTextContent('€2,500.00')
+    expect(within(costRow).queryByRole('img')).not.toBeInTheDocument()
+    expect(within(costRow).getByText('€2,000.00')).toBeVisible()
   })
 
   it('ALLOC-017: the opaque controls are aria-labelled divs (InfoHint is a sibling, never the field control)', async () => {
@@ -1182,10 +1269,13 @@ describe('AllocationPage (catalog)', () => {
     profileData = profile()
     previewData = { ...workedPreview(), incomeFromBudget: true, unattributedIncome: 350 }
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(screen.getByText(/€350\.00 of July’s income isn’t assigned to a person/)).toBeInTheDocument()
+    renderPage()
+    await findSteps('July')
+
+    expect(within(strip('unattributed')!).getByText('€350.00 of income isn’t assigned to a person')).toBeInTheDocument()
+    expect(await hintText(user, 'About unassigned income')).toMatch(/€350\.00 of July’s income isn’t assigned to a person/)
     expect(screen.getByRole('button', { name: 'Assign income lines on the Dashboard' })).toBeInTheDocument()
     // A month with income is quiet about missing income, and nothing mentions People-page defaults.
     expect(screen.queryByText(/No income in July 2026’s budget yet/)).not.toBeInTheDocument()
@@ -1203,10 +1293,16 @@ describe('AllocationPage (catalog)', () => {
       equalSplitNote: "This month's income is zero, so the by-income split was shared equally instead.",
     }
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(screen.getByRole('note')).toHaveTextContent(
+    renderPage()
+    await findSteps('July')
+
+    const note = screen.getByRole('note')
+    expect(note).toHaveTextContent('By-income split shared equally')
+    // The server's note is behind the strip's (i), inside the note.
+    await user.hover(within(note).getByRole('button', { name: 'About the equal split' }))
+    expect(note).toHaveTextContent(
       "This month's income is zero, so the by-income split was shared equally instead.",
     )
   })
@@ -1228,10 +1324,15 @@ describe('AllocationPage (catalog)', () => {
       unattributedIncome: 0,
     }
 
-    renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    const user = userEvent.setup()
 
-    expect(screen.getByRole('status')).toHaveTextContent(
+    renderPage()
+    await findSteps('July')
+
+    const status = screen.getByRole('status')
+    expect(status).toHaveTextContent('No income in July 2026’s budget yet')
+    // The full sentence is behind the strip's (i), beside the live region.
+    expect(await hintText(user, 'About adding income', strip('no-income')!)).toBe(
       'No income in July 2026’s budget yet. Add income lines to the Dashboard (attribute them to people for a by-income split) and come back.',
     )
     expect(screen.getByRole('button', { name: 'Open the Dashboard' })).toBeInTheDocument()
@@ -1255,7 +1356,7 @@ describe('AllocationPage (catalog)', () => {
     }
 
     renderPage()
-    await screen.findByText('How July is allocated', {}, { timeout: 5000 })
+    await findSteps('July')
 
     expect(screen.getByText(/No income in July 2026’s budget yet/)).toBeInTheDocument()
     // The hero still renders honestly: nothing to allocate.
