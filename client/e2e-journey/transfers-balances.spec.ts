@@ -206,21 +206,22 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
 
   // --- TRF-025: the single-account registers sign the SAME row by direction.
-  // Source (Wallet): balance 1,700.00 and a −300.00 row with the from→to cell.
+  // Source (Wallet): balance 1,700.00 and a −300.00 row whose route names the other account
+  // ("To Pot"; the page's title names Wallet).
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('1,700.00')
-  const walletRow = page.locator('tbody tr').filter({ hasText: 'Stash move' })
-  await expect(walletRow).toContainText('Wallet → Pot')
-  await expect(walletRow.locator('td').nth(3)).toContainText(`${MINUS}`)
-  await expect(walletRow.locator('td').nth(3)).toContainText('300.00')
-  // Destination (Pot): balance 800.00 and the row signed +300.00.
-  await page.getByRole('link', { name: '‹ Accounts' }).click()
+  const walletRow = txRows(page).filter({ hasText: 'Stash move' })
+  await expect(walletRow.locator('[data-tx-route]')).toHaveText('To Pot')
+  await expect(walletRow.locator('[data-tx-amount]')).toContainText(`${MINUS}`)
+  await expect(walletRow.locator('[data-tx-amount]')).toContainText('300.00')
+  // Destination (Pot): balance 800.00 and the row signed +300.00, "From Wallet".
+  await page.getByRole('link', { name: 'Back to Accounts' }).click()
   await page.getByRole('link', { name: 'View Pot', exact: true }).click()
   await expect(detailBalance(page, 'Pot')).toContainText('800.00')
-  const potRow = page.locator('tbody tr').filter({ hasText: 'Stash move' })
-  await expect(potRow).toContainText('Wallet → Pot')
-  await expect(potRow.locator('td').nth(3)).toContainText('+')
-  await expect(potRow.locator('td').nth(3)).toContainText('300.00')
+  const potRow = txRows(page).filter({ hasText: 'Stash move' })
+  await expect(potRow.locator('[data-tx-route]')).toHaveText('From Wallet')
+  await expect(potRow.locator('[data-tx-amount]')).toContainText('+')
+  await expect(potRow.locator('[data-tx-amount]')).toContainText('300.00')
 
   // --- TRF-028 (budget-invariance leg): no budget actual moved — Groceries is
   // still untouched and the "Remaining to budget" hero is byte-identical.
@@ -249,7 +250,7 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('2,000.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
-  await page.getByRole('link', { name: '‹ Accounts' }).click()
+  await page.getByRole('link', { name: 'Back to Accounts' }).click()
   await page.getByRole('link', { name: 'View Pot', exact: true }).click()
   await expect(detailBalance(page, 'Pot')).toContainText('500.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
@@ -332,7 +333,7 @@ test('client-side transfer validation blocks bad input without an API call, and 
   await page.getByRole('link', { name: 'View Euro Main', exact: true }).click()
   await expect(detailBalance(page, 'Euro Main')).toContainText('100.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
-  await page.getByRole('link', { name: '‹ Accounts' }).click()
+  await page.getByRole('link', { name: 'Back to Accounts' }).click()
   await page.getByRole('link', { name: 'View Euro Pot', exact: true }).click()
   await expect(detailBalance(page, 'Euro Pot')).toContainText('100.00')
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()
@@ -421,7 +422,7 @@ test('the generic transaction endpoints reject Type=Transfer injection, and re-t
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await page.getByRole('link', { name: 'View Wallet', exact: true }).click()
   await expect(detailBalance(page, 'Wallet')).toContainText('2,300.00') // 2,000 + 300 income
-  await page.getByRole('link', { name: '‹ Accounts' }).click()
+  await page.getByRole('link', { name: 'Back to Accounts' }).click()
   await page.getByRole('link', { name: 'View Pot', exact: true }).click()
   await expect(detailBalance(page, 'Pot')).toContainText('500.00') // phantom credit cleared
   await expect(page.getByText('No transactions on this account yet.')).toBeVisible()

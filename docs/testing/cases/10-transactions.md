@@ -909,7 +909,7 @@
 - **Preconditions:** A tx on Joint and a transfer into Joint; then Joint is deleted (Accounts page).
 - **Steps:**
   1. Delete Joint, return to `/transactions`.
-- **Expected:** The plain tx keeps its row with Account cell **"—"** (`AccountId` nulled). The transfer keeps its row; the missing side renders **"—"** here (the `AccountDetailPage` renders "(removed account)" — that page is in the accounts sibling file). Remaining accounts' balances keep the other leg.
+- **Expected:** The plain tx keeps its row with Account cell **"—"** (`AccountId` nulled). The transfer keeps its row; the missing side renders **"—"** here (the `AccountDetailPage` names the other account in its route and renders "To (removed account)" / "From (removed account)" — that page is in the accounts sibling file, ACCT-046). Remaining accounts' balances keep the other leg.
 - **Automated:** Partial (TransfersTests "DeleteAccount clears transfers pointing at it and keeps the transaction")
 
 ### TX-094 - Stale Category selection leaks a budget line onto an income transaction

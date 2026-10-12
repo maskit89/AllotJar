@@ -299,6 +299,39 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // An account's page (restyle PR 11): the back chevron, the In jars (i) open, and a row dated
+    // before the opening date with its (i) open (the account's opening date is moved so the
+    // mocked register has some), on a desktop and on a phone.
+    for (const size of [{ width: 1280, height: 800 }, { width: 390, height: 844 }]) {
+      test(`an account's page at ${size.width}px, its In jars (i) and a "Before opening" (i) have no WCAG A/AA violations`, async ({ page }) => {
+        await page.setViewportSize(size)
+        await authedSetup(page, theme)
+        await page.route('**/api/accounts', (route) =>
+          route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify([
+              { id: 'acc0', name: 'Joint Current', type: 0, currency: 'EUR', openingBalance: 1000, openingDate: '2026-06-17', currentBalance: 1200, displayOrder: 0 },
+              { id: 'acc1', name: 'Savings Joint', type: 1, currency: 'EUR', openingBalance: 0, openingDate: '2026-01-01', currentBalance: 5000, displayOrder: 1 },
+            ]),
+          }),
+        )
+        await page.goto('/accounts/acc1')
+        await page.getByRole('heading', { level: 1, name: 'Savings Joint' }).waitFor()
+        await expect(page.getByRole('link', { name: 'Back to Accounts' })).toHaveCount(1)
+        await page.getByRole('button', { name: 'About the money not in jars in Savings Joint' }).focus()
+        await page.getByRole('tooltip').waitFor()
+        await expectNoViolations(page)
+
+        await page.goto('/accounts/acc0')
+        await page.getByText('Welbees Supermarket').waitFor()
+        const hint = page.getByRole('button', { name: /: before opening$/ }).first()
+        await hint.focus()
+        await page.getByRole('tooltip').waitFor()
+        await expectNoViolations(page)
+      })
+    }
+
     // The People page (restyle PR 8): a person's ⋯ menu open (with its note), a sign-in's ⋯ menu,
     // a share plate's (i) open, and the editor open in its card.
     test('a person\'s ⋯ menu, a sign-in\'s ⋯, the share (i) and the person editor have no WCAG A/AA violations', async ({ page }) => {

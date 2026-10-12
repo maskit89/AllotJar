@@ -74,11 +74,17 @@ function renderPage(id = 'a1') {
   )
 }
 
-// The hero's "Transactions" count tile, disambiguated from the sidebar nav link by
-// scoping to the .hero-surface section.
+// The transaction count: the badge beside the Transactions card's title (it was the hero's
+// "Transactions" tile before the restyle).
 function txCountTileValue(): HTMLElement {
-  const label = screen.getAllByText('Transactions').find((el) => el.closest('.hero-surface'))!
-  return within(label.parentElement!).getByText(/^\d+$/)
+  const badge = screen.getByTestId('account-tx-count')
+  expect(badge.closest('h2')).toHaveTextContent(/^Transactions\s*\d+$/)
+  return badge
+}
+
+// A register row (a list item since the restyle; a table row before it).
+function rowOf(el: HTMLElement): HTMLElement {
+  return el.closest<HTMLElement>('[data-testid="tx-row"]')!
 }
 
 describe('AccountDetailPage — catalog (ACCT)', () => {
@@ -121,12 +127,12 @@ describe('AccountDetailPage — catalog (ACCT)', () => {
     await screen.findByText('Salary', {}, { timeout: 5000 })
 
     const amountIn = (payee: string, moneyRe: RegExp) =>
-      within(screen.getByText(payee).closest('tr')!).getByText(moneyRe)
+      within(rowOf(screen.getByText(payee))).getByText(moneyRe)
 
-    // Income: "+€500.00" in brand-green.
+    // Income: "+€500.00" in green (the restyle's ok token, as on Transactions).
     const inc = amountIn('Salary', /€500\.00/)
     expect(inc.textContent).toBe('+€500.00')
-    expect(inc.className).toContain('text-brand-700')
+    expect(inc.className).toContain('text-ok')
     // Expense: "−€300.00" (U+2212 sign) in dark.
     expect(amountIn('Rent', /€300\.00/).textContent).toBe('−€300.00')
     // Transfer where this account is the source → "−"; muted slate.
@@ -137,22 +143,28 @@ describe('AccountDetailPage — catalog (ACCT)', () => {
     expect(amountIn('MovedIn', /€150\.00/).textContent).toBe('+€150.00')
   })
 
-  it('ACCT-046: a transfer category cell reads "{from} → {to}" with a removed-account fallback', { timeout: 15000 }, async () => {
+  it('ACCT-046: a transfer category cell reads "To {other}" / "From {other}" with a removed-account fallback', { timeout: 15000 }, async () => {
     mockLoads({
       transactions: [
         tx({ id: 'ok', payee: 'T1', type: 2, accountId: 'a1', accountName: 'Joint', transferAccountId: 'rd', transferAccountName: 'Rainy Day' }),
         // Counterparty later deleted → transferAccountName is null.
         tx({ id: 'gone', payee: 'T2', type: 2, accountId: 'a1', accountName: 'Joint', transferAccountId: 'x', transferAccountName: null }),
+        // Into this account from a deleted one → accountName is null.
+        tx({ id: 'gone-in', payee: 'T3', type: 2, accountId: 'y', accountName: null, transferAccountId: 'a1', transferAccountName: 'Joint' }),
       ],
     })
 
     renderPage()
 
-    expect(await screen.findByText('Joint → Rainy Day', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('Joint → (removed account)')).toBeInTheDocument()
+    // The route names the other account (this one is the page's title), after its direction.
+    const route = (payee: string) => rowOf(screen.getByText(payee)).querySelector('[data-tx-route]')
+    await screen.findByText('T1', {}, { timeout: 5000 })
+    expect(route('T1')).toHaveTextContent(/^To Rainy Day$/)
+    expect(route('T2')).toHaveTextContent(/^To \(removed account\)$/)
+    expect(route('T3')).toHaveTextContent(/^From \(removed account\)$/)
   })
 
-  it('ACCT-047: assigned rows render a named category pill; unassigned rows render "—"', { timeout: 15000 }, async () => {
+  it('ACCT-047: assigned rows render a named category pill; unassigned rows render a quiet "Unassigned" label', { timeout: 15000 }, async () => {
     mockLoads({
       month: monthWith(['Rent']), // only "Rent" is in the current month
       transactions: [
@@ -168,9 +180,12 @@ describe('AccountDetailPage — catalog (ACCT)', () => {
     const rentName = await screen.findByText('Rent', {}, { timeout: 5000 })
     expect(rentName.closest('span.rounded-full')).not.toBeNull()
     expect(screen.getByText('Old Line').closest('span.rounded-full')).not.toBeNull()
-    // An unassigned row shows the em-dash, not a pill.
-    const dash = screen.getByText('—')
-    expect(dash.closest('span.rounded-full')).toBeNull()
+    // An unassigned row shows a quiet label in the neutral line tone, not a coloured category pill
+    // (it was an em-dash before the restyle).
+    const loose = within(rowOf(screen.getByText('Uncategorised'))).getByText('Unassigned')
+    expect(loose.closest('[data-tone]')).toHaveAttribute('data-tone', 'line')
+    expect(loose.closest('[style]')).toBeNull()
+    expect(screen.getAllByText('Unassigned')).toHaveLength(1)
   })
 
   it('ACCT-048: each amount is formatted in the transaction’s own stamped currency', { timeout: 15000 }, async () => {
@@ -188,13 +203,17 @@ describe('AccountDetailPage — catalog (ACCT)', () => {
     expect(screen.queryByText(/£40\.00/)).not.toBeInTheDocument()
   })
 
-  it('ACCT-049: an account with no transactions shows the empty-register message and a 0 count', { timeout: 15000 }, async () => {
+  it('ACCT-049: an account with no transactions shows the empty-register message, and no count repeats it', { timeout: 15000 }, async () => {
     mockLoads({ accounts: [account({ name: 'Fresh' })], transactions: [] })
 
     renderPage()
 
     expect(await screen.findByText('No transactions on this account yet.', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(txCountTileValue()).toHaveTextContent('0')
+    // The count of 0 (the hero's tile before the restyle, then the title's badge) is the line itself
+    // now: the card's title stands alone, with no badge saying the same thing.
+    expect(screen.getByRole('heading', { level: 2, name: 'Transactions' })).toBeInTheDocument()
+    expect(screen.queryByTestId('account-tx-count')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Transactions' })).toHaveTextContent(/^Transactions\s*No transactions on this account yet\.$/)
   })
 
   it('ACCT-051: the detail page is read-only and tolerates side-fetch failures', { timeout: 15000 }, async () => {

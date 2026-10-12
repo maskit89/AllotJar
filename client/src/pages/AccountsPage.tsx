@@ -1,22 +1,6 @@
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import {
-  Banknote,
-  ChevronRight,
-  Clock,
-  Coins,
-  CreditCard,
-  Ellipsis,
-  Landmark,
-  Lock,
-  Pencil,
-  Plus,
-  Trash2,
-  TriangleAlert,
-  Users,
-  Wallet,
-  type LucideIcon,
-} from 'lucide-react'
+import { ChevronRight, Clock, Ellipsis, Landmark, Lock, Pencil, Plus, Trash2, TriangleAlert, Users, type LucideIcon } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
 import { Button, EmptyState, ErrorBanner, Input, Select } from '../components/ui'
 import { KpiRow, KpiTile } from '../components/KpiTile'
@@ -24,7 +8,8 @@ import { InfoHint } from '../components/InfoHint'
 import { MiniBar, StatusChip } from '../components/StatusChip'
 import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../components/RowActions'
 import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
-import { MemberAvatar } from '../components/MemberAvatar'
+import { HolderAvatars, TypeTile } from '../components/accounts/AccountParts'
+import { accountJars } from '../lib/accountJars'
 import { Modal } from '../components/Modal'
 import { AccountsIcon, JarNavIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
@@ -41,7 +26,7 @@ import { formatMoney, fromAmount, parseMinor, toAmount, toEditString, tooPrecise
 import { formatDate, todayIso } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { editConflict, serverErrors } from '../lib/serverErrors'
-import { hueColor, memberHue } from '../lib/categoryColors'
+import { hueColor } from '../lib/categoryColors'
 
 // Current / Savings / Cash / Other — credit cards are not accounts (rule 75). An account
 // recorded as one before the change still labels via ACCOUNT_TYPE_LABELS, so keep it as an
@@ -90,24 +75,6 @@ const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: str
   { key: 'sortCode', label: 'Sort code', placeholder: 'e.g. 40-47-84' },
   { key: 'accountNumber', label: 'Account number', placeholder: 'e.g. 12345678' },
 ]
-
-/**
- * Each account type's icon and colour (the approved palette: no amber; Cash is clay). Other and
- * the legacy Credit card (rule 75) are not in the mock-up: a banknote in teal, a card in rose.
- */
-const TYPE_LOOK: Record<number, { Icon: LucideIcon; color: string }> = {
-  [AccountType.Current]: { Icon: CreditCard, color: hueColor('indigo') },
-  [AccountType.Savings]: { Icon: Coins, color: hueColor('emerald') },
-  [AccountType.Cash]: { Icon: Wallet, color: 'var(--color-clay)' },
-  [AccountType.CreditCard]: { Icon: CreditCard, color: hueColor('rose') },
-  [AccountType.Other]: { Icon: Banknote, color: hueColor('teal') },
-}
-
-/** What the (i) after an account's jar line says. */
-const FREE_HINT = 'Money in this account that no jar holds. Move money can put it in a jar.'
-const OVER_HINT = 'Your jars hold more than this account has. Move money out of a jar to cover it.'
-// Rule 70 with nothing "over" to show: a jar below zero offsets the ones with money in them.
-const DEFICIT_HINT = 'The jars with money in them hold more than this account has. Move money out of a jar to cover it.'
 
 /**
  * An (i) on a card: above the stretched link, and above the next card's ⋯ while it is open (its
@@ -1112,22 +1079,10 @@ function AccountCard({
 
   // The jars this account holds: what they hold of it (the bar) and the rest, or what they hold
   // beyond it (rule 70) in red.
-  const jars = recon && recon.backedJarCount > 0 ? recon : null
-  const floatMinor = jars && jars.float !== null ? fromAmount(jars.float) : null
-  const over = !!jars && ((floatMinor !== null && floatMinor < 0) || !!jars.hasBackingDeficit)
+  const jars = accountJars(a, recon, balanceMinor)
   let split: ReactNode = null
   if (jars) {
-    const backed = fromAmount(jars.backedJarsTotal)
-    const pct = balanceMinor !== null && balanceMinor > 0 ? (backed / balanceMinor) * 100 : backed > 0 ? 100 : 0
-    // The caption's right part: the rest, or the shortfall, with its (i).
-    const rest: { text: string; label: string; hint: string } | null =
-      floatMinor === null
-        ? null
-        : floatMinor < 0
-          ? { text: `${formatMoney(-floatMinor, a.currency)} over`, label: `About the shortfall in ${a.name}`, hint: OVER_HINT }
-          : jars.hasBackingDeficit
-            ? { text: 'Jars exceed account money', label: `About the shortfall in ${a.name}`, hint: DEFICIT_HINT }
-            : { text: `${formatMoney(floatMinor, a.currency)} not in jars`, label: `About the money not in jars in ${a.name}`, hint: FREE_HINT }
+    const { pct, over, rest } = jars
     split = (
       <div data-testid="account-jars" className={`-mt-1 flex flex-col gap-[9px] max-[699.98px]:mt-0 max-[699.98px]:mr-2.5 max-[699.98px]:mb-0.5 max-[699.98px]:[grid-area:sp]`}>
         {balanceMinor !== null && <MiniBar pct={pct} hue="teal" over={over} size="lg" />}
@@ -1140,7 +1095,7 @@ function AccountCard({
         >
           <span className="inline-flex items-center gap-1.5 whitespace-nowrap">
             <JarNavIcon aria-hidden strokeWidth={1.8} className="size-3.5" style={over ? undefined : { color: hueColor('teal') }} />
-            {jars.backedJarCount} jar{jars.backedJarCount === 1 ? '' : 's'}
+            {jars.count} jar{jars.count === 1 ? '' : 's'}
           </span>
           {rest && (
             <span className="ml-auto inline-flex min-w-0 items-center gap-1 text-right">
@@ -1237,22 +1192,7 @@ function AccountCard({
           </h3>
           {nameLine && (
             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-              {holders.length > 0 && (
-                <span className="flex gap-1">
-                  <span className="sr-only">Held by {holderNames(a)}</span>
-                  {holders.map((h, i) => {
-                    const at = members.findIndex((m) => m.id === h.memberId)
-                    return (
-                      <MemberAvatar
-                        key={h.memberId}
-                        name={h.name}
-                        hue={memberHue(at >= 0 ? at : i)}
-                        className={`size-6 shrink-0 text-xs max-[699.98px]:size-[22px]`}
-                      />
-                    )
-                  })}
-                </span>
-              )}
+              <HolderAvatars account={a} members={members} />
               {a.isPrivate && (
                 <StatusChip tone="neutral">
                   <Lock aria-hidden strokeWidth={2} />
@@ -1299,28 +1239,5 @@ function AccountCard({
 
       {split}
     </article>
-  )
-}
-
-/**
- * The account's type as its icon on a tinted tile (named by the type for assistive tech): 44px on
- * a card, 36px in a phone's row (and `small`, beside the editor's name).
- */
-function TypeTile({ type, small = false, id }: { type: number; small?: boolean; id?: string }) {
-  const look = TYPE_LOOK[type] ?? TYPE_LOOK[AccountType.Other]
-  return (
-    <span
-      id={id}
-      role="img"
-      aria-label={ACCOUNT_TYPE_LABELS[type] ?? 'Other'}
-      className={`grid shrink-0 place-items-center ${
-        small
-          ? 'size-9 rounded-[10px] [&_svg]:size-[18px]'
-          : `size-11 rounded-xl [&_svg]:size-5 max-[699.98px]:size-9 max-[699.98px]:self-start max-[699.98px]:rounded-[10px] max-[699.98px]:[grid-area:ic] max-[699.98px]:[&_svg]:size-[18px]`
-      }`}
-      style={{ background: `color-mix(in srgb, ${look.color} 13%, var(--color-card))`, color: look.color }}
-    >
-      <look.Icon aria-hidden strokeWidth={1.8} />
-    </span>
   )
 }

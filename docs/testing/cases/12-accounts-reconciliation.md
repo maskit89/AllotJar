@@ -1,6 +1,6 @@
 # Accounts & reconciliation
 
-**ID prefix:** ACCT | **Scope:** Everything on the two accounts screens and the money math behind them: the accounts list at `/accounts` (`AccountsPage`) — the **Total balance / Available** hero (the Owed tile went with rule 74: no account is ever below zero) (budget-currency accounts only, with the "not counted" pill for a legacy account in another currency — W08), the account-card grid (type hue icon, currency chip, type badge, per-account balance and "Opening …" caption, overlay link to detail), the **Add an account** modal (Name, Type, Opening balance — no currency picker since W08: every account is in the household's budget currency) and its client + server validation, the inline **edit** card (currency immutable), the **Delete {name}?** confirmation modal and what happens to a deleted account's linked transactions/transfers, ordering by `DisplayOrder` then `Name`; the derived-balance formula (`opening + income − expense − transferOut + transferIn`, always computed at read, never stored); the account-detail register at `/accounts/:id` (`AccountDetailPage`) — balance hero, filtered Date/Payee/Category/Amount rows, direction-signed amounts, "(removed account)" transfer fallback, name-keyed category pills, per-transaction currency, not-found state; and the **Jar reconciliation** panel (Account/Balance/In jars/Float, backed-jar float math, archived-jar exclusion). | **Out of scope:** The dedicated transfer entry flow, its form/validation and the register's generic transfer rendering → `11-transfers.md`; whole-transaction assignment to an account, splits, income/expense entry and the main register → `10-transactions.md`; the profile / "My account" page at `/account` (singular — a different subsystem) → `04-account-preferences.md`; jar CRUD, the "Held in" funding-account select, accrual and the allocation engine that produces member savings transfers → the jars/allocation sibling file; `preferredCurrency` / `numberFormat` preference sources → `04-account-preferences.md`; the full role matrix, cross-tab logout, silent-refresh internals → the session & roles sibling files (only account-page `canWrite` gating and the account commands' 403s appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is account-specific).
+**ID prefix:** ACCT | **Scope:** Everything on the two accounts screens and the money math behind them: the accounts list at `/accounts` (`AccountsPage`) — the **Total balance / Available** hero (the Owed tile went with rule 74: no account is ever below zero) (budget-currency accounts only, with the "not counted" pill for a legacy account in another currency — W08), the account-card grid (type hue icon, currency chip, type badge, per-account balance and "Opening …" caption, overlay link to detail), the **Add an account** modal (Name, Type, Opening balance — no currency picker since W08: every account is in the household's budget currency) and its client + server validation, the inline **edit** card (currency immutable), the **Delete {name}?** confirmation modal and what happens to a deleted account's linked transactions/transfers, ordering by `DisplayOrder` then `Name`; the derived-balance formula (`opening + income − expense − transferOut + transferIn`, always computed at read, never stored); the account's own page at `/accounts/:id` (`AccountDetailPage`) — the back chevron, the Balance hero (with Not available, in transit and pending review) and In jars, the account-filtered rows grouped by month, direction-signed amounts, the "To/From {account}" route with its "(removed account)" fallback, name-keyed category chips, struck returned and before-opening rows, per-transaction currency, the Account details card, not-found state; and the **Jar reconciliation** panel (Account/Balance/In jars/Float, backed-jar float math, archived-jar exclusion). | **Out of scope:** The dedicated transfer entry flow, its form/validation and the register's generic transfer rendering → `11-transfers.md`; whole-transaction assignment to an account, splits, income/expense entry and the main register → `10-transactions.md`; the profile / "My account" page at `/account` (singular — a different subsystem) → `04-account-preferences.md`; jar CRUD, the "Held in" funding-account select, accrual and the allocation engine that produces member savings transfers → the jars/allocation sibling file; `preferredCurrency` / `numberFormat` preference sources → `04-account-preferences.md`; the full role matrix, cross-tab logout, silent-refresh internals → the session & roles sibling files (only account-page `canWrite` gating and the account commands' 403s appear here); responsive / dark-mode / a11y sweeps live in their own files (referenced only where behaviour is account-specific).
 
 **Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 members** *Alex* and *Robin*. The app-wide viewed month is **July 2026**; `GET /budget/current` returns month **2026-07** (`BaseCurrency = EUR`). The `accounts` and `multiCurrency` feature flags are **on**. The household's **budget currency** is **EUR** (its first month's `BaseCurrency`; `/auth/me` → `budgetCurrency: "EUR"`, `currencyLocked: true`). Three accounts exist unless stated: EUR **Joint** (opening 1,250.00), EUR **Rainy Day** (opening 500.00), and GBP **UK Pot** (opening 200.00 — present only for multi-currency cases, and **legacy data only**: since W08 `POST /accounts` refuses any currency but the budget currency, so seed it directly in the database or keep one from before the `ForeignAmounts` migration). Money is `decimal(18,4)` server-side and integer minor units at scale 4 (`FACTOR = 10_000`) client-side; account balances and reconciliation totals are always transaction-derived at read time. The Add/Edit opening field is parsed by `parseSignedAmount` (empty → 0; one optional leading "−"; the rest via `parseMinor`, which strips spaces/apostrophes, treats the right-most of a mixed ",/." pair as the decimal separator, rounds HALF-UP beyond 4 dp, and rejects `''` after the sign / whitespace / `abc` / `1.2.3` / `1,2,3` → null). The client never surfaces server field errors on this page — each API failure maps to a fixed generic string. "Solo variant" = the same Owner in a 1-member household (no behavioural difference on these pages; role is what matters). Client wiring is exercised by `client/src/pages/AccountsPage.test.tsx` and `client/src/pages/AccountDetailPage.test.tsx`; backend behaviour by `tests/AllotJar.Application.Tests/Application/AccountsTests.cs`, `AccountReconciliationTests.cs`, and (for transfer/delete interplay) `tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs`.
 
@@ -319,7 +319,7 @@
 - **Steps:**
   1. Delete "Rainy Day" (the transfer's destination) and confirm.
   2. Inspect the transfer row on `/transactions` and Joint's detail register.
-- **Expected:** The handler sets `TransferAccountId = null` on transfers-in before removing the account (the FK is Restrict, so an un-nulled reference would block or corrupt the delete). The transfer transaction survives; its counterparty now renders "(removed account)". The delete does **not** fail and does **not** delete the transfer row.
+- **Expected:** The handler sets `TransferAccountId = null` on transfers-in before removing the account (the FK is Restrict, so an un-nulled reference would block or corrupt the delete). The transfer transaction survives; on Joint's page its route now reads "To (removed account)". The delete does **not** fail and does **not** delete the transfer row.
 - **Automated:** Yes (TransfersTests.cs — DeleteAccount clears transfers pointing at it and keeps the transaction)
 
 ### ACCT-033 - Delete modal shows only the name, never currency or balance
@@ -346,7 +346,7 @@
 - **Preconditions:** Owner; an account was just deleted; its `/accounts/{id}` URL is still open in another tab.
 - **Steps:**
   1. Reload the stale `/accounts/{id}`.
-- **Expected:** `AccountDetailPage` fetches the full list, fails to `find` the id, and renders the "Account not found" state: title "Account not found", description "It may have been deleted. Head back to your accounts." with the "‹ Accounts" back link. No 404 route — this is an in-page empty state.
+- **Expected:** `AccountDetailPage` fetches the full list, fails to `find` the id, and renders the "Account not found" state: title "Account not found", description "It may have been deleted. Head back to your accounts." with the "Back to Accounts" chevron link in the top bar. No 404 route — this is an in-page empty state.
 - **Automated:** Yes (AccountDetailPage.test.tsx — not-found state for unknown account id)
 
 ### ACCT-036 - Delete button is disabled while that account is saving
@@ -417,10 +417,15 @@
   1. Read UK Pot's card and detail register, then the `/accounts` hero and the dashboard for the row's month.
   2. On `/transactions` click **Enter amount** on "Tube", confirm **35.00**.
   3. Re-read UK Pot's card and detail register, the hero and the dashboard.
-- **Expected:** Step 1: UK Pot's balance moves to **£170.00** (`AccountBalances` sums the raw `Amount` in the account's own currency); the hero still reads **€1,250.00** with "1 account in another currency is not counted.". The row shows "GBP 30.00" with the tag **"Needs EUR amount"** and counts in no budget figure (the dashboard's waiting-rows notice counts it). Step 2: the dialog says "UK Pot keeps its GBP amount; the budget counts yours."; 200 with `amount 30, currency "GBP", budgetAmount 35, fxPending false`. Step 3: UK Pot is still **£170.00** and the hero still €1,250.00 — confirming never touches the account's money; the detail register shows "−£30.00" with a grey caption **"Counts as €35.00 in the budget"** (the Transactions register: "Counts as €35.00"); the line's actual rises by **€35.00** and the waiting notice is gone. Changing the row's amount later makes it wait again (TX-113).
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`, `A_waiting_row_on_an_account_kept_in_another_currency_counts_its_confirmed_figure_and_the_balance_stays`; client/src/pages/TransactionsPage.test.tsx — "Enter amount on a row on an account kept in another currency keeps its amount and shows what it counts"; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005 hero exclusion; the detail register's caption is not asserted)
+- **Expected:** Step 1: UK Pot's balance moves to **£170.00** (`AccountBalances` sums the raw `Amount` in the account's own currency); the hero still reads **€1,250.00** with "1 account in another currency is not counted.". The row shows "GBP 30.00" with the tag **"Needs EUR amount"** and counts in no budget figure (the dashboard's waiting-rows notice counts it). Step 2: the dialog says "UK Pot keeps its GBP amount; the budget counts yours."; 200 with `amount 30, currency "GBP", budgetAmount 35, fxPending false`. Step 3: UK Pot is still **£170.00** and the hero still €1,250.00 — confirming never touches the account's money; the detail register shows "−£30.00" with a grey line **"Counts as €35.00 in the budget"** (the Transactions register: "Counts as €35.00"); the line's actual rises by **€35.00** and the waiting notice is gone. Changing the row's amount later makes it wait again (TX-113).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs — `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`, `A_waiting_row_on_an_account_kept_in_another_currency_counts_its_confirmed_figure_and_the_balance_stays`; client/src/pages/TransactionsPage.test.tsx — "Enter amount on a row on an account kept in another currency keeps its amount and shows what it counts"; client/src/pages/AccountsPage.catalog.test.tsx — ACCT-005 hero exclusion; client/src/pages/AccountDetailPage.test.tsx — the detail register's "Counts as" line)
 
 ## Account detail register (AccountDetailPage)
+
+Since the restyle (PR 11) the page is the account's own view in the app frame: a back chevron before the account's name
+in the top bar, one KPI row (the green **Balance** hero, plus **In jars** for an account that holds jars), the
+**Transactions** card (a list grouped by month, like Transactions) and the **Account details** card beside it (after it on
+a phone). It is read-only.
 
 ### ACCT-043 - Detail hero and account-filtered register
 - **Priority:** P0
@@ -428,8 +433,8 @@
 - **Preconditions:** Owner; account "Joint" (Current, EUR) with several assigned transactions and one transfer-in.
 - **Steps:**
   1. Click the Joint card → `/accounts/{id}`.
-- **Expected:** Back link "‹ Accounts". Hero eyebrow = "Joint", amount = current balance in EUR, tiles "Type" = "Current" and "Transactions" = the filtered row count. The register table (columns Date / Payee / Category / Amount, min-width 520 px, horizontally scrollable) lists the account's rows newest-first (server order date-descending).
-- **Automated:** Yes (AccountDetailPage.test.tsx — balance hero + account-filtered register + "‹ Accounts" back link)
+- **Expected:** The top bar reads "Joint" (the page's one h1) after a 40px chevron link named **"Back to Accounts"** (→ `/accounts`; on a phone it replaces the logo). The hero tile **"Balance"** shows the current balance in EUR (accessible name "Joint balance: €…"; its (i) "About balance" says how the balance is worked out). The **Transactions** card's title carries the filtered row count as a badge, and the list holds the account's rows newest-first (by the date this account posts the row), one `tx-row` list item each: date, icon, payee, category/route with any status chip, amount. **Account details** shows the type in words ("Current").
+- **Automated:** Yes (AccountDetailPage.test.tsx — balance hero + account-filtered register + "Back to Accounts" link; AppShell.test.tsx — the back link before the h1, in place of the logo, Enter follows it)
 
 ### ACCT-044 - Register includes transfers into the account, not only its own rows
 - **Priority:** P1
@@ -437,46 +442,46 @@
 - **Preconditions:** Owner; a transfer of €200 from Rainy Day → Joint (Joint is the destination).
 - **Steps:**
   1. Open Joint's detail register.
-- **Expected:** The transfer row appears because the filter is `t.accountId === id || t.transferAccountId === id`. Its Payee falls back to "Transfer" (blank note), and it counts toward the "Transactions" tile.
-- **Automated:** No
+- **Expected:** The transfer row appears because the filter is `t.accountId === id || t.transferAccountId === id`. Its payee falls back to "Transfer" (blank note), and it counts toward the Transactions badge.
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-044)
 
 ### ACCT-045 - Amount signs are direction-aware
 - **Priority:** P1
 - **Type:** Edge
 - **Preconditions:** Owner; Joint has an income (+), an expense (−), a transfer-out (Joint = source) and a transfer-in (Joint = destination).
 - **Steps:**
-  1. Read the Amount column on Joint's register.
-- **Expected:** Income "+{amount}" (brand-green text), expense "−{amount}" (dark), transfer "−" when `t.accountId === id` (Joint is source) and "+" when it is the destination (transfer amounts render slate/muted). The sign is computed per row, independent of stored sign.
-- **Automated:** No
+  1. Read the amounts on Joint's register (the right of each row, `[data-tx-amount]`).
+- **Expected:** Income "+{amount}" (green, the `ok` token, as on Transactions), expense "−{amount}" (dark), transfer "−" when `t.accountId === id` (Joint is source) and "+" when it is the destination (transfer amounts render slate/muted). The sign is computed per row, independent of stored sign.
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-045)
 
-### ACCT-046 - Transfer category cell shows "{from} → {to}" with a removed-account fallback
+### ACCT-046 - A transfer's route names the other account, with its direction and a removed-account fallback
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR #168 / "(removed account)" fallback on the single-account register
-- **Preconditions:** Owner; a transfer Joint → Rainy Day; then a second transfer whose counterparty account was later deleted.
+- **Preconditions:** Owner; a transfer Joint → Rainy Day; a second transfer whose counterparty account was later deleted; a transfer into Joint from an account later deleted.
 - **Steps:**
-  1. Open Joint's register and read the Category cell of both transfer rows.
-- **Expected:** First row: "Joint → Rainy Day". Second row (counterparty deleted → `transferAccountName` null): "Joint → (removed account)"; if the source is the removed side it renders "(removed account) → {name}". Never a blank cell.
-- **Automated:** No
+  1. Open Joint's register and read the route (`[data-tx-route]`) of the three transfer rows.
+- **Expected:** An arrow for the money's direction, then "To Rainy Day" (Joint is the source; the page's title already names Joint). Counterparty deleted (`transferAccountName` null): "To (removed account)". Source deleted (`accountName` null) on a transfer in: "From (removed account)". Never a blank cell. On a phone the words "To"/"From" are for screen readers only (the arrow shows the direction).
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-046; AccountDetailPage.test.tsx — "shows the transfer’s other account with its direction, a removed one included")
 
-### ACCT-047 - Category pills key by name with a hash fallback (non-current-month rows not grey)
+### ACCT-047 - Category chips key by name with a hash fallback (non-current-month rows not grey)
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR #168 / category pills keyed by budget-line NAME with a deterministic name-hash fallback
-- **Preconditions:** Owner; Joint has assigned expenses in a **prior** month whose lines are not in `/budget/current`.
+- **Preconditions:** Owner; Joint has assigned expenses in a **prior** month whose lines are not in `/budget/current`; one unassigned row; one split row.
 - **Steps:**
   1. Open Joint's register spanning multiple months.
-- **Expected:** Each assigned row shows a coloured pill with the budget-line name. Rows whose line **is** in the current month use that line's hue (Income → brand, Savings/Expense → indexed hue); rows from other months fall back to a stable name-hash hue — none render grey. Unassigned rows show "—".
-- **Automated:** No
+- **Expected:** Each assigned row shows a coloured chip with the budget-line name. Rows whose line **is** in the current month use that line's hue (Income → emerald, Savings/Expense → indexed hue, as on Transactions); rows from other months fall back to a stable name-hash hue — none render grey. A line that funds a jar (it has a `savingsId` in `/budget/current`) shows as a jar chip (jar icon, outline) when the account holds jars. An unassigned row shows a quiet outline **"Unassigned"** label (assigning happens on Transactions), and a split row a **"Split"** label — neither is a category chip.
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-047; AccountDetailPage.test.tsx — Split/Unassigned labels and the jar chip)
 
 ### ACCT-048 - Each amount is formatted in the transaction's own stamped currency
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Owner; legacy GBP account "UK Pot" with a transaction whose `t.currency` differs from the account (legacy data only: a manual entry on an account in another currency is now refused — `Create_OnAnAccountOfADifferentCurrency_IsRejected` — and an import row must match its import account). Plus, on Joint (EUR), a confirmed row that was paid abroad (`originalAmount` 20, `originalCurrency` "USD") and a waiting row.
 - **Steps:**
-  1. Open UK Pot's register and read the Amount cells; then Joint's.
-- **Expected:** Each row formats with `t.currency` (the transaction's own stamped currency), **not** the account currency (`formatMoney(fromAmount(t.amount), t.currency)`); the balance itself is not corrupted. On Joint, the confirmed paid-abroad row shows a small grey caption **"USD 20.00"** (title "Paid in USD") under its budget-currency amount, and a waiting row carries the amber tag **"Needs EUR amount"** (title "In another currency. Not counted anywhere until you enter the amount in EUR."); the detail register has no Enter amount button (read-only page). A counted row with a `budgetAmount` — a confirmed row on UK Pot, or a GBP row that sat on Joint from before #210 and was kept by the `ForeignAmounts` migration (CURR-054) — shows its own-currency amount (e.g. "−£30.00") with a grey caption **"Counts as €35.00 in the budget"** (`budgetAmount` formatted in the budget currency); a waiting row never shows that caption.
-- **Automated:** Partial (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-048 formatting; client/src/pages/AccountDetailPage.test.tsx — the "Needs EUR amount" tag on the waiting row only)
+  1. Open UK Pot's register and read the amounts; then Joint's.
+- **Expected:** Each row formats with `t.currency` (the transaction's own stamped currency), **not** the account currency (`formatMoney(fromAmount(t.amount), t.currency)`); the balance itself is not corrupted. On Joint, the confirmed paid-abroad row shows a small grey line **"USD 20.00"** (title "Paid in USD") under its budget-currency amount, and a waiting row carries the amber tag **"Needs EUR amount"** with its amount muted, and an (i) after the tag ("About {payee} on {date}: needs EUR amount", reachable by Tab) that says "In another currency. Not counted anywhere until you enter the amount in EUR." (on a phone under 360px the tag and its (i) sit on the row's second line, after the date); the detail register has no Enter amount button (read-only page). A counted row with a `budgetAmount` — a confirmed row on UK Pot, or a GBP row that sat on Joint from before #210 and was kept by the `ForeignAmounts` migration (CURR-054) — shows its own-currency amount (e.g. "−£30.00") with a grey line **"Counts as €35.00 in the budget"** (`budgetAmount` formatted in the budget currency); a waiting row never shows that line.
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-048 formatting; client/src/pages/AccountDetailPage.test.tsx — the "Needs EUR amount" tag on the waiting row and its (i) by keyboard, the tag on the second line on the narrowest phones, the "USD 25.00" line and the "Counts as" line, which wrap in a capped width on a phone)
 
 ### ACCT-049 - Empty register message
 - **Priority:** P2
@@ -484,8 +489,8 @@
 - **Preconditions:** Owner; a brand-new account with no transactions.
 - **Steps:**
   1. Open its detail page.
-- **Expected:** The register body shows a single centered row "No transactions on this account yet."; the "Transactions" tile reads 0.
-- **Automated:** No
+- **Expected:** The Transactions card shows the single centred line "No transactions on this account yet." and its title stands alone, with no count badge (the line already says there are none: one fact, said once); the hero and Account details still render.
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-049)
 
 ### ACCT-050 - Unknown account id renders the not-found state
 - **Priority:** P2
@@ -493,17 +498,64 @@
 - **Preconditions:** Owner; navigate to `/accounts/does-not-exist`.
 - **Steps:**
   1. Load the URL directly.
-- **Expected:** After loading, `find` returns null → "Account not found" empty state (title + "It may have been deleted. Head back to your accounts.") with the "‹ Accounts" back link. Any `:id` string is accepted client-side (there is no per-account GET endpoint; the page filters the full list).
-- **Automated:** Yes (AccountDetailPage.test.tsx — not-found state for unknown account id)
+- **Expected:** "Loading…" first, then, `find` returning null → "Account not found" empty state (title + "It may have been deleted. Head back to your accounts."). The top bar reads "Account" with the "Back to Accounts" chevron link. Any `:id` string is accepted client-side (there is no per-account GET endpoint; the page filters the full list).
+- **Automated:** Yes (AccountDetailPage.test.tsx — not-found state for unknown account id; "keeps the way back and a plain title while loading, then on an unknown account")
 
 ### ACCT-051 - Detail page is read-only and tolerates side-fetch failures
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Owner; on an account detail page where `GET /transactions` and/or `GET /budget/current` fail.
+- **Preconditions:** Owner; on an account detail page where `GET /transactions`, `GET /budget/current` and/or `GET /accounts/reconciliation` fail.
 - **Steps:**
   1. Load the detail page.
-- **Expected:** The page has **no** add/edit/delete/transfer affordances (entirely read-only). The transactions and budget fetches are `.catch(() => null)`-tolerant: a failure leaves an empty register / no pill hues but never breaks the hero or the page. Only a failed `GET /accounts` (via the `Promise.all` reject) trips the not-found state.
-- **Automated:** No
+- **Expected:** The page has **no** add/edit/delete/transfer affordances (entirely read-only; its only controls are the back link and the (i) hints). The transactions, budget and reconciliation fetches are `.catch(() => null)`-tolerant: a failure leaves an empty register / name-hash chip hues / no In jars tile, but never breaks the hero or the page. Only a failed `GET /accounts` (via the `Promise.all` reject) trips the not-found state (no error banner).
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-051; AccountDetailPage.test.tsx — "shows a failed account load as not found, with no error banner" and the In jars case with a failed reconciliation)
+
+### ACCT-081 - Not available, in transit and pending review under the balance
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Owner; account A with no opening date; account B whose balance is as of a date before its opening date; account C with €150 in transit out, €50 in transit in and €80 of receipts pending review; account D with none of these.
+- **Steps:**
+  1. Open each account's page and read the hero.
+- **Expected:** A: "Not available" with "Set an opening date to calculate the balance." under it (accessible name "A balance: not available"). B: "Not available" with "No balance before the opening date.". C: the balance, then "€200.00 in transit" (out and in together) and "€80.00 pending review"; its rows show the **In transit** / **Pending review** chips. D: the balance alone, no line under it.
+- **Automated:** Yes (AccountDetailPage.test.tsx — "says why there is no balance…", "shows what is in transit … and pending review under the balance", "shows none of those lines…")
+
+### ACCT-082 - In jars, only for an account that holds jars
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** Owner; Savings holds two jars (€1,120 of €5,000); Joint holds none; a third account whose jars hold more than it has.
+- **Steps:**
+  1. Open each account's page.
+- **Expected:** Savings: the hero takes two of the three columns and **In jars** the third: €1,120.00, the Accounts card's bar, and "€3,880.00 not in jars" with its (i) ("About the money not in jars in Savings"). Over-held account: the bar and "€X over" in red, its (i) saying to move money out of a jar (or "Jars exceed account money" when a jar below zero hides it). Joint: no In jars tile, the hero across the row. On a phone In jars is a slim strip under the hero. The jars' figures (`GET /accounts/reconciliation`) never hold up the page: with that answer slow, the balance and the list show first and In jars joins them when it arrives; a failed answer just leaves the tile out.
+- **Automated:** Yes (AccountDetailPage.test.tsx — "shows In jars, with the Accounts card’s rest and its (i), only for an account that holds jars", "shows the balance and the list without waiting for the jars’ figures, then adds In jars", "never shows the jars’ figures of an account the page has already left")
+
+### ACCT-083 - Months, the year for another year, and struck rows that don't move the balance
+- **Priority:** P1
+- **Type:** Edge
+- **Preconditions:** Owner; Savings (opening date 1 Aug this year) with rows in this October, September and June, one in December last year, a transfer the bank sent back, and a payment dated 14 Jun.
+- **Steps:**
+  1. Open Savings' page; read the month headings and the rows.
+  2. Focus the (i) after "Before opening" (Tab), then press Escape.
+- **Expected:** One heading per month (h3, "October", "September", …), "December 2025" for last year's month. The returned transfer shows a red **Returned** chip and its amount struck through; the 14 Jun payment is muted, its amount struck through with **"Before opening"** under it. Its (i) ("About Kwik-Fit on Jun 14: before opening") opens on focus with "Dated before the opening balance of Aug 1, 2026, which already includes it: kept as history, it doesn’t change the balance." and Escape closes it. A transfer that left before the opening date but came back after it shows its red **Returned** chip with its amount **not** struck and no Before opening (it moved the balance on its return).
+- **Automated:** Yes (AccountDetailPage.test.tsx — "groups the rows under one eyebrow a month…", "strikes through a transfer the bank sent back", "explains a row before the opening date behind its (i)…", "judges a transfer against the opening date by this account’s own leg"; lib/dates.test.ts — monthHeading)
+
+### ACCT-084 - Account details card
+- **Priority:** P2
+- **Type:** Happy
+- **Preconditions:** Owner; Savings (type Savings) held by Alex and Sam, opening balance €5,510.00 on 1 Aug 2026, IBAN and BIC recorded; Joint with no identifiers and no holders.
+- **Steps:**
+  1. Open Savings' page, then Joint's.
+- **Expected:** Savings: the "Account details" card (a region named by its h2) shows the type icon and "Savings", the holders' avatars ("Held by Alex and Sam" for screen readers), "Opening balance €5,510.00" with "On Aug 1, 2026", then one row per recorded identifier (IBAN, BIC); the values are 14px (the date 12px), and an IBAN too long for a narrow column (about 1,230-1,300px wide windows, 320px phones) wraps at its own spaces into balanced lines, never leaving one group alone. Joint: the type and the opening balance only — no avatars, no identifier rows. On a phone the card comes after the transactions.
+- **Automated:** Yes (AccountDetailPage.test.tsx — "lists the account’s type, who holds it and its opening balance and date", "shows recorded bank identifiers, and none when none are recorded"; client/e2e/responsive-dark.spec.ts — UX-036 order and fit at 375px)
+
+### ACCT-085 - Keyboard and phone layout
+- **Priority:** P2
+- **Type:** Accessibility
+- **Preconditions:** Owner; an account that holds jars with a row before its opening date.
+- **Steps:**
+  1. Tab from the top of the page.
+  2. Open the page at 390px.
+- **Expected:** Tab reaches the "Back to Accounts" link and the top bar's theme button, then the Balance (i), the In jars (i), then each row's (i) in row order (a Before opening (i), and the (i) after a "Needs EUR amount" tag); Enter on the back link goes to `/accounts`. At 390px each row is two lines (payee and amount; then category or route, the date once, then any status chip), nothing scrolls sideways, and the page has no WCAG A/AA violations with an (i) open.
+- **Automated:** Yes (AccountDetailPage.test.tsx — "reaches the back link, then the hints in order, from the keyboard", "on a phone: two lines a row…"; client/e2e/a11y.spec.ts — "an account's page at 1280px/390px, its In jars (i) and a "Before opening" (i)…")
 
 ## Jar reconciliation view
 

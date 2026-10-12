@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { Link } from 'react-router-dom'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { useMonth } from '../features/MonthContext'
 import { AccountMenu } from './AccountMenu'
@@ -56,16 +57,42 @@ function MonthSwitcher() {
  * the account avatar (the account menu holds Dark mode there). On phones a little narrower than
  * the mock-up's 390px the month pill would squeeze the title, so the logo gives way when the pill
  * shows, and under 360px the title, the gaps and the month arrows step down a size.
+ *
+ * `back` (opt-in, a detail page such as an account's): the way back to the parent page, a 40px
+ * chevron link named "Back to {label}" before the title, in place of the phone's logo. Left out,
+ * the bar is as it always was.
  */
-export function TopBar({ title, month = false, actions }: { title?: ReactNode; month?: boolean; actions?: ReactNode }) {
+export function TopBar({
+  title,
+  month = false,
+  actions,
+  back,
+}: {
+  title?: ReactNode
+  month?: boolean
+  actions?: ReactNode
+  back?: { to: string; label: string }
+}) {
   return (
     <header data-tour="topbar" className="sticky top-0 z-30 bg-background/90 backdrop-blur-[10px]">
       <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-2.5 px-4 max-[359.98px]:gap-2 min-[900px]:h-[76px] min-[900px]:gap-3 min-[900px]:px-10">
-        {/* Under 384px the logo, the month pill and the avatar leave the longest month-page title
-            ("Transactions") less than its width, so the logo gives way there. */}
-        <span className={`shrink-0 min-[900px]:hidden ${month ? 'max-[383.98px]:hidden' : ''}`}>
-          <JarLogo size={26} />
-        </span>
+        {back ? (
+          // A link (the way back is a place, not an action), drawn as the bar's icon buttons are; it
+          // sits half its padding into the gutter so the chevron lines up with the page's edge.
+          <Link
+            to={back.to}
+            aria-label={`Back to ${back.label}`}
+            className="-mr-1 -ml-2.5 grid size-10 shrink-0 place-items-center rounded-full text-slate-500 transition hover:bg-surface hover:text-slate-900"
+          >
+            <ChevronLeft aria-hidden strokeWidth={1.8} className="size-[18px]" />
+          </Link>
+        ) : (
+          // Under 384px the logo, the month pill and the avatar leave the longest month-page title
+          // ("Transactions") less than its width, so the logo gives way there.
+          <span className={`shrink-0 min-[900px]:hidden ${month ? 'max-[383.98px]:hidden' : ''}`}>
+            <JarLogo size={26} />
+          </span>
+        )}
         {/* The title takes the free width (pushing the rest to the right) and truncates last. */}
         {title ? (
           <h1 className="min-w-0 flex-1 truncate text-lg font-bold tracking-[-0.02em] text-slate-900 max-[359.98px]:text-base min-[900px]:text-[22px]">
