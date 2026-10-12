@@ -28,7 +28,7 @@ Every server-side name carries its environment, so nothing of staging's is calle
 | Database | `ZeroBudgetStaging` | `ZeroBudgetProd` |
 | Backup task | `ZeroBudget-Staging-DbBackup` (local only, 03:30 server time) | `ZeroBudget-Prod-DbBackup` (shipped to R2, 02:30) |
 | DataProtection key folder (`DataProtection:KeysPath`) | `C:\inetpub\zerobudget-staging-dp-keys` | `C:\inetpub\zerobudget-dp-keys` |
-| Origin inside emailed links (`Email:AppBaseUrl`; staging must set it, the built-in default is production's) | `https://staging.allotjar.com` | `https://www.allotjar.com` |
+| Origin inside emailed links (`Email:AppBaseUrl`; staging must set it, the built-in default is production's) | `https://staging.allotjar.com` | `https://www.allotjar.com` (or the apex `https://allotjar.com`) |
 | Release unpacked in | `C:\deploy\release-staging` (from `C:\deploy\incoming-staging`) | `C:\deploy\release-production` (from `C:\deploy\incoming-production`) |
 
 Until 4 October 2026 staging kept the names of the original single stack (`ZeroBudget`, `C:\inetpub\zerobudget`, database `ZeroBudget`) and, because nothing set its ASP.NET Core environment, read `appsettings.Production.json`. `deploy/Rename-StagingStack.ps1` renamed it in place (run once, on the VPS; `-Check` only reports).

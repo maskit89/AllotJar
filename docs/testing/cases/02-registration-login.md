@@ -1138,11 +1138,11 @@ Setup: a Development-env API with NO `Email:ApiKey` so verification/reclaim emai
 - **Origin:** 12 October 2026: a password reset requested on staging emailed a link that opened production. `Email:AppBaseUrl` is config-only (never the request's Host header, REG-053) and its built-in default is the production origin, so a staging `appsettings.Staging.json` that omits it mails production links — and the token inside, signed with staging's own DataProtection keys, is not valid there.
 - **Preconditions:** Unit level for the check; a VPS stack for the deploy preflight.
 - **Steps:**
-  1. Ask `EmailSettings.DescribeEnvironmentMismatch(env)` about the production origin on `Staging`, the staging origin on `Production`, each stack's own origin (any case, trailing slash), a non-URL, and `Development`.
+  1. Ask `EmailSettings.DescribeEnvironmentMismatch(env)` about the production origin on `Staging`, the staging origin on `Production`, each stack's own origin (any case, trailing slash; production is public at www and the apex, so both fit it), a non-URL, and `Development`.
   2. Run `Get-StackSettingsProblems` (deploy/ProvisionHelpers.psm1) over a staging file without `AppBaseUrl`, with the production one, naming the production database, and a production file naming staging.
   3. Deploy a stack whose settings file fails step 2.
 - **Expected:**
   - 1: the other site's origin and a non-URL are described (naming the origin the links would open, the right value and the file to set it in); the stack's own origin passes; `Development` and the test hosts are never judged. Startup logs `Links in emails open the wrong site: …` at **Error** (so it reaches the error alerts), otherwise `Links in emails open <origin>` at Warning.
-  - 2: staging must set `Email:AppBaseUrl` (missing = the production default) and both stacks must name their own database and origin; a commented-out line counts for nothing; two entries are refused.
+  - 2: staging must set `Email:AppBaseUrl` (missing = the production default) and both stacks must name their own database and origin (www or the apex for production); a commented-out line counts for nothing; two entries are refused.
   - 3: `Deploy.ps1` stops in its preflight, before the API is taken offline, listing the problems; the stack keeps running its old build.
-- **Automated:** Full (EmailProviderSelectionTests — REG-094: 4 mismatch + 4 accept + 3 malformed + 3 unjudged cases; deploy/tests/Test-DeployHelpers.ps1 — 14 settings-fit + 5 origin cases). Step 3 is manual (a VPS deploy).
+- **Automated:** Full (EmailProviderSelectionTests — REG-094: 6 mismatch + 6 accept + 3 malformed + 3 unjudged cases; deploy/tests/Test-DeployHelpers.ps1 — 18 settings-fit + 5 origin cases). Step 3 is manual (a VPS deploy).

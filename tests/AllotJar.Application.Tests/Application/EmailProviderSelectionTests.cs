@@ -196,6 +196,8 @@ public class EmailProviderSelectionTests
     [Theory]
     [InlineData("Staging", "https://www.allotjar.com", "https://www.allotjar.com")]   // the real incident: the default, unset
     [InlineData("Staging", "https://www.allotjar.com/", "https://www.allotjar.com")]
+    [InlineData("Staging", "https://allotjar.com", "https://allotjar.com")]
+    [InlineData("Production", "https://app.allotjar.com", "https://app.allotjar.com")]
     [InlineData("Production", "https://staging.allotjar.com", "https://staging.allotjar.com")]
     [InlineData("production", "http://localhost:5173", "http://localhost:5173")]       // environment names compare case-insensitively
     public void Flags_links_that_open_the_other_site(string environment, string appBaseUrl, string openedOrigin)
@@ -206,7 +208,7 @@ public class EmailProviderSelectionTests
             .And.Contain($"opens {openedOrigin} ")
             .And.Contain(environment.Equals("Staging", StringComparison.OrdinalIgnoreCase)
                 ? "https://staging.allotjar.com in appsettings.Staging.json"
-                : "https://www.allotjar.com in appsettings.Production.json");
+                : "https://www.allotjar.com or https://allotjar.com in appsettings.Production.json");
     }
 
     [Theory]
@@ -214,6 +216,8 @@ public class EmailProviderSelectionTests
     [InlineData("Staging", "HTTPS://Staging.AllotJar.com/")]   // origin comparison ignores case and a trailing slash
     [InlineData("Production", "https://www.allotjar.com")]
     [InlineData("Production", "https://www.allotjar.com/app")] // only the origin is judged
+    [InlineData("Production", "https://allotjar.com")]         // the apex serves production too
+    [InlineData("Production", "https://ALLOTJAR.com/")]
     public void Accepts_links_that_open_this_site(string environment, string appBaseUrl)
     {
         new EmailSettings { AppBaseUrl = appBaseUrl }.DescribeEnvironmentMismatch(environment).Should().BeNull();

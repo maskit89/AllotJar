@@ -50,6 +50,9 @@ public class EmailSettings
     /// <summary>The production site's origin: the built-in <see cref="AppBaseUrl"/>.</summary>
     public const string ProductionOrigin = "https://www.allotjar.com";
 
+    /// <summary>Production is public at the apex as well as www, so either origin fits it.</summary>
+    public static readonly string[] ProductionOrigins = [ProductionOrigin, "https://allotjar.com"];
+
     /// <summary>The staging site's origin; its settings file must set <see cref="AppBaseUrl"/> to it.</summary>
     public const string StagingOrigin = "https://staging.allotjar.com";
 
@@ -125,15 +128,15 @@ public class EmailSettings
         }
 
         var origin = url.GetLeftPart(UriPartial.Authority);
-        var expected = isStaging ? StagingOrigin : ProductionOrigin;
-        if (string.Equals(origin, expected, StringComparison.OrdinalIgnoreCase))
+        var expected = isStaging ? [StagingOrigin] : ProductionOrigins;
+        if (expected.Contains(origin, StringComparer.OrdinalIgnoreCase))
         {
             return null;
         }
 
         var expectedFile = isStaging ? "appsettings.Staging.json" : "appsettings.Production.json";
         return $"Email:AppBaseUrl is {AppBaseUrl}, so every emailed link (password reset, invite) opens {origin} " +
-               $"instead of this {environmentName} site. Set Email:AppBaseUrl to {expected} in {expectedFile} " +
+               $"instead of this {environmentName} site. Set Email:AppBaseUrl to {string.Join(" or ", expected)} in {expectedFile} " +
                "and recycle the API app pool.";
     }
 

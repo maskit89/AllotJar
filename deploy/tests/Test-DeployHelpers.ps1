@@ -232,6 +232,15 @@ $p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace '"Provider"
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'AppBaseUrl is missing') 'a commented-out AppBaseUrl does not count'
 $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"Email": \{', '"Email": { "AppBaseUrl": "https://staging.allotjar.com",') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'appears 2 times') 'two AppBaseUrl entries are refused rather than guessed between'
+# Production is public at the apex as well as www: both fit, and only those two.
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 0) 'production naming the apex origin passes'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://www.allotjar.com') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 0) 'production naming the www origin passes'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://app.allotjar.com') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'https://www\.allotjar\.com or https://allotjar\.com') 'production naming another host is refused, listing both accepted origins'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://allotjar\.com') 'staging pointing emailed links at the apex is refused'
 # Production must never name staging.
 $prodWrong = $stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd'
 $p = Get-StackSettingsProblems -SettingsText $prodWrong -AspNetEnvironment Production

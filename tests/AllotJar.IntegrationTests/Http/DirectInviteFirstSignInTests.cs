@@ -205,7 +205,13 @@ public class DirectInviteFirstSignInTests
     public async Task Outside_development_an_invite_is_refused_while_email_only_goes_to_the_log()
     {
         // Staging with no provider configured resolves the logging fallback: nothing is delivered.
-        using var client = _fixture.CreateClient(b => b.UseEnvironment("Staging"));
+        // The staging origin too, as the real staging file sets it, so startup does not log the
+        // "links open the wrong site" Error this host would otherwise earn (REG-094).
+        using var client = _fixture.CreateClient(b =>
+        {
+            b.UseEnvironment("Staging");
+            b.UseSetting("Email:AppBaseUrl", "https://staging.allotjar.com");
+        });
         var run = Guid.NewGuid().ToString("N")[..8];
         var email = $"nomail-{run}@firstsignin.test";
 

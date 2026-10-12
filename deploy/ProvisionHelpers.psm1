@@ -312,7 +312,8 @@ function Get-StackSettingsProblems {
         [Parameter(Mandatory)][ValidateSet('Staging', 'Production')][string]$AspNetEnvironment,
         # The stack's own values; the defaults are the names in docs/deployment/staging-prod.md.
         [string]$ExpectedDatabase = $(if ($AspNetEnvironment -eq 'Staging') { 'ZeroBudgetStaging' } else { 'ZeroBudgetProd' }),
-        [string]$ExpectedAppBaseUrl = $(if ($AspNetEnvironment -eq 'Staging') { 'https://staging.allotjar.com' } else { 'https://www.allotjar.com' })
+        # Production is public at both www.allotjar.com and the apex, so either origin fits it.
+        [string[]]$ExpectedAppBaseUrl = $(if ($AspNetEnvironment -eq 'Staging') { @('https://staging.allotjar.com') } else { @('https://www.allotjar.com', 'https://allotjar.com') })
     )
     $problems = @()
     # Drop whole-line // comments so a commented-out setting can neither satisfy nor fail a check.
@@ -336,16 +337,16 @@ function Get-StackSettingsProblems {
         $problems += "Email:AppBaseUrl appears $($urls.Count) times; keep exactly one."
     } elseif ($urls.Count -eq 0) {
         if ($AspNetEnvironment -eq 'Staging') {
-            $problems += "Email:AppBaseUrl is missing; the API's built-in default is https://www.allotjar.com, so every emailed link (password reset, invite) would open production. Set it to $ExpectedAppBaseUrl in the Email section."
+            $problems += "Email:AppBaseUrl is missing; the API's built-in default is https://www.allotjar.com, so every emailed link (password reset, invite) would open production. Set it to $($ExpectedAppBaseUrl[0]) in the Email section."
         }
     } else {
         $url = $urls[0].Groups[1].Value
         $origin = Get-UrlOrigin -Url $url
-        $expected = Get-UrlOrigin -Url $ExpectedAppBaseUrl
+        $expected = @($ExpectedAppBaseUrl | ForEach-Object { Get-UrlOrigin -Url $_ })
         if (-not $origin) {
             $problems += "Email:AppBaseUrl '$url' is not an absolute http(s) URL."
-        } elseif ($origin -ne $expected) {
-            $problems += "Email:AppBaseUrl is $url, so every emailed link (password reset, invite) would open $origin; the $AspNetEnvironment stack's origin is $ExpectedAppBaseUrl."
+        } elseif ($expected -notcontains $origin) {
+            $problems += "Email:AppBaseUrl is $url, so every emailed link (password reset, invite) would open $origin; the $AspNetEnvironment stack's origin is $($ExpectedAppBaseUrl -join ' or ')."
         }
     }
     return ,$problems
