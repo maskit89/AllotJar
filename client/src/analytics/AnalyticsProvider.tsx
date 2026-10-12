@@ -19,13 +19,14 @@ import { RouteAnalytics } from './RouteAnalytics'
 import { ConsentBanner } from './ConsentBanner'
 
 interface AnalyticsState {
-  /** Analytics is offered to the user (the feature flag is on). Drives the banner + Help control. */
+  /** Analytics is offered to the user (the feature flag is on). Drives the banner + the Help page's Privacy card. */
   available: boolean
   /** The stored consent choice, or null when the user hasn't decided yet. */
   consent: ConsentChoice | null
+  /** The banner's Accept / Decline and the Help switch turning on / off: the choice is stored, never cleared. */
   accept: () => void
   decline: () => void
-  /** Forget the stored choice so the banner reappears (the Help opt-out/in control). */
+  /** Forget the stored choice so the banner reappears (nothing in the UI calls it today). */
   reset: () => void
 }
 

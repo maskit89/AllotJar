@@ -397,9 +397,9 @@
 - **Type:** Edge
 - **Preconditions:** Consent previously granted; U1 signed in.
 - **Steps:**
-  1. Use the Help "Privacy & analytics" opt-out/in control to reset the consent choice.
+  1. Switch off the "Google Analytics" switch in the Help page's "Privacy" card (its only control; it calls `decline()`, not `reset()`).
   2. Separately, sign out while tracking is live.
-- **Expected:** Reset clears `zbb.analyticsConsent` (choice back to null), so the consent banner reappears and the user can re-decide — a genuine, revocable opt-out. On logout `clearUser()` sets GA's `user_id` and `user_role` to null so a subsequent user on the same browser is not stitched to the previous identity.
+- **Expected:** The switch turns off and `zbb.analyticsConsent` becomes `denied` (not cleared to null, so the consent banner does not reappear); the switch itself is the way to re-decide at any time — a genuine, revocable opt-out (the provider's `reset()` exists but nothing in the UI calls it). On logout `clearUser()` sets GA's `user_id` and `user_role` to null so a subsequent user on the same browser is not stitched to the previous identity.
 - **Automated:** No
 
 ## URLs, redirects & credential-field autofill

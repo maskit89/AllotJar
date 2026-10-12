@@ -518,7 +518,8 @@ for (const theme of ['light', 'dark'] as const) {
       )
       await page.goto('/help')
       await page.getByRole('region', { name: 'Analytics consent' }).waitFor()
-      await page.getByRole('heading', { name: 'Privacy & analytics' }).waitFor()
+      await page.getByRole('heading', { name: 'Privacy' }).waitFor()
+      await page.getByRole('switch', { name: 'Google Analytics' }).waitFor()
       await expectNoViolations(page)
     })
 

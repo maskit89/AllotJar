@@ -370,7 +370,7 @@
 - **Steps:**
   1. Load `/`, `/login`, `/privacy`; sign in and visit the dashboard.
 - **Expected:**
-  - The consent banner never renders on any page (`available=false`); no `zbb.analyticsConsent` key is created; no GA network traffic. (The Help page's "Privacy & analytics" card is also absent — asserted in the routing/shell sibling file.)
+  - The consent banner never renders on any page (`available=false`); no `zbb.analyticsConsent` key is created; no GA network traffic. (The Help page's "Privacy" card and its "Google Analytics" switch are also absent — LAND-043.)
 - **Automated:** No
 
 ### LAND-028 - Flag on but no measurement ID: banner shows, Accept is inert
@@ -430,7 +430,7 @@
 - **Type:** Edge
 - **Preconditions:** Production deployment; consent previously granted and GA live in the current tab; Help page reachable.
 - **Steps:**
-  1. On `/help`, use "Turn off analytics" under "Privacy & analytics".
+  1. On `/help`, switch off the "Google Analytics" switch in the "Privacy" card.
   2. Without reloading, navigate between pages and watch GA traffic.
   3. Reload the app and repeat.
 - **Expected:**
@@ -556,53 +556,53 @@
 
 ## Gap-fill additions — Help page (guide & analytics controls)
 
-> Scope note: `HelpPage` (`/help`, behind `RequireAuth`, always mounted) is documented in the routing-shell map §2 but was not owned by any case file — 05-onboarding cedes "the Help page's topic cards and analytics consent controls" to a routing/shell sibling that does not exist, and LAND-027 defers the "Privacy & analytics" card to that same non-existent file. This file owns the analytics-consent surface, so the guide-link event and the analytics on/off status controls belong here; the topic-card render + route load sit here too (they may alternatively be exercised from 26-ux-states). Onboarding's "Replay welcome tour" action stays owned by ONBD-027; the in-session opt-out/gtag behavior stays owned by LAND-032 — this section adds only the untested surfaces.
+> Scope note: `HelpPage` (`/help`, behind `RequireAuth`, always mounted) is documented in the routing-shell map §2 but was not owned by any case file — 05-onboarding cedes "the Help page's topic rows and analytics consent switch" to a routing/shell sibling that does not exist, and LAND-027 defers the "Privacy" card to that same non-existent file. This file owns the analytics-consent surface, so the guide-link event and the Google Analytics switch belong here; the topic-row render + route load sit here too (they may alternatively be exercised from 26-ux-states). Onboarding's "Replay welcome tour" action stays owned by ONBD-027; the in-session opt-out/gtag behavior stays owned by LAND-032 — this section adds only the untested surfaces.
 
-### LAND-041 - Help page route loads with header, subtitle and the ten topic cards
+### LAND-041 - Help page route loads with the hero, the Topics card and its nine rows
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** `owner@example.com` signed in (Help is an authed AppShell page); default/local build with `Features:Analytics=false` (so the "Privacy & analytics" card is absent and exactly ten topic cards render). Budget currency EUR for the noun spot-check.
+- **Preconditions:** `owner@example.com` signed in (Help is an authed AppShell page); default/local build with `Features:Analytics=false` (so the "Privacy" card is absent and the Topics card spans the page under the hero). Budget currency EUR for the noun spot-check.
 - **Steps:**
   1. From inside the app, navigate to `/help` (or deep-link `/help` while signed in — RequireAuth passes it straight through).
-  2. Read the PageHeader and its action button.
-  3. Enumerate the topic-card `h3` headings in document order.
-  4. Read the "Zero-based budgeting" card body and the "Good to know" bullet list.
+  2. Read the top bar, the green hero and the Topics card's header.
+  3. Enumerate the topic rows (`h3` headings holding a button) in document order; open one with the mouse and another with the keyboard (Enter, then Space).
+  4. Open the hero's (i) and read it; open "Good to know" and read its bullets.
 - **Expected:**
-  - Exactly one visible `<h1>` "Help & guide" (rendered by PageHeader — HelpPage passes no AppShell `title`, so there is no competing sr-only h1) with subtitle "How each part of AllotJar works." and an action button "Replay welcome tour" (its replay behavior is owned by ONBD-027; here only its presence matters).
-  - The AppShell chrome wraps the page with `active="help"` (Help nav item current); the top month bar (month picker ‹ ›, "Zero-based" pill, ThemeToggle) is present even though Help is a non-month page.
-  - Exactly ten topic-card `h3` headings in this order: "Zero-based budgeting", "Months & appearance", "Transactions", "Bills & due dates", "Accounts", "Saving with jars", "Reports", "People & allocation", "Your account", "Good to know". No "Privacy & analytics" card renders (flag off → `useAnalytics().available === false`).
-  - The "Zero-based budgeting" body uses the budget-currency noun: "Give every euro a job until Remaining to budget reaches zero…" (noun = `currencyNoun(budgetCurrency)`, the active household's currency from `/auth/me`; a member of a USD household reads "Give every dollar a job…" — same mapping as LAND-005).
-  - "Good to know" is a bulleted list containing: inline-editing ("click, type, Enter to save, Escape to cancel"), "Deleting a line or account never deletes its transactions.", the "12.50"/"12,50" cent-exact note, and the "complete user guide" link (asserted in LAND-042).
-- **Automated:** Partial (client/src/pages/HelpPage.test.tsx — asserts the "Help & guide" h1, three topic headings (Zero-based budgeting / Transactions / Accounts) and the "Replay welcome tour" button; the full ten-card set + order, the subtitle, the AppShell/nav-active chrome and the currency-noun body copy are unasserted)
+  - Exactly one `<h1>` "Help & guide" (the top bar's, from AppShell `title`); no subtitle, no month switcher, no page action. The AppShell chrome wraps the page with `active="help"` (Help nav item current; on a phone the More tab).
+  - The green hero leads the page in the KPI row's place (150px tall on desktop, 112px on a phone): a `region` named "Zero-based budgeting" (its label, with the (i) "About zero-based budgeting"), the white headline "Give every euro a job" using the budget-currency noun (noun = `currencyNoun(budgetCurrency)`, the active household's currency from `/auth/me`; a member of a USD household reads "Give every dollar a job" — same mapping as LAND-005), and a decorative glass jar (gold lid) at its right. The (i) holds "Allot all your income until **Remaining to budget** reaches zero: assign it across spending lines, savings and jars before the month begins. **Spent** fills in automatically from your transactions, so there’s nothing to total by hand." (mounted only while open: hover, focus or click).
+  - The Topics card (h2 "Topics"): header links "Replay welcome tour" (ONBD-027; "Replay tour" on a phone) and "User guide ↗" (LAND-042); exactly nine rows (icon tile | name | chevron), each an `h3 > button[aria-expanded][aria-controls]`, in this order: "Months & appearance", "Transactions", "Bills & due dates", "Accounts", "Saving with jars", "Reports", "People & allocation", "Your account", "Good to know". All closed on load; no "Privacy" card renders (flag off → `useAnalytics().available === false`).
+  - A row opens in place (mouse, Enter or Space; focus stays on the row) to the panel it controls (`aria-controls`; no landmark of its own, so nine open topics add no regions) holding its facts as bullets, the chevron turns, the rows below move down; a second activation closes it (the panel keeps the `hidden` attribute while closed). Rows are independent: opening one leaves the others as they were.
+  - "Good to know" holds exactly: "Edits happen in place: Enter saves, Escape cancels.", "Deleting a line or account never deletes its transactions.", "Amounts accept both “12.50” and “12,50”; every figure is exact to the cent." (the guide link moved to the header, LAND-042). "Bills & due dates" says a line gets a **Bill due day**, **Mark paid** "ticks it off for the month you’re viewing", both in the line's ⋯ (there is no Paid checkbox); "Saving with jars" says a jar's "monthly contribution becomes a line in your **Savings** group"; "Your account" says more than one household is switched from "the same menu" (the account menu).
+- **Automated:** Yes (client/src/pages/HelpPage.test.tsx — the h1, the hero region + noun, the nine rows in order, opening/closing by mouse and keyboard, every topic's facts; client/e2e/help.spec.ts — the hero over the full-width Topics card, rows by mouse and keyboard with the layout moving, phone stacking; the AppShell/nav-active chrome is covered by AppShell.test)
 
-### LAND-042 - "complete user guide" link opens the manual in a new tab and fires help_guide_opened
+### LAND-042 - "User guide" link opens the manual in a new tab and fires help_guide_opened
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Signed in on `/help`. To observe the GA event on the wire: production bundle (`G-55WS48MJ91`) with consent granted and a GA `collect` capture; the link is present and clickable on any build.
 - **Steps:**
-  1. In the "Good to know" card, locate the "complete user guide" link and inspect its attributes.
+  1. In the Topics card's header, locate the "User guide ↗" link (accessible name "Complete user guide (opens in a new tab)") and inspect its attributes.
   2. Click it and observe the new browser tab and the GA network traffic.
   3. Repeat the click with analytics declined (or the flag off).
 - **Expected:**
-  - The link `href` is exactly `https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md` with `target="_blank"` and `rel="noreferrer"` — it opens the doc in a new tab with no opener/referrer leak, leaving the `/help` tab in place.
+  - The link `href` is exactly `https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md` with `target="_blank"` and `rel="noreferrer"` — it opens the doc in a new tab with no opener/referrer leak, leaving the `/help` tab in place. Its arrow icon is `aria-hidden`.
   - When tracking is live (step 2: production + consent granted), the click fires exactly one `help_guide_opened` GA event (`track(EVENTS.helpGuideOpened)`), a whitelisted event name carrying no extra params.
   - Step 3: with consent denied or the flag off, the click still navigates to the guide but sends nothing — `track()` is an inert no-op when tracking has not started (no console error, no `collect` request).
-- **Automated:** Partial (client/src/pages/HelpPage.test.tsx — asserts only that the link `href` contains `USER_GUIDE.md`; the `target="_blank"`/`rel="noreferrer"` attributes and the `help_guide_opened` emission are untested)
+- **Automated:** Yes (client/src/pages/HelpPage.test.tsx — the href, `target="_blank"`, `rel="noreferrer"` and the `help_guide_opened` call; client/e2e/help.spec.ts — the name, visible text and attributes in a browser; the GA wire itself is not observed)
 
-### LAND-043 - "Privacy & analytics" card: status-text variants and the Turn on / Turn off toggle
+### LAND-043 - "Privacy" card: the "Google Analytics" switch's three states
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** `Features:Analytics=true` (flag on so `available === true`); `owner@example.com` signed in on `/help`. Each consent state is reached by seeding `localStorage['zbb.analyticsConsent']` (`granted` / `denied` / key absent) before load. Production bundle (with `G-55WS48MJ91`) to also observe GA start; a flag-on build with no measurement ID (e.g. the staging bundle) to prove the inert path.
 - **Steps:**
-  1. With the key absent (undecided), load `/help`; read the "Privacy & analytics" card status line and button label.
-  2. Click "Turn on analytics"; inspect `localStorage`, the status line, the button label, and the bottom consent banner.
-  3. Reload with `zbb.analyticsConsent = 'denied'`; read the status line and button; then click "Turn on analytics".
-  4. With `zbb.analyticsConsent = 'granted'`, read the status line and button; then click "Turn off analytics".
+  1. With the key absent (undecided), load `/help`; read the "Privacy" card, its (i) and the switch row.
+  2. Click the switch; inspect `localStorage`, the switch and the bottom consent banner.
+  3. Reload with `zbb.analyticsConsent = 'denied'`; read the switch; then click it.
+  4. With `zbb.analyticsConsent = 'granted'`, read the switch; then click it (also from the keyboard: Space / Enter).
 - **Expected:**
-  - The card renders only because the flag is on (`available`) as an eleventh card spanning both columns (`sm:col-span-2`); blurb: "We use Google Analytics to understand how AllotJar is used so we can improve it. We never send your name, email, account or category names, or any amounts — only anonymous page views and feature-usage events."
-  - Status text tracks the stored consent exactly, followed by ". You can change this at any time.": undecided → "Not chosen yet", `granted` → "Analytics is on", `denied` → "Analytics is off".
-  - Button label mirrors state: when `granted` → "Turn off analytics" (calls `decline()`); otherwise (denied or undecided) → "Turn on analytics" (calls `accept()`).
-  - Opt-IN (steps 2 & 3): "Turn on analytics" → `accept()` persists `localStorage['zbb.analyticsConsent'] = 'granted'`, the status flips to "Analytics is on" and the button becomes "Turn off analytics". If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the production bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID (e.g. staging) it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
-  - Opt-OUT (step 4): "Turn off analytics" → `decline()` persists `'denied'` (the value is set, NOT cleared to `null`); the status flips to "Analytics is off" and the button becomes "Turn on analytics". The bottom consent banner does NOT reappear (it needs `consent === null`, and this is `'denied'`). Note: the map's aside that this control uses `reset()` is stale — HelpPage wires `accept`/`decline`, so the choice persists rather than reverting to undecided. In-session gtag keeps emitting until the next reload (cross-ref LAND-032).
+  - The card renders only because the flag is on (`available`): on desktop (content 940px and wider) the right-hand column beside the Topics card, sticky while the page scrolls; on a phone the last card. Its title is "Privacy" with the (i) "About privacy" holding the blurb: "We use Google Analytics to understand how AllotJar is used, so we can improve it. We never send your name, email, account or category names, or any amounts: only anonymous page views and feature-usage events. You can change this at any time."
+  - Its one row is a `button role="switch"` named "Google Analytics" (chart tile | name | track) whose `aria-checked` tracks the stored consent exactly: `granted` → `true`; `denied` → `false`; undecided → `false` with the sub-line "Not chosen yet" under the name (the switch's accessible description). No "Status: …" sentence and no Turn on / Turn off buttons.
+  - A click when `aria-checked` is false calls `accept()`; when true, `decline()`.
+  - Opt-IN (steps 2 & 3): `accept()` persists `localStorage['zbb.analyticsConsent'] = 'granted'`, the switch turns on and "Not chosen yet" goes. If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the production bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID (e.g. staging) it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
+  - Opt-OUT (step 4): `decline()` persists `'denied'` (the value is set, NOT cleared to `null`); the switch turns off without a sub-line. The bottom consent banner does NOT reappear (it needs `consent === null`, and this is `'denied'`). The provider's `reset()` is not wired to the UI, so the choice persists rather than reverting to undecided. In-session gtag keeps emitting until the next reload (cross-ref LAND-032).
   - Cross-check: on a default build with the flag off, this whole card is absent (LAND-027) and no consent key is created.
-- **Automated:** No (client/src/pages/HelpPage.test.tsx renders HelpPage with only AuthProvider + MemoryRouter — no AnalyticsProvider — so `useAnalytics()` returns the NOOP context with `available === false` and this card never appears in unit tests; no e2e exercises the opt-in/opt-out status flip)
+- **Automated:** Yes (client/src/pages/HelpPage.privacy.test.tsx — the card only when `available`, the (i) blurb, the switch's three states and which of `accept`/`decline` a click or a key calls; client/e2e/help.spec.ts — the real provider: undecided + banner → accept persists `granted` and the banner goes → Space declines and persists `denied`, the sticky column, and axe with the card; client/e2e/a11y.spec.ts — axe with the banner and the switch, light and dark)
