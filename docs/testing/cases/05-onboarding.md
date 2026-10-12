@@ -423,9 +423,9 @@
 - **Preconditions:** `onbd-member@example.test` created via invite (fresh browser, welcome shown with joined copy per ONBD-005 and skipped); currently inside the inviter's household; no own household yet.
 - **Steps:**
   1. Confirm no checklist is visible (joined household — ONBD-021).
-  2. Go to `/account`, click "Start my own budget" and wait for the full reload landing on `/?started=1`.
+  2. Go to `/account`, click "Start" on the Household card's "Your own budget" row (named "Start my own budget") and wait for the full reload landing on `/?started=1`.
   3. Read the dashboard, greeting, welcome state and checklist.
-  4. (Variant: from a joined-only login, use "Leave household" → "Yes, leave" instead and land on `/?left=1`.)
+  4. (Variant: from a joined-only login, use the Household card's ⋯ → "Leave household" → "Yes, leave" in the dialog instead and land on `/?left=1`.)
 - **Expected:**
   - Step 3: the "started" greeting banner shows; NO welcome dialog re-opens (record persists across the reload — email unchanged); the checklist NOW appears at "0 of 5 done" over the create-month hero — the own household is completely empty: no sample month, no Emergency Fund jar, regardless of whether the INVITER's household was sample-seeded.
   - Step 4 variant: identical empty-own-household landing with the "left that household" greeting — leaving never seeds sample data and never re-triggers the welcome.

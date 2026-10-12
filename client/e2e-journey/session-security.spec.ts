@@ -11,8 +11,9 @@ import { JOURNEY_PASSWORD, register, uniqueEmail, waitForEmailLink } from './hel
  * Deliberately NOT duplicated here:
  *  - session-expiry.spec.ts owns the revoked-tab bounce and the API-driven password change
  *    (device B changes, the browser is the victim). This file drives the change from the
- *    BROWSER's /account card instead (success copy, client apply(), reload survival) with an
- *    API session as the victim — the two specs cover opposite directions of SEC-017/SESS-040.
+ *    BROWSER's /account Change password dialog instead (opened by the Password row's "Change";
+ *    success copy, client apply(), reload survival) with an API session as the victim — the two
+ *    specs cover opposite directions of SEC-017/SESS-040.
  *  - concurrent-refresh.spec.ts owns refresh rotation + the 30s replay grace (SEC-015/016).
  *  - The auth 429 (SEC-005) CANNOT be journey-tested: this harness raises
  *    RateLimiting__AuthPermitLimit to 1000 precisely so serial runs never trip it.
@@ -288,16 +289,22 @@ test('changing the password from the account page keeps this device signed in an
 
   await page.goto('/account')
 
+  // The Password row's "Change" (named "Change password") opens the dialog that holds the form.
+  // While it is open the dialog's own submit shares that name, so the submit is found in it.
+  await page.getByRole('button', { name: 'Change password' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Change password' })
+  await expect(dialog).toBeVisible()
+
   // SEC-010 — the SERVER composition policy is the security boundary, not the client's
   // minLength: an 8+-char all-lowercase password passes every client check, is actually
-  // sent, and comes back 400 with the Identity errors surfaced in the card.
-  await page.getByLabel('Current password').fill(password)
-  await page.getByLabel('New password', { exact: true }).fill('sunflowerpasture')
-  await page.getByLabel('Confirm new password').fill('sunflowerpasture')
+  // sent, and comes back 400 with the Identity errors surfaced in the dialog.
+  await dialog.getByLabel('Current password').fill(password)
+  await dialog.getByLabel('New password', { exact: true }).fill('sunflowerpasture')
+  await dialog.getByLabel('Confirm new password').fill('sunflowerpasture')
   const rejected = page.waitForResponse(
     (r) => r.url().includes('/api/auth/change-password') && r.status() === 400,
   )
-  await page.getByRole('button', { name: 'Change password' }).click()
+  await dialog.getByRole('button', { name: 'Change password' }).click()
   await rejected
   await expect(page.getByRole('alert')).toContainText('at least one digit')
 
@@ -306,21 +313,24 @@ test('changing the password from the account page keeps this device signed in an
   expect((await deviceB.post('/api/auth/refresh')).status()).toBe(200)
   await expect(page).toHaveURL(/\/account$/)
 
-  // SESS-040 / SEC-017 — now the real change, driven through the UI card (session-expiry.
-  // spec.ts covers the API-driven direction). The 200 AuthResponse is applied client-side.
+  // SESS-040 / SEC-017 — now the real change, driven through the UI dialog (still open after the
+  // 400; session-expiry.spec.ts covers the API-driven direction). The 200 AuthResponse is applied
+  // client-side, the dialog closes, and the Password row says so.
   const newPassword = `${JOURNEY_PASSWORD}-uikeep`
-  await page.getByLabel('Current password').fill(password)
-  await page.getByLabel('New password', { exact: true }).fill(newPassword)
-  await page.getByLabel('Confirm new password').fill(newPassword)
-  await page.getByRole('button', { name: 'Change password' }).click()
+  await dialog.getByLabel('Current password').fill(password)
+  await dialog.getByLabel('New password', { exact: true }).fill(newPassword)
+  await dialog.getByLabel('Confirm new password').fill(newPassword)
+  await dialog.getByRole('button', { name: 'Change password' }).click()
   await expect(page.getByText('Your password has been changed.')).toBeVisible()
+  await expect(dialog).toBeHidden()
 
   // SESS-040 — the changing device carries on seamlessly: a hard reload drops the in-memory
   // token and rebuilds the session from the ROTATED cookie (a burned family or a missed
   // apply() would bounce to /login), and in-app navigation keeps working.
   await page.reload()
   await expect(page).toHaveURL(/\/account$/)
-  await expect(page.getByRole('heading', { name: 'Change password' })).toBeVisible()
+  // Still signed in on the account page: the Password row's "Change" (no dialog is open now).
+  await expect(page.getByRole('button', { name: 'Change password' })).toBeVisible()
   await page.getByRole('link', { name: 'Transactions' }).click()
   await expect(page.getByRole('heading', { name: 'Transactions', level: 1 })).toBeVisible()
 

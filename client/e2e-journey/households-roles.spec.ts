@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { JOURNEY_PASSWORD, personAction, personCard, personCards, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
+import { JOURNEY_PASSWORD, personAction, personCard, personCards, register, rowAction, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * People & roles against the live stack (the PPL/ROLE deferred set): the owner-as-member-#1
@@ -131,11 +131,13 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   await robinCard.getByRole('button', { name: 'Cancel edit' }).click()
   await expect(robinCard.getByRole('combobox', { name: 'Access level for Robin' })).toHaveCount(0)
 
-  // PPL-062 / PPL-067: an owner viewing their OWN household gets neither the start-own card
-  // nor the leave card on /account.
+  // PPL-062 / PPL-067: an owner viewing their OWN household gets neither the start-own row
+  // nor Leave household on /account (Leave lives behind the Household card's ⋯, which only a
+  // joined household has). The card is waited for first, so the counts can't pass while it loads.
   await page.goto('/account')
+  await expect(page.getByRole('heading', { name: 'Household', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Start my own budget' })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Leave household' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Household: more actions' })).toHaveCount(0)
 
   // --- Invitee: first sign-in in a fresh browser (consent-gated) ---
   const guestContext = await browser.newContext()
@@ -225,7 +227,7 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   await expect(guest.getByText(/You have read-only access/)).toBeVisible()
   await expect(guest.getByRole('button', { name: 'Add transaction' })).toHaveCount(0)
   await expect(guest.getByText('Tesco')).toBeVisible() // full view parity, zero controls
-  // PPL-070: the Account details card reflects the new access level.
+  // PPL-070: the profile card's access-level chip (Your account) reflects the new access level.
   await guest.goto('/account')
   await expect(guest.getByText('Read-only', { exact: true })).toBeVisible()
 
@@ -254,10 +256,11 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await expect(guest.getByText(/You have limited access/)).toBeVisible()
 
   // PPL-070 + PPL-061 preconditions: a pure invitee's /account offers BOTH the start-own
-  // card (ownsHousehold=false) and the leave card (viewing a joined household).
+  // row (ownsHousehold=false) and Leave household behind the Household card's ⋯ (viewing a
+  // joined household).
   await guest.goto('/account')
   await expect(guest.getByText('Limited', { exact: true })).toBeVisible()
-  await expect(guest.getByRole('button', { name: 'Leave household' })).toBeVisible()
+  await expect(guest.getByRole('button', { name: 'Household: more actions' })).toBeVisible()
 
   // --- PPL-061 / ROLE-033: start their own budget (available regardless of Limited role) ---
   const startOwn = guest.waitForResponse(
@@ -281,10 +284,12 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await expect(personCards(guest)).toHaveCount(1) // the new owner member
   await expect(guest.getByText('Olive')).toHaveCount(0)
 
-  // PPL-062 / PPL-067: now that they own a household (and are viewing it), both cards go.
+  // PPL-062 / PPL-067: now that they own a household (and are viewing it), both go: no start-own
+  // row and no Household ⋯ (Leave household). The card is waited for first.
   await guest.goto('/account')
+  await expect(guest.getByRole('heading', { name: 'Household', exact: true })).toBeVisible()
   await expect(guest.getByRole('button', { name: 'Start my own budget' })).toHaveCount(0)
-  await expect(guest.getByRole('button', { name: 'Leave household' })).toHaveCount(0)
+  await expect(guest.getByRole('button', { name: 'Household: more actions' })).toHaveCount(0)
 
   // --- PPL-057: the account-menu switcher lists both households; switching re-bootstraps ---
   // The households are radio items (menuitemradio), the active one checked.
@@ -304,9 +309,10 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await expect(personCards(guest)).toHaveCount(2)
   await expect(guest.getByText('Olive', { exact: true })).toBeVisible()
 
-  // --- PPL-065 (variant) / ROLE-033: leave the joined household from /account ---
+  // --- PPL-065 (variant) / ROLE-033: leave the joined household from /account (the Household
+  // card's ⋯ → Leave household, which asks first in a dialog) ---
   await guest.goto('/account')
-  await guest.getByRole('button', { name: 'Leave household' }).click()
+  await rowAction(guest, 'Household: more actions', 'Leave household')
   const left = guest.waitForResponse((r) => r.url().endsWith('/households/leave') && r.request().method() === 'POST' && r.ok())
   await guest.getByRole('button', { name: 'Yes, leave' }).click()
   await left

@@ -1,6 +1,6 @@
 # People & Households
 
-**ID prefix:** PPL | **Scope:** The `/people` page (PeoplePage; restyle PR 8: one KPI row, the green `Income` hero and the `Spent` tile, over one card per person, each person's actions behind the card's ⋯, a bottom sheet on a phone) — budget-person CRUD (add a person with no login, rename/income/savings in the editor that opens in the card, archive/remove, incl. a member who has income & attributed transactions), the owner materialized as member #1 (no 0-member state), the solo→shared transition and `isShared` gating flips (Allocation nav appears, member selects enable), the member↔login linkage as the cards show it (the `You`, role and `Invited` chips, the ⋯ note "Signs in as {email}" / "No sign-in", "This is me" and "Invite to sign in" in the ⋯, the access level and "Remove sign-in" in the editor, the "Other sign-ins" card with a ⋯ per sign-in), inviting a person to sign in (link + direct temp-password), plus the `/account` household cards (Start my own budget, Leave this household, Sharing) and the UserMenu household switcher with data isolation between households. | **Out of scope:** the exhaustive **invite/accept validation matrix** — every invite-modal field rule, the `AcceptInvitePage` path/error permutations, token/expiry/reuse semantics — is owned by `17-invites.md` (INV-*). This file keeps the People-page **linkage display** (the chips, the ⋯ note and its "This is me" / "Invite to sign in", the editor's access level and "Remove sign-in", "Other sign-ins"), the People-page-initiated invite *flow* (creating a link / direct login from a person's ⋯) and the household-**landing** consequences of accepting (which household you end up in), each cross-referencing `17-invites.md` for full depth — the two files are designed to overlap, with 17 reciprocally ceding member CRUD, the switcher, start-own and leave back to this file. Deep role/permission enforcement matrices (UI-hidden + server 403/404 for every denied cell) → `25-roles-permissions.md`; auth/session/JWT/refresh, cross-tab logout, ConsentModal internals, `safeInternalPath` unit semantics → `03-session-auth-lifecycle.md`; login/register and the sample-budget opt-in → `02-registration-login.md`; onboarding/welcome/checklist → `05-onboarding.md`; the allocation engine itself (waterfall, splits, commit) → `14-allocation.md`; per-account balances/currency → `12-accounts-reconciliation.md`; transaction attribution mechanics → `10-transactions.md`; dashboard hero/empty-month states → `06-dashboard-budget-view.md`; responsive/dark/a11y sweeps and multi-feature journeys → their dedicated files (`26-ux-states.md`, `20-journeys.md`, `22-concurrency-multiuser.md`).
+**ID prefix:** PPL | **Scope:** The `/people` page (PeoplePage; restyle PR 8: one KPI row, the green `Income` hero and the `Spent` tile, over one card per person, each person's actions behind the card's ⋯, a bottom sheet on a phone) — budget-person CRUD (add a person with no login, rename/income/savings in the editor that opens in the card, archive/remove, incl. a member who has income & attributed transactions), the owner materialized as member #1 (no 0-member state), the solo→shared transition and `isShared` gating flips (Allocation nav appears, member selects enable), the member↔login linkage as the cards show it (the `You`, role and `Invited` chips, the ⋯ note "Signs in as {email}" / "No sign-in", "This is me" and "Invite to sign in" in the ⋯, the access level and "Remove sign-in" in the editor, the "Other sign-ins" card with a ⋯ per sign-in), inviting a person to sign in (link + direct temp-password), plus the `/account` Household card (its sharing row, "Your own budget" with Start, and Leave household behind its ⋯) and the UserMenu household switcher with data isolation between households. | **Out of scope:** the exhaustive **invite/accept validation matrix** — every invite-modal field rule, the `AcceptInvitePage` path/error permutations, token/expiry/reuse semantics — is owned by `17-invites.md` (INV-*). This file keeps the People-page **linkage display** (the chips, the ⋯ note and its "This is me" / "Invite to sign in", the editor's access level and "Remove sign-in", "Other sign-ins"), the People-page-initiated invite *flow* (creating a link / direct login from a person's ⋯) and the household-**landing** consequences of accepting (which household you end up in), each cross-referencing `17-invites.md` for full depth — the two files are designed to overlap, with 17 reciprocally ceding member CRUD, the switcher, start-own and leave back to this file. Deep role/permission enforcement matrices (UI-hidden + server 403/404 for every denied cell) → `25-roles-permissions.md`; auth/session/JWT/refresh, cross-tab logout, ConsentModal internals, `safeInternalPath` unit semantics → `03-session-auth-lifecycle.md`; login/register and the sample-budget opt-in → `02-registration-login.md`; onboarding/welcome/checklist → `05-onboarding.md`; the allocation engine itself (waterfall, splits, commit) → `14-allocation.md`; per-account balances/currency → `12-accounts-reconciliation.md`; transaction attribution mechanics → `10-transactions.md`; dashboard hero/empty-month states → `06-dashboard-budget-view.md`; responsive/dark/a11y sweeps and multi-feature journeys → their dedicated files (`26-ux-states.md`, `20-journeys.md`, `22-concurrency-multiuser.md`).
 
 **Test data setup:** Three reusable fixtures unless a case overrides them. **(A) Solo owner** — login `alex@x.eu` (Owner), household "Your household" with exactly one member ("Alex", income 0), no other logins, no EUR accounts. **(B) Shared household** — Owner `alex@x.eu` + members "Alex" (income 3,000.00, linked to Alex's login) and "Sam" (income 1,000.00, linked to an Active `sam@x.eu` membership, role Admin); an EUR account "Joint". Combined income = 4,000.00; shares 75% / 25%. **(C) Pure invitee** — login `robin@x.eu` created by accepting an invite link into household B; has **no own household** (`ownsHousehold=false`), one Active membership in B. Money is `decimal(18,4)` server-side / integer minor units client-side. Feature flags `HouseholdAllocation` + `HouseholdAccess` default ON. All exact labels/messages below were read from source at repo `<local>\Documents\Projects\ZeroBudget` (`PeoplePage.tsx`, `AccountPage.tsx`, `AcceptInvitePage.tsx`, `AppShell.tsx`, `HouseholdsController.cs`) on 2026-07-15.
 
@@ -316,7 +316,7 @@
 - **Steps:**
   1. Add a 2nd person via "Add person".
   2. Observe the nav immediately (no manual reload).
-- **Expected:** After the add, `refreshHousehold()` refetches `/members`; `isShared` becomes true (`members.length >= 2`); the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) appears without a page reload. AccountPage "Sharing" card copy flips to "shared between 2 people".
+- **Expected:** After the add, `refreshHousehold()` refetches `/members`; `isShared` becomes true (`members.length >= 2`); the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) appears without a page reload. AccountPage's Household card: the sharing row flips from "Just you" to the two people's faces (named "Shared between 2 people") and "Alex & Sam".
 - **Automated:** Partial (`client/src/components/AppNav.test.tsx` asserts Allocation at 2+; the live-flip after add is UI-only)
 
 ### PPL-031 - Archiving back to 1 member flips shared → solo live
@@ -644,19 +644,19 @@
 - **Origin:** PR #158 (start-own for pure invitees) + PR #170 (never seeds samples)
 - **Preconditions:** Fixture C (pure invitee `robin@x.eu`, `ownsHousehold=false`), active in the joined household.
 - **Steps:**
-  1. Open `/account`; the "Your own budget" card is shown (only when `!ownsHousehold`).
-  2. Click "Start my own budget" (busy text "Setting up…").
-- **Expected:** `POST /households/start-own` runs `HouseholdBootstrap.EnsureOwnHouseholdAsync(seedSampleBudget:false)` — creates an Owner membership + the owner as member #1, **no sample figures**, sets `ActiveOwnerId=null`, → `window.location.assign('/?started=1')`. Lands on the dashboard's create-month flow (blank/template) with the greeting "This is your own budget — set up your first month below…". Idempotent: calling again just switches back into the already-owned household. On failure: "Could not start your budget. Please try again."
+  1. Open `/account`; the Household card shows the "Your own budget" row (only when `!ownsHousehold`; its (i) "About your own budget" holds the explanation: "You’re a member of a shared household. Want a budget of your own too? We’ll create it …"). It doesn't wait for the household's people to load.
+  2. Click its "Start" (named "Start my own budget"; busy text "Setting up…").
+- **Expected:** `POST /households/start-own` runs `HouseholdBootstrap.EnsureOwnHouseholdAsync(seedSampleBudget:false)` — creates an Owner membership + the owner as member #1, **no sample figures**, sets `ActiveOwnerId=null`, → `window.location.assign('/?started=1')`. Lands on the dashboard's create-month flow (blank/template) with the greeting "This is your own budget — set up your first month below…". Idempotent: calling again just switches back into the already-owned household. On failure: "Could not start your budget. Please try again." under the row.
 - **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`; `tests/AllotJar.Application.Tests/Application/HouseholdBootstrapTests.cs`)
 
-### PPL-062 - "Your own budget" card hidden for a login that already owns a household
+### PPL-062 - "Your own budget" row hidden for a login that already owns a household
 - **Priority:** P1
 - **Type:** Negative
 - **Preconditions:** Owner `alex@x.eu` (owns "Your household").
 - **Steps:**
   1. Open `/account`.
-- **Expected:** No "Your own budget" / "Start my own budget" card (gated on `!ownsHousehold` where `ownsHousehold = households.some(h => h.isOwn)`). An owner also never sees the "Leave this household" card while viewing their own household.
-- **Automated:** Yes (`client/src/pages/AccountPage.test.tsx` — owner never sees start-own/leave)
+- **Expected:** No "Your own budget" row / "Start my own budget" button (gated on `!ownsHousehold` where `ownsHousehold = households.some(h => h.isOwn)`). An owner also never sees Leave household (the Household card has no ⋯) while viewing their own household.
+- **Automated:** Yes (`client/src/pages/AccountPage.test.tsx` — owner never sees start-own or the Household ⋯)
 
 ### PPL-063 - Newly started own household lands over-budgeted (jars), not "balanced"
 - **Priority:** P2
@@ -675,7 +675,7 @@
 - **Preconditions:** Fixture C (pure invitee, only membership is in B). The owner of B **removes** (revokes) Robin's login (not Robin leaving).
 - **Steps:**
   1. As Robin, after the revoke, load the app and open `/account`.
-- **Expected:** Middleware fallback makes Robin Owner-of-self, but `HouseholdBootstrap` never ran — no owner member, no months (violates the no-0-member invariant). `/auth/me` synthesizes a household entry with `isOwn:true`, so `ownsHousehold=true` and the "Start my own budget" card does NOT appear — Robin can only build up manually from an empty dashboard/People page. Distinct from the leave flow (PPL-065), which materializes the household properly. File as a defect.
+- **Expected:** Middleware fallback makes Robin Owner-of-self, but `HouseholdBootstrap` never ran — no owner member, no months (violates the no-0-member invariant). `/auth/me` synthesizes a household entry with `isOwn:true`, so `ownsHousehold=true` and the "Your own budget" row does NOT appear — Robin can only build up manually from an empty dashboard/People page. Distinct from the leave flow (PPL-065), which materializes the household properly. File as a defect.
 - **Automated:** No
 
 ---
@@ -688,60 +688,60 @@
 - **Origin:** PR #158 (self-service leave) + PR #170 (defensive bootstrap never seeds samples)
 - **Preconditions:** Fixture C (pure invitee) active in joined household B.
 - **Steps:**
-  1. Open `/account`; the "Leave this household" card is shown (only when the active household is joined, `!isOwn`). Copy: "Remove your access to {label}… the owner isn't needed to do this. You can be invited back anytime."
-  2. Click "Leave household" → "Are you sure?" appears → click "Yes, leave" (busy "Leaving…").
+  1. Open `/account`; the Household card has a ⋯ ("Household: more actions"; a bottom sheet titled "{label}’s household" on a phone) holding "Leave household" (only when the active household is joined, `!isOwn`).
+  2. Choose "Leave household" → the Leave dialog asks "Leave {label}’s household?" ("Leave this household?" when the owner has no name, so the server labels it plainly "Household"; on a phone the ⋯ sheet's title is "{label}’s household" or "This household"): "You’ll no longer see its budget, and the owner isn’t needed to do this. You can be invited back anytime." (plus the private-accounts warning when there are any) → click "Yes, leave" (busy "Leaving…").
 - **Expected:** `POST /households/leave {ownerId:<B>}` → hard-deletes Robin's membership, then idempotently materializes Robin's OWN household (membership + owner member, **no samples**), resets `ActiveOwnerId=null`, → `window.location.assign('/?left=1')`. Lands on the create-month flow with greeting "You've left that household — you're viewing your own budget now. Nothing was deleted; you can be invited back anytime." Robin never strands in an empty un-seeded household.
-- **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`; `client/e2e-journey/invite.spec.ts` covers leave→own-without-samples)
+- **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`; `client/e2e/account-settings.spec.ts`; `client/e2e-journey/invite.spec.ts` covers leave→own-without-samples)
 
-### PPL-066 - Leave: two-step confirm, Cancel aborts
+### PPL-066 - Leave: the dialog asks first, Cancel aborts
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Fixture C active in B; "Leave this household" card shown.
+- **Preconditions:** Fixture C active in B; the Household card's ⋯ shown.
 - **Steps:**
-  1. Click "Leave household" → "Are you sure?" + "Yes, leave" + "Cancel".
-  2. Click "Cancel".
-- **Expected:** No `POST /households/leave` is sent; the card returns to the single "Leave household" button; the user stays in B.
+  1. ⋯ → "Leave household" → the Leave dialog: "Leave {label}’s household?" with "Yes, leave" and "Cancel".
+  2. Click "Cancel" (or the ✕ / grab handle, Escape, the backdrop).
+- **Expected:** No `POST /households/leave` is sent; the dialog closes and the focus returns to the ⋯; the user stays in B. While "Leaving…", nothing closes the dialog.
 - **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`)
 
-### PPL-067 - Leave card hidden while viewing your own household
+### PPL-067 - Leave household hidden while viewing your own household
 - **Priority:** P1
 - **Type:** Negative
 - **Preconditions:** Owner `alex@x.eu` viewing "Your household".
 - **Steps:**
   1. Open `/account`.
-- **Expected:** No "Leave this household" card (shown only when `activeHousehold && !activeHousehold.isOwn`). Guards: `POST /households/leave` with `ownerId==userId` → 400 "You can't leave your own household."; with no Active membership → 404 "You don't have access to that household."; on the Owner-role row → 400 "The owner can't leave their own household."
+- **Expected:** No Household ⋯ and so no "Leave household" (shown only when `activeHousehold && !activeHousehold.isOwn`). Guards: `POST /households/leave` with `ownerId==userId` → 400 "You can't leave your own household."; with no Active membership → 404 "You don't have access to that household."; on the Owner-role row → 400 "The owner can't leave their own household."
 - **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`; controller guards not unit-tested)
 
 ### PPL-068 - Leaving a joined household you are NOT currently viewing keeps your view
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** A login active in "Own", also a member of joined B; the Leave card only targets the ACTIVE household.
+- **Preconditions:** A login active in "Own", also a member of joined B; Leave household only targets the ACTIVE household.
 - **Steps:**
-  1. While active in "Own", note the Leave card is absent (own household is active) — so leaving B from `/account` is not offered here.
-- **Expected:** The `/account` Leave card acts on the ACTIVE household only (`activeHousehold.ownerId`); to leave B the user must switch to B first. Confirms the card never lets you leave a background household by accident. (If active in B and it is left, `ActiveOwnerId` resets to null / own.)
+  1. While active in "Own", note the Household card has no ⋯ (own household is active) — so leaving B from `/account` is not offered here.
+- **Expected:** `/account`'s Leave household acts on the ACTIVE household only (`activeHousehold.ownerId`); to leave B the user must switch to B first. Confirms it never lets you leave a background household by accident. (If active in B and it is left, `ActiveOwnerId` resets to null / own.)
 - **Automated:** No
 
 ---
 
-## Sharing card, roles display & feature-flag variants
+## Sharing row, roles display & feature-flag variants
 
-### PPL-069 - Sharing card copy: solo vs shared
+### PPL-069 - The Household card's sharing row: solo vs shared
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Fixture A (solo) then Fixture B (shared).
 - **Steps:**
   1. Open `/account` solo; then shared.
-- **Expected:** Solo: "You're budgeting on your own…" + a "Share this budget" button → `/people`. Shared: "This budget is shared between 2 people. Manage their incomes, savings, sign-ins and access on the People page." + a "Manage people →" link → `/people`. The card is hidden while `householdLoading` (never flashes the wrong state). "1 person" is singularized correctly.
+- **Expected:** Solo: "Just you" with "You're budgeting on your own…" behind its (i) ("About sharing") + an outline "Share this budget" button → `/people`. Shared: the people's faces (named "Shared between 2 people") and names ("Alex & Sam"); the whole row is one link, "Manage people", → `/people`. While `householdLoading` a quiet placeholder row (aria-hidden) holds its place (never flashes the wrong state; the rows under it don't move).
 - **Automated:** Yes (`client/src/pages/AccountPage.test.tsx`)
 
-### PPL-070 - Access-level display on the Account details card
+### PPL-070 - Access-level display on the Account settings profile
 - **Priority:** P3
 - **Type:** Happy
 - **Preconditions:** Fixtures for Owner, Admin, Limited, Read-only.
 - **Steps:**
   1. Open `/account` as each role.
-- **Expected:** The details card "Access level" shows `HOUSEHOLD_ROLE_LABELS[role] ?? 'Member'` → Owner / Admin / Limited / Read-only. The AppShell also renders a role banner for Limited ("You have limited access …") and Read-only ("You have read-only access …"). Full role enforcement → `25-roles-permissions.md`.
-- **Automated:** Partial (`client/src/pages/RoleGating.test.tsx` — banner text; Admin role not exercised there)
+- **Expected:** The chip beside the name shows `HOUSEHOLD_ROLE_LABELS[role] ?? 'Member'` → Owner / Admin / Limited / Read-only (heard as "Access level: …"), with what the role allows behind its (i) ("About access level"; none for "Member"). The AppShell also renders a role banner for Limited ("You have limited access …") and Read-only ("You have read-only access …"). Full role enforcement → `25-roles-permissions.md`.
+- **Automated:** Partial (`client/src/pages/RoleGating.test.tsx` — banner text; Admin role not exercised there; `client/src/pages/AccountPage.test.tsx` — each role's chip and (i))
 
 ### PPL-071 - HouseholdAccess flag OFF: People renders but hides sign-in controls
 - **Priority:** P2
@@ -817,7 +817,7 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** write leg — `ArchiveHouseholdMemberCommand(Guid Id, bool Archived = true)` (`Household/Commands/ArchiveHouseholdMember/ArchiveHouseholdMemberCommand.cs:7`) is a **toggle**, so `Archived:false` RESTORES. `ArchiveHouseholdMemberCommandHandler.cs:36` does `member.IsArchived = request.Archived;` then (lines 39-41) recomputes `totalActiveNet` over `OwnerId == userId && !IsArchived` — which now re-includes the restored member — and returns `member.ToDto(totalActiveNet)`. `MembersController.cs:79-82` maps `PUT /api/members/{id}/archive` → the command with `request.Archived` (`ArchiveMemberRequest(bool Archived = true)`, line 93). Every existing case (PPL-022/023/029/031 archive; PPL-025 `includeArchived=true` read) only ever sets `Archived:true` or reads archived members; PPL-024 (16-people-households.md:250) documents restore as "requires `PUT /members/{id}/archive {archived:false}` via API" but never runs it. There is **no restore control in the People UI** (PPL-024), so this leg is only reachable via a crafted request, mirroring the raw-API style of PPL-075/076. Without it a broken restore (e.g. `IsArchived` not cleared, or the active-pool income not re-summed) is invisible to a tester following the catalog.
-- **Preconditions:** Fixture B with **Sam already archived** (the PPL-024 starting state): the household is currently **solo** — default `GET /api/members` returns only Alex (income 3,000.00, share 100%), Combined income hero `€3,000.00`, Allocation nav absent, AccountPage "Sharing" card reads solo. Note Sam's `lizaId` (recoverable via `GET /api/members?includeArchived=true`, PPL-025). Signed in as owner `alex@x.eu`.
+- **Preconditions:** Fixture B with **Sam already archived** (the PPL-024 starting state): the household is currently **solo** — default `GET /api/members` returns only Alex (income 3,000.00, share 100%), Combined income hero `€3,000.00`, Allocation nav absent, AccountPage's Household card shows the solo sharing row "Just you". Note Sam's `lizaId` (recoverable via `GET /api/members?includeArchived=true`, PPL-025). Signed in as owner `alex@x.eu`.
 - **Steps:**
   1. Confirm the starting solo state on `/people`: only Alex's card, hero `€3,000.00`, no "Allocation" nav item (there is no restore toggle in the UI — PPL-024).
   2. Send `PUT /api/members/{lizaId}/archive {"archived":false}` (raw API — no People-page control exists for this).
@@ -825,7 +825,7 @@
 - **Expected:** Step 2 → **200** with Sam's DTO where `isArchived:false` and `incomeSharePct` recomputed against the restored active pool: `1000/(3000+1000) = 0.25` (the handler's post-save `totalActiveNet` now sums 4,000.00, NOT the pre-restore 3,000). Then:
   - **Default list re-includes her:** a follow-up `GET /api/members` (no `includeArchived` → `false`; `MembersController.cs:35` + `GetHouseholdMembersQueryHandler.cs:29`) now returns **both** Alex and Sam — the restored member re-appears in the exact list the People UI always requests, so on reload Sam's card is back in "Your household".
   - **Income & shares recompute to include her again:** Combined income hero returns to `€4,000.00`; Alex's share recomputes back to `75%` and Sam's to `25%` (`GetHouseholdMembersQueryHandler.cs:36` sums `totalActiveNet` over active members = 4,000, so both are divided by the restored pool — the exact reverse of the archive in PPL-022/031, not a stale 3,000 divisor).
-  - **Shared/solo gating flips back:** `refreshHousehold()` sets `members.length` back to 2 → `isShared` true (`HouseholdContext.tsx:97`, `SHARED_THRESHOLD = 2`) → the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) reappears and the `/allocation` solo guard lifts; AccountPage "Sharing" card flips back to "shared between 2 people". This is the precise inverse of PPL-031 (archive-to-1 → shared→solo).
+  - **Shared/solo gating flips back:** `refreshHousehold()` sets `members.length` back to 2 → `isShared` true (`HouseholdContext.tsx:97`, `SHARED_THRESHOLD = 2`) → the "Allocation" nav item (`data-tour="nav-allocation"`, → `/allocation`) reappears and the `/allocation` solo guard lifts; AccountPage's Household card's sharing row flips back from "Just you" to the two people's faces (named "Shared between 2 people") and "Alex & Sam". This is the precise inverse of PPL-031 (archive-to-1 → shared→solo).
   - **Guards:** the restore obeys the same owner scoping as archive — `PUT …/archive` for a member whose `OwnerId != userId` → **403** (`ArchiveHouseholdMemberCommandHandler.cs:31-34`); an unknown id → **404 "Household member {id} was not found."** No sample/undo side effects; nothing was ever deleted by the earlier archive (PPL-023), so the restored member carries her original income and attributed transactions intact. A broken restore leg (IsArchived left true, or income not re-summed into the active pool) would leave Sam absent from the default list, the hero stuck at `€3,000.00`, and the Allocation nav hidden — all caught here.
 - **Automated:** No
 

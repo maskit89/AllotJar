@@ -391,9 +391,9 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Negative
 - **Preconditions:** Olivia is Owner of H1; H1 is her active household.
 - **Steps:**
-  1. As Olivia, on `/account`, confirm the "Leave this household" card is absent (it renders only when the active household is one she *joined*, `!isOwn`).
+  1. As Olivia, on `/account`, confirm Leave household is absent: the Household card has no ⋯ (it renders only when the active household is one she *joined*, `!isOwn`).
   2. As Olivia, direct-call `POST /households/leave {ownerId: <H1 owner id = her own id>}`.
-- **Expected:** UI — no Leave card for an owner viewing their own household. API — **400** `You can't leave your own household.` (and the belt-and-braces `The owner can't leave their own household.` on the Owner-role row). This is a *business-rule* refusal (400), not the role-pipeline 403 — `/households/leave` is `[Authorize]`-only with no role gate; every role may call it, but the owner-of-active-household is refused on the merits.
+- **Expected:** UI — no Leave household (no Household ⋯) for an owner viewing their own household. API — **400** `You can't leave your own household.` (and the belt-and-braces `The owner can't leave their own household.` on the Owner-role row). This is a *business-rule* refusal (400), not the role-pipeline 403 — `/households/leave` is `[Authorize]`-only with no role gate; every role may call it, but the owner-of-active-household is refused on the merits.
 - **Automated:** No (journey `invite.spec.ts` exercises a *joined* member leaving, not the owner-refusal path)
 
 ### ROLE-031 - "Exactly one Owner" holds across the full household lifecycle
@@ -417,11 +417,11 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Happy
 - **Preconditions:** Rhea signed in to H1 as Read-only.
 - **Steps:**
-  1. As Rhea on `/account`, use "Change password" (current + new + confirm).
-  2. Save "Preferences" (name, currency, number format).
+  1. As Rhea on `/account`, use "Change" on the Password row (the "Change password" dialog: current + new + confirm).
+  2. Save "Preferences" (name via the pencil, currency, number format).
   3. If `needsConsent`, click "I agree" in the ConsentModal.
 - **Expected:** All succeed (200/204). These are `[Authorize]`-only `/auth/*` endpoints, not MediatR household commands, so the role pipeline never touches them — a Read-only member fully controls their own login, display name and money-format preferences. Role gating governs *household* data, never *self* settings. (The currency part of the save is the login's own household's budget currency: it is refused once that household holds an account, month or transaction — PREF-042 — whatever the role; re-sending the same code is fine.)
-- **Automated:** Partial (`AccountPage.test.tsx` covers change-password + preferences; not asserted under a Read-only role specifically)
+- **Automated:** Partial (`AccountPage.test.tsx` covers change-password + preferences; `AccountPage.catalog.test.tsx` PREF-033 asserts the pencil, Save and "Change" enabled and a preferences save under a Read-only role)
 
 ### ROLE-033 - Switch / start-own / leave household are available to every role (not role-gated)
 - **Priority:** P1
@@ -429,10 +429,10 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Preconditions:** Rhea (Read-only in H1) who also belongs to another household, or is a pure invitee.
 - **Steps:**
   1. As Rhea, use the account-menu "Household" switcher to switch to another household.
-  2. If Rhea has no own budget, on `/account` use "Start my own budget".
-  3. As Rhea (a joined member), use "Leave household" → "Yes, leave".
+  2. If Rhea has no own budget, on `/account` use "Start" on the Household card's "Your own budget" row (named "Start my own budget").
+  3. As Rhea (a joined member), use the Household card's ⋯ → "Leave household" → "Yes, leave".
 - **Expected:** All succeed regardless of Rhea's Read-only role in H1. `/households/switch|start-own|leave` are `[Authorize]`-only controller actions with no role check — a Read-only member is not a prisoner: they can leave, start their own (Owner-of-self) budget, or switch away. `start-own`/`leave` never seed sample figures (PR #170). In her own new household she is Owner.
-- **Automated:** Partial (journey `invite.spec.ts` — a joined member leaves via `Leave household`/`Yes, leave`; that member happened to be a fresh accepter, role-agnostic)
+- **Automated:** Partial (journey `invite.spec.ts` — a joined member leaves via the Household ⋯ `Leave household`/`Yes, leave`; that member happened to be a fresh accepter, role-agnostic; journey `households-roles.spec.ts` — a Limited member starts their own budget and later leaves)
 
 ### ROLE-034 - Reports are viewable by every role incl. Read-only (owner-scoped, no role gate)
 - **Priority:** P2

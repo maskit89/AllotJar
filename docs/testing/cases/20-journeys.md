@@ -93,7 +93,7 @@
   - CP2-CP3: after the add, `HouseholdContext.refresh()` makes `isShared` true → the **Allocation** nav item appears live without reload; combined-income hero updates.
   - CP5-CP6: the profile saves; the Steps card lists the four steps (Cover shared costs → Fund the jars → Pocket money → Split remainder to savings) with a By-income cost split; the KPI tiles "Shared spending" + "To savings" reconcile to the pool ("Income to allocate") by construction.
   - CP7: the link modal returns the raw token **once**; the pending membership shows the amber **"Invited"** badge on Sam's row; re-opening cannot retrieve the token again.
-  - CP8-CP9: acceptance creates Sam's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Sam's active household to Alex's (`SetActiveHouseholdAsync`). Sam lands via full reload on `/?joined=1` showing the **"You've joined this household…"** greeting and Alex's shared budget (Remaining-to-budget matches Alex's), NOT an own empty budget (PR #156). Sam is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the "Your own budget" card.
+  - CP8-CP9: acceptance creates Sam's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Sam's active household to Alex's (`SetActiveHouseholdAsync`). Sam lands via full reload on `/?joined=1` showing the **"You've joined this household…"** greeting and Alex's shared budget (Remaining-to-budget matches Alex's), NOT an own empty budget (PR #156). Sam is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the Household card's "Your own budget" row.
   - CP10: Sam (Admin) can add/attribute a transaction; the actual lands on the shared line the moment it's read (tx-derived).
   - CP11: Sam's spending appears attributed to her member row; income shares compute over active members (Alex 60% / Sam 40% by 3000/2000; rounded display may not sum to exactly 100%).
   - CP12: Allocate writes one `Transfer` per member with `Residual > 0` and a valid savings account (`BankReference = "alloc:{y}-{m}:{memberId}"`), moving money Joint → each personal savings; reconciliation on `/accounts` now shows the Joint float against any jars it backs. Re-running Allocate keeps unchanged transfers, never doubles.
@@ -112,7 +112,7 @@
   6. Observe onboarding / dashboard.
   7. As Robin, on `/transactions` record a transaction and mark a bill **"Paid"** on `/`.
   8. As Robin, attempt to add a budget group (**"+ Add group"**) and to open `/accounts` add-account.
-  9. As Robin, go to `/account` and use **"Change password"** to replace the temp password.
+  9. As Robin, go to `/account` and use **"Change"** on the Password row (the **"Change password"** dialog) to replace the temp password.
 - **Expected:**
   - CP1-CP2: a login is created with membership Active, role Limited, `MustChangePassword = true` and `ConsentedUtc = null`; the success box reads "Login created … On their first sign-in they choose their own password…".
   - CP3-CP4: Robin signs in and is first blocked by **"Choose your own password"** (S-P2-3; every other signed-in call is 403, change-password and consent included, until the emailed link is used), then by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
@@ -130,11 +130,11 @@
   1. Open the `/accept-invite?code=…` link signed-out. Complete the anonymous form ("Your name (optional)", "Password", terms), **"Accept invite"**.
   2. Confirm the landing household and greeting.
   3. Open the account menu — check whether a household **switcher** section exists yet.
-  4. Go to `/account`; on the **"Your own budget"** card click **"Start my own budget"**.
+  4. Go to `/account`; on the Household card's **"Your own budget"** row click **"Start"** (named **"Start my own budget"**).
   5. Observe the landing after start-own.
   6. Open the account menu again; switch back to the shared household via the **"Household"** section (✓ marks active).
   7. Observe the reload + greeting.
-  8. Return to `/account`; on the **"Leave this household"** card click **"Leave household"** → **"Yes, leave"**.
+  8. Return to `/account`; open the Household card's **⋯** → **"Leave household"** → **"Yes, leave"** in the dialog.
   9. Observe the final landing.
 - **Expected:**
   - CP1-CP2: new login created with consent stamped; server sets active household to Alex's; full reload to `/?joined=1` with the joined greeting; the invitee sees Alex's shared budget. `ownsHousehold=false` at this point.
@@ -232,7 +232,7 @@
 - **Origin:** PR #169 (dead-session prompt) / PR #171 (refresh grace) — change-password revokes all refresh tokens and rotates the security stamp; other devices must recover cleanly, the acting device must not.
 - **Preconditions:** One user signed in on two independent browser contexts, **device A** (where the change happens) and **device B**, both with live sessions. B is parked on `/transactions`.
 - **Steps:**
-  1. On device A, `/account` → **"Change password"**: enter current, a new random password, confirm, submit.
+  1. On device A, `/account` → **"Change"** on the Password row → the **"Change password"** dialog: enter current, a new random password, confirm, submit.
   2. On device A, continue using the app (navigate, edit a planned amount).
   3. On device B, trigger any authenticated action/navigation (e.g. go to `/accounts`).
   4. On device B, observe the redirect and banner.
@@ -321,7 +321,7 @@
 - **Origin:** PR #170 (start-own/leave never seed samples) / PR #172 (empty ≠ balanced; jar-owning blank month over-budgeted) / PR #156 (accept lands you IN the household)
 - **Preconditions:** "Jordan" is an Admin member of Alex's shared household via an accepted link (pure invitee, `ownsHousehold=false`). Jordan has attributed transactions in that household. Jordan owns no jars yet.
 - **Steps:**
-  1. As Jordan, `/account` → **"Leave this household"** → **"Leave household"** → **"Yes, leave"**.
+  1. As Jordan, `/account` → the Household card's **⋯** → **"Leave household"** → **"Yes, leave"** in the dialog.
   2. Observe the landing.
   3. Confirm no sample figures were seeded.
   4. On the create-month hero, **"Start a blank budget"** for a jar-less own household.
