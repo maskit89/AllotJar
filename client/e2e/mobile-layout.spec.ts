@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { AUTHED_ROUTES, authedSetup } from './mocks'
+import { AUTHED_ROUTES, authedSetup, mockApi } from './mocks'
 
 /**
  * Mobile layout guard. At a phone-width viewport, no page may scroll sideways:
@@ -219,4 +219,73 @@ test('the accounts jar captions and their hints fit a 320px phone, a shortfall i
     await hint.blur()
     await expect(tip).toHaveCount(0)
   }
+})
+
+// The signed-out pages (restyle PR 9): the green band and the sheet never scroll sideways, and on a
+// phone the whole Sign in form (both fields and the button; Google's button sits under it when
+// configured) is on the first screen without scrolling.
+test.describe('signed-out pages on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 } })
+
+  for (const path of ['/login', '/login?register=1', '/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x']) {
+    test(`${path} does not overflow horizontally`, async ({ page }) => {
+      await page.route('**/api/**', mockApi)
+      await page.goto(path)
+      await page.getByRole('heading', { level: 1 }).waitFor()
+      await assertNoHorizontalOverflow(page, path)
+    })
+  }
+
+  test('the Sign in form fits the first screen, the expired notice included', async ({ page }) => {
+    await page.route('**/api/**', mockApi)
+    await page.goto('/login?reason=expired')
+    await page.getByText('Your session has expired').waitFor()
+    for (const el of [
+      page.getByRole('group', { name: 'Sign in or create an account' }),
+      page.getByLabel('Email'),
+      page.getByLabel('Password'),
+      page.locator('button[type="submit"]'),
+    ]) {
+      const box = await el.boundingBox()
+      expect(box, 'on the page').not.toBeNull()
+      expect(box!.y + box!.height).toBeLessThanOrEqual(844)
+    }
+    expect(await page.evaluate(() => window.scrollY)).toBe(0)
+  })
+
+  test('the band is one height everywhere: the switch and the line stay put across modes and pages', async ({ page }) => {
+    await page.route('**/api/**', mockApi)
+    await page.goto('/login')
+    const line = page.getByRole('banner').getByText(/^Give every \w+ a job\.$/)
+    const sw = page.getByRole('group', { name: 'Sign in or create an account' })
+    await sw.waitFor()
+    const lineY = (await line.boundingBox())!.y
+    const swY = (await sw.boundingBox())!.y
+
+    await sw.getByRole('button', { name: 'Create account', exact: true }).click()
+    await page.getByLabel('First name').waitFor()
+    expect((await sw.boundingBox())!.y, 'the switch under the finger').toBe(swY)
+    expect((await line.boundingBox())!.y).toBe(lineY)
+
+    for (const path of ['/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x', '/login?reason=expired']) {
+      await page.goto(path)
+      await page.getByRole('heading', { level: 1 }).waitFor()
+      expect((await line.boundingBox())!.y, path).toBe(lineY)
+    }
+  })
+})
+
+// The desktop frame keeps the approved room at the top (no viewport-based drop), so Create account,
+// the tallest card, fits the reference 1440x900 screen without scrolling.
+test.describe('signed-out pages on a desktop', () => {
+  test.use({ viewport: { width: 1440, height: 900 } })
+
+  test('Create account fits 1440x900 without scrolling', async ({ page }) => {
+    await page.route('**/api/**', mockApi)
+    await page.goto('/login?register=1')
+    await page.getByLabel('First name').waitFor()
+    expect(await page.evaluate(() => document.documentElement.scrollHeight)).toBeLessThanOrEqual(900)
+    const submit = await page.locator('button[type="submit"]').boundingBox()
+    expect(submit!.y + submit!.height).toBeLessThanOrEqual(900)
+  })
 })

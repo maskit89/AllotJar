@@ -157,6 +157,12 @@ export function PageHeader({
  * as wide as its options, the selected one raised off-white instead of filled green. An option may
  * carry a `badge` (a count drawn after its label, hidden from assistive tech so the option keeps its
  * name) and a `description` (what the badge says, in words, as the button's description).
+ *
+ * `fill` (quiet only; the sign-in card's "Sign in | Create account" switch, restyle PR 9): the group
+ * takes the full width as a pill, its options share it equally and stand 36px tall (40px on a phone).
+ * The selected pill also carries a hairline edge in the fields' 3:1 border colour (its off-white fill
+ * alone barely differs from the track), and a real border in forced-colours mode, where fills and
+ * shadows are dropped. Left out, the quiet control is unchanged.
  */
 export function SegmentedControl<T extends string>({
   value,
@@ -164,12 +170,14 @@ export function SegmentedControl<T extends string>({
   options,
   ariaLabel,
   variant = 'solid',
+  fill = false,
 }: {
   value: T
   onChange: (value: T) => void
   options: { value: T; label: string; badge?: ReactNode; description?: string }[]
   ariaLabel?: string
   variant?: 'solid' | 'quiet'
+  fill?: boolean
 }) {
   const baseId = useId()
   if (variant === 'quiet') {
@@ -177,7 +185,11 @@ export function SegmentedControl<T extends string>({
       <div
         role="group"
         aria-label={ariaLabel}
-        className="inline-flex shrink-0 gap-0.5 rounded-[11px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_var(--color-line)]"
+        className={
+          fill
+            ? 'grid w-full auto-cols-fr grid-flow-col gap-0.5 rounded-full bg-surface-2 p-1 shadow-[inset_0_0_0_1px_var(--color-line)] dark:bg-background dark:shadow-[inset_0_0_0_1px_var(--color-border)]'
+            : 'inline-flex shrink-0 gap-0.5 rounded-[11px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_var(--color-line)]'
+        }
       >
         {options.map((o, i) => {
           const selected = o.value === value
@@ -190,9 +202,15 @@ export function SegmentedControl<T extends string>({
                 aria-describedby={descId}
                 onClick={() => onChange(o.value)}
                 // The ::after reaches over the group's 3px padding, so a phone's 38px option is a 44px target.
-                className={`relative inline-flex h-8 items-center gap-1.5 rounded-lg px-3.5 text-sm font-semibold transition after:absolute after:inset-x-0 after:-inset-y-[3px] after:content-[''] max-[699.98px]:h-[38px] ${
+                className={`relative inline-flex items-center gap-1.5 px-3.5 text-sm font-semibold transition after:absolute after:inset-x-0 after:content-[''] ${
+                  fill
+                    ? 'h-9 justify-center rounded-full after:-inset-y-1 max-[699.98px]:h-10'
+                    : 'h-8 rounded-lg after:-inset-y-[3px] max-[699.98px]:h-[38px]'
+                } ${
                   selected
-                    ? 'bg-surface text-slate-900 shadow-[var(--shadow-frame)] dark:bg-popover dark:shadow-[0_1px_2px_rgb(0_0_0/0.35),inset_0_1px_0_rgb(255_255_255/0.05)]'
+                    ? fill
+                      ? 'seg-fill-on bg-surface text-slate-900 forced-colors:border-2 forced-colors:border-[CanvasText] dark:bg-popover'
+                      : 'bg-surface text-slate-900 shadow-[var(--shadow-frame)] dark:bg-popover dark:shadow-[0_1px_2px_rgb(0_0_0/0.35),inset_0_1px_0_rgb(255_255_255/0.05)]'
                     : 'text-slate-500 hover:text-slate-900'
                 }`}
               >

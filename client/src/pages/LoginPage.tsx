@@ -1,13 +1,14 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { ChevronDown } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { GoogleSignInButton } from '../components/GoogleSignInButton'
 import axios from 'axios'
-import { JarLogo } from '../components/Jar'
-import { StagingBanner } from '../components/StagingBanner'
-import { ThemeToggle } from '../components/ThemeToggle'
-import { Button, Card, Input, SegmentedControl, Select } from '../components/ui'
-import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS, currencyNoun, detectLocaleDefaults } from '../lib/money'
+import { AuthFrame, AuthTitle } from '../components/AuthFrame'
+import { useSubmitFocusReturn } from '../lib/useSubmitFocusReturn'
+import { InfoHint } from '../components/InfoHint'
+import { Button, Input, SegmentedControl, Select } from '../components/ui'
+import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS, detectLocaleDefaults } from '../lib/money'
 import { IS_STAGING } from '../lib/env'
 import { safeInternalPath } from '../lib/returnUrl'
 import { EVENTS, track } from '../analytics'
@@ -46,6 +47,8 @@ export function LoginPage() {
   // The "or" divider appears only once the Google button has actually rendered, so environments
   // without a client id (or with the script blocked) show the unchanged password-only card.
   const [googleReady, setGoogleReady] = useState(false)
+  // The submit is disabled while busy, which drops keyboard focus; it comes back when an error shows.
+  const formRef = useSubmitFocusReturn(busy)
 
   async function onGoogleCredential(credential: string) {
     setError(null)
@@ -128,69 +131,67 @@ export function LoginPage() {
 
   const registering = mode === 'register'
 
+  function chooseDifferentEmail() {
+    setClaimPending(false)
+    // The form is back on the next render: put the caret where the new address goes.
+    requestAnimationFrame(() => document.getElementById('email')?.focus())
+  }
+
   return (
-    <>
-      <StagingBanner />
-      <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
-      <div className="absolute right-4 top-4">
-        <ThemeToggle />
-      </div>
-      <div className="w-full max-w-sm">
-        <div className="mb-6 flex flex-col items-center text-center">
-          <JarLogo lg />
-          <h1 className="mt-3 text-[26px] font-extrabold tracking-[-0.035em] text-slate-900">
-            Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
-          </h1>
-          <p className="mt-1 text-sm text-slate-500">Zero-based budgeting, in your currency.</p>
+    <AuthFrame srTitle={registering ? 'Create your AllotJar account' : 'Sign in to AllotJar'} dense={registering}>
+      {wasExpired && mode === 'login' && (
+        // One quiet line; why it happened is behind the (i) (the line's own words stay the status).
+        <div className="auth-note auth-note-line">
+          <p role="status">Your session has expired.</p>
+          <InfoHint label="Why you were signed out" buttonClassName="auth-i" align="end">
+            Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where
+            you left off.
+          </InfoHint>
         </div>
-
-        <Card className="p-8">
-          {wasExpired && mode === 'login' && (
-            <p
-              role="status"
-              className="mb-6 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
-            >
-              Your session has expired, so we signed you out to keep your budget safe. Sign back
-              in to pick up where you left off.
-            </p>
-          )}
-          {claimPending ? (
-            <div role="status" className="space-y-4 text-sm text-slate-600">
-              <h2 className="text-base font-semibold text-slate-900">Check your inbox</h2>
-              <p>
-                An account with <span className="font-medium text-slate-900">{email}</span> already
-                exists but hasn't been confirmed. We've emailed a link to that address so its owner
-                can confirm it and set a password.
-              </p>
-              <p>If that's you, follow the link to take it over. If not, you can ignore this.</p>
-              <button
-                type="button"
-                onClick={() => setClaimPending(false)}
-                className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
-              >
-                Use a different email
-              </button>
-            </div>
-          ) : (
-          <>
-          {/* Segmented sign-in / register toggle. */}
-          <div className="mb-6">
-            <SegmentedControl
-              ariaLabel="Sign in or create an account"
-              value={mode}
-              onChange={switchMode}
-              options={[
-                { value: 'login', label: 'Sign in' },
-                { value: 'register', label: 'Create account' },
-              ]}
-            />
+      )}
+      {claimPending ? (
+        <div role="status" className="auth-form">
+          <AuthTitle
+            as="h2"
+            focusOnMount
+            hint={
+              <InfoHint label="What to do next" buttonClassName="auth-i" align="end">
+                If that's you, follow the link to take it over. If not, you can ignore this.
+              </InfoHint>
+            }
+          >
+            Check your inbox
+          </AuthTitle>
+          <p className="auth-sub">
+            An account with <b>{email}</b> already exists but hasn't been confirmed. We've emailed a link to
+            that address so its owner can confirm it and set a password.
+          </p>
+          <div className="auth-foot">
+            <button type="button" onClick={chooseDifferentEmail} className="auth-link">
+              Use a different email
+            </button>
           </div>
+        </div>
+      ) : (
+        <>
+          {/* The two modes, one tap apart. Switching keeps what was typed and leaves the URL alone. */}
+          <SegmentedControl
+            variant="quiet"
+            fill
+            ariaLabel="Sign in or create an account"
+            value={mode}
+            onChange={switchMode}
+            options={[
+              { value: 'login', label: 'Sign in' },
+              { value: 'register', label: 'Create account' },
+            ]}
+          />
 
-          <form onSubmit={onSubmit} className="space-y-4">
+          <form ref={formRef} onSubmit={onSubmit} className="auth-form">
             {registering && (
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label htmlFor="firstName" className="mb-1 block text-sm font-medium text-slate-600">
+              <div className="auth-2">
+                <div className="auth-f">
+                  <label htmlFor="firstName" className="auth-label">
                     First name
                   </label>
                   <Input
@@ -200,11 +201,11 @@ export function LoginPage() {
                     autoComplete="given-name"
                     value={firstName}
                     onChange={(e) => setFirstName(e.target.value)}
-                    className="w-full"
+                    className="auth-in"
                   />
                 </div>
-                <div>
-                  <label htmlFor="lastName" className="mb-1 block text-sm font-medium text-slate-600">
+                <div className="auth-f">
+                  <label htmlFor="lastName" className="auth-label">
                     Last name
                   </label>
                   <Input
@@ -214,14 +215,14 @@ export function LoginPage() {
                     autoComplete="family-name"
                     value={lastName}
                     onChange={(e) => setLastName(e.target.value)}
-                    className="w-full"
+                    className="auth-in"
                   />
                 </div>
               </div>
             )}
 
-            <div>
-              <label htmlFor="email" className="mb-1 block text-sm font-medium text-slate-600">
+            <div className="auth-f">
+              <label htmlFor="email" className="auth-label">
                 Email
               </label>
               <Input
@@ -232,19 +233,16 @@ export function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full"
+                className="auth-in"
               />
             </div>
-            <div>
-              <div className="mb-1 flex items-baseline justify-between">
-                <label htmlFor="password" className="block text-sm font-medium text-slate-600">
+            <div className="auth-f">
+              <div className="auth-lr">
+                <label htmlFor="password" className="auth-label">
                   Password
                 </label>
                 {!registering && (
-                  <Link
-                    to="/forgot-password"
-                    className="text-sm font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
-                  >
+                  <Link to="/forgot-password" className="auth-link">
                     Forgot password?
                   </Link>
                 )}
@@ -258,77 +256,81 @@ export function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="At least 8 characters"
-                className="w-full"
+                className="auth-in"
               />
             </div>
 
             {registering && (
               <>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label htmlFor="currency" className="mb-1 block text-sm font-medium text-slate-600">
-                      Currency
-                    </label>
-                    <Select
-                      id="currency"
-                      value={currency}
-                      onChange={(e) => setCurrency(e.target.value)}
-                      className="w-full"
-                    >
-                      {CURRENCY_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
+                <div className="auth-2">
+                  <div className="auth-f">
+                    <div className="auth-lr">
+                      <span className="auth-lt">
+                        <label htmlFor="currency" className="auth-label">
+                          Currency
+                        </label>
+                        {/* Outside the label, and named without the field's own words, so the
+                            Currency field keeps its one label. */}
+                        <InfoHint label="About these settings" buttonClassName="auth-i">
+                          Your budget and its accounts use this currency. You can change it in account settings
+                          until you add your first account, month or transaction; the number format any time.
+                        </InfoHint>
+                      </span>
+                    </div>
+                    <div className="auth-sel">
+                      <Select
+                        id="currency"
+                        value={currency}
+                        onChange={(e) => setCurrency(e.target.value)}
+                        className="auth-in"
+                      >
+                        {CURRENCY_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <ChevronDown aria-hidden strokeWidth={1.8} />
+                    </div>
                   </div>
-                  <div>
-                    <label htmlFor="numberFormat" className="mb-1 block text-sm font-medium text-slate-600">
-                      Number format
-                    </label>
-                    <Select
-                      id="numberFormat"
-                      value={numberFormat}
-                      onChange={(e) => setNumberFormat(e.target.value)}
-                      className="w-full"
-                    >
-                      {NUMBER_FORMAT_OPTIONS.map((o) => (
-                        <option key={o.value} value={o.value}>
-                          {o.label}
-                        </option>
-                      ))}
-                    </Select>
+                  <div className="auth-f">
+                    <div className="auth-lr">
+                      <label htmlFor="numberFormat" className="auth-label">
+                        Number format
+                      </label>
+                    </div>
+                    <div className="auth-sel">
+                      <Select
+                        id="numberFormat"
+                        value={numberFormat}
+                        onChange={(e) => setNumberFormat(e.target.value)}
+                        className="auth-in"
+                      >
+                        {NUMBER_FORMAT_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </Select>
+                      <ChevronDown aria-hidden strokeWidth={1.8} />
+                    </div>
                   </div>
                 </div>
-                <p className="text-xs text-slate-500">
-                  Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time.
-                </p>
 
-                <label className="flex items-start gap-2 text-sm text-slate-600">
+                <label className="auth-check">
                   <input
                     type="checkbox"
                     required
                     checked={acceptedTerms}
                     onChange={(e) => setAcceptedTerms(e.target.checked)}
-                    className="mt-0.5 h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
                   />
                   <span>
                     I agree to the{' '}
-                    <a
-                      href="/terms"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
-                    >
+                    <a href="/terms" target="_blank" rel="noopener noreferrer">
                       Terms of Service
                     </a>{' '}
                     and{' '}
-                    <a
-                      href="/privacy"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="font-medium text-brand-600 underline hover:text-brand-700 dark:text-brand-500"
-                    >
+                    <a href="/privacy" target="_blank" rel="noopener noreferrer">
                       Privacy Policy
                     </a>
                     .
@@ -336,17 +338,16 @@ export function LoginPage() {
                 </label>
 
                 {IS_STAGING && (
-                  <label className="flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100">
+                  <label className="auth-check auth-check-staging">
                     <input
                       type="checkbox"
                       required
                       checked={acceptedStaging}
                       onChange={(e) => setAcceptedStaging(e.target.checked)}
-                      className="mt-0.5 h-4 w-4 rounded border-amber-400 text-amber-600 focus:ring-2 focus:ring-amber-500/40"
                     />
                     <span>
-                      I understand this is the AllotJar <strong className="font-semibold">staging</strong>{' '}
-                      test environment, and that my data may be reset or permanently lost.
+                      I understand this is the AllotJar <strong className="font-semibold">staging</strong> test
+                      environment, and that my data may be reset or permanently lost.
                     </span>
                   </label>
                 )}
@@ -354,36 +355,28 @@ export function LoginPage() {
             )}
 
             {error && (
-              <p role="alert" className="text-sm text-rose-600">
+              <p role="alert" className="auth-error">
                 {error}
               </p>
             )}
 
-            <Button type="submit" disabled={busy} className="w-full">
+            <Button type="submit" disabled={busy} className="auth-pill dark:bg-primary dark:hover:bg-brand-600">
               {busy ? 'Please wait…' : registering ? 'Create account' : 'Sign in'}
             </Button>
           </form>
 
-          {/* Google sign-in: one button serves both modes (it signs in, or creates the account). */}
-          <div className={googleReady ? 'mt-6' : ''}>
+          {/* Google sign-in: one button serves both modes (it signs in, or creates the account). The
+              "or" shows only once Google's button is on the page. */}
+          <div className={`auth-gwrap${googleReady ? ' is-ready' : ''}`}>
             {googleReady && (
-              <div className="mb-6 flex items-center gap-3" aria-hidden="true">
-                <div className="h-px flex-1 bg-slate-300" />
-                <span className="text-xs font-medium uppercase tracking-wide text-slate-500">or</span>
-                <div className="h-px flex-1 bg-slate-300" />
+              <div className="auth-or" aria-hidden="true">
+                or
               </div>
             )}
             <GoogleSignInButton onCredential={onGoogleCredential} onReady={() => setGoogleReady(true)} />
           </div>
-          </>
-          )}
-        </Card>
-
-        <p className="mt-6 text-center text-xs text-slate-500">
-          Give every {currencyNoun(localeDefaults.currency)} a job.
-        </p>
-      </div>
-      </div>
-    </>
+        </>
+      )}
+    </AuthFrame>
   )
 }

@@ -2,11 +2,13 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 import { useAuth } from '../auth/AuthContext'
-import { JarLogo } from '../components/Jar'
-import { StagingBanner } from '../components/StagingBanner'
-import { ThemeToggle } from '../components/ThemeToggle'
-import { Button, Card, Input } from '../components/ui'
+import { AuthFrame, AuthTitle } from '../components/AuthFrame'
+import { useSubmitFocusReturn } from '../lib/useSubmitFocusReturn'
+import { InfoHint } from '../components/InfoHint'
+import { Button, Input } from '../components/ui'
 import { EVENTS, track } from '../analytics'
+
+const MISMATCH = "Those passwords don't match."
 
 /**
  * Redeems the emailed reset link (?email=…&token=…). A successful reset signs this device
@@ -31,12 +33,15 @@ export function ResetPasswordPage() {
   // The server said the token is dead — offer a fresh link instead of a retry loop.
   const [linkDead, setLinkDead] = useState(false)
   const [busy, setBusy] = useState(false)
+  const formRef = useSubmitFocusReturn(busy)
+  // The mismatch belongs to the confirm field: it is marked invalid and described by the message.
+  const mismatch = error === MISMATCH
 
   async function onSubmit(e: FormEvent) {
     e.preventDefault()
     setError(null)
     if (password !== confirm) {
-      setError("Those passwords don't match.")
+      setError(MISMATCH)
       return
     }
     setBusy(true)
@@ -69,104 +74,99 @@ export function ResetPasswordPage() {
   }
 
   return (
-    <>
-      <StagingBanner />
-      <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
-        <div className="absolute right-4 top-4">
-          <ThemeToggle />
-        </div>
-        <div className="w-full max-w-sm">
-          <div className="mb-6 flex flex-col items-center text-center">
-            <JarLogo lg />
-            <h1 className="mt-3 text-[26px] font-extrabold tracking-[-0.035em] text-slate-900">
-              Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">Choose a new password.</p>
-          </div>
+    <AuthFrame>
+      {!linkComplete ? (
+        <>
+          <AuthTitle
+            hint={
+              <InfoHint label="About this link" buttonClassName="auth-i" align="end">
+                The reset link is missing some of its details — it may have been split across two lines in the
+                email. You can request a fresh one below.
+              </InfoHint>
+            }
+          >
+            This link isn't complete
+          </AuthTitle>
+          <Button
+            onClick={() => navigate('/forgot-password')}
+            className="auth-pill dark:bg-primary dark:hover:bg-brand-600"
+          >
+            Request a new link
+          </Button>
+        </>
+      ) : (
+        <>
+          <AuthTitle
+            sub={
+              <>
+                Setting a new password for <b>{email}</b>. This signs you out everywhere else.
+              </>
+            }
+          >
+            Choose a new password
+          </AuthTitle>
+          <form ref={formRef} onSubmit={onSubmit} className="auth-form">
+            <div className="auth-f">
+              <label htmlFor="password" className="auth-label">
+                New password
+              </label>
+              <Input
+                id="password"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="At least 8 characters"
+                className="auth-in"
+              />
+            </div>
+            <div className="auth-f">
+              <label htmlFor="confirm" className="auth-label">
+                Confirm new password
+              </label>
+              <Input
+                id="confirm"
+                type="password"
+                required
+                minLength={8}
+                autoComplete="new-password"
+                value={confirm}
+                onChange={(e) => setConfirm(e.target.value)}
+                aria-invalid={mismatch || undefined}
+                aria-describedby={mismatch ? 'reset-error' : undefined}
+                className="auth-in"
+              />
+            </div>
 
-          <Card className="p-8">
-            {!linkComplete ? (
-              <div className="space-y-4 text-sm text-slate-600">
-                <h2 className="text-base font-semibold text-slate-900">This link isn't complete</h2>
-                <p>
-                  The reset link is missing some of its details — it may have been split across two
-                  lines in the email. You can request a fresh one below.
-                </p>
-                <Button onClick={() => navigate('/forgot-password')} className="w-full">
-                  Request a new link
-                </Button>
-              </div>
-            ) : (
-              <form onSubmit={onSubmit} className="space-y-4">
-                <p className="text-sm text-slate-600">
-                  Setting a new password for{' '}
-                  <span className="font-medium text-slate-900">{email}</span>. This signs you out
-                  everywhere else.
-                </p>
-                <div>
-                  <label htmlFor="password" className="mb-1 block text-sm font-medium text-slate-600">
-                    New password
-                  </label>
-                  <Input
-                    id="password"
-                    type="password"
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="At least 8 characters"
-                    className="w-full"
-                  />
-                </div>
-                <div>
-                  <label htmlFor="confirm" className="mb-1 block text-sm font-medium text-slate-600">
-                    Confirm new password
-                  </label>
-                  <Input
-                    id="confirm"
-                    type="password"
-                    required
-                    minLength={8}
-                    autoComplete="new-password"
-                    value={confirm}
-                    onChange={(e) => setConfirm(e.target.value)}
-                    className="w-full"
-                  />
-                </div>
-
-                {error && (
-                  <p role="alert" className="text-sm text-rose-600">
-                    {error}
-                  </p>
-                )}
-                {linkDead && (
-                  <Button
-                    onClick={() => navigate('/forgot-password')}
-                    variant="secondary"
-                    className="w-full"
-                  >
-                    Request a new link
-                  </Button>
-                )}
-
-                <Button type="submit" disabled={busy || bootstrapping} className="w-full">
-                  {busy ? 'Please wait…' : 'Set new password'}
-                </Button>
-              </form>
+            {error && (
+              <p id="reset-error" role="alert" className="auth-error">
+                {error}
+              </p>
             )}
-          </Card>
+            {linkDead && (
+              <Button onClick={() => navigate('/forgot-password')} variant="secondary" className="auth-pill">
+                Request a new link
+              </Button>
+            )}
 
-          <p className="mt-6 text-center text-sm">
-            <Link
-              to="/login"
-              className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
+            <Button
+              type="submit"
+              disabled={busy || bootstrapping}
+              className="auth-pill dark:bg-primary dark:hover:bg-brand-600"
             >
-              Back to sign in
-            </Link>
-          </p>
-        </div>
+              {busy ? 'Please wait…' : 'Set new password'}
+            </Button>
+          </form>
+        </>
+      )}
+
+      <div className="auth-foot">
+        <Link to="/login" className="auth-link">
+          Back to sign in
+        </Link>
       </div>
-    </>
+    </AuthFrame>
   )
 }

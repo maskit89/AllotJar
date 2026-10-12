@@ -81,32 +81,30 @@ test('a theme pinned via the Dark mode button ignores OS colour-scheme flips (UX
   await expect(html(page)).toHaveClass(/dark/)
 })
 
-// The signed-out screens keep their own theme control: a "Theme" group of two aria-pressed
-// buttons (Light / Dark). It follows the OS live until pressed, and a press pins the choice.
-test('the sign-in page Light/Dark group follows the OS until a choice pins it (UX-013, UX-030)', async ({ page }) => {
+// The signed-out screens (restyle PR 9) carry the app's own theme button in the green room: one
+// "Dark mode" toggle (aria-pressed), as in the top bar. It follows the OS live until pressed, and a
+// press pins the choice.
+test('the sign-in page Dark mode button follows the OS until a press pins it (UX-013, UX-030)', async ({ page }) => {
   await page.route('**/api/**', (route) =>
     route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'No session.' }) }),
   )
   await page.emulateMedia({ colorScheme: 'light' })
   await page.goto('/login')
-  const group = page.getByRole('group', { name: 'Theme' })
-  await expect(group).toBeVisible()
-  const light = group.getByRole('button', { name: 'Light mode' })
-  const dark = group.getByRole('button', { name: 'Dark mode' })
-  await expect(light).toHaveAttribute('aria-pressed', 'true')
+  const dark = darkMode(page)
+  await expect(dark).toBeVisible()
   await expect(dark).toHaveAttribute('aria-pressed', 'false')
 
-  // Nothing pinned: the OS flips the page and the group with it.
+  // Nothing pinned: the OS flips the page and the button with it.
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(html(page)).toHaveClass(/dark/)
   await expect(dark).toHaveAttribute('aria-pressed', 'true')
   expect(await page.evaluate(() => localStorage.getItem('zbb.theme'))).toBeNull()
 
-  // A keyboard press on Light pins it; OS flips are ignored from then on.
-  await light.focus()
+  // A keyboard press turns dark mode off and pins light; OS flips are ignored from then on.
+  await dark.focus()
   await page.keyboard.press('Enter')
   await expect(html(page)).not.toHaveClass(/dark/)
-  await expect(light).toHaveAttribute('aria-pressed', 'true')
+  await expect(dark).toHaveAttribute('aria-pressed', 'false')
   expect(await page.evaluate(() => localStorage.getItem('zbb.theme'))).toBe('light')
   await page.emulateMedia({ colorScheme: 'light' })
   await page.emulateMedia({ colorScheme: 'dark' })

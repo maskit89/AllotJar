@@ -24,8 +24,8 @@ declare global {
               type?: 'standard' | 'icon'
               theme?: 'outline' | 'filled_blue' | 'filled_black'
               size?: 'large' | 'medium' | 'small'
-              text?: 'signin_with' | 'signup_with' | 'continue_with'
-              shape?: 'rectangular' | 'pill'
+              text?: 'signin_with' | 'signup_with' | 'continue_with' | 'signin'
+              shape?: 'rectangular' | 'pill' | 'circle' | 'square'
               width?: number
               logo_alignment?: 'left' | 'center'
             },
@@ -58,31 +58,52 @@ function loadGsiScript(): Promise<void> {
   return loader
 }
 
+/** The options of Google's own button that the sign-in card sets (Google offers no others we use). */
+export interface GoogleButtonOptions {
+  text?: 'signin_with' | 'signup_with' | 'continue_with'
+  /** In px; Google caps it at 400 and fixes it when the button is drawn. */
+  width?: number
+  /** 'outline' (white, grey edge) suits the light page; 'filled_black' the dark one. */
+  theme?: 'outline' | 'filled_black'
+  shape?: 'rectangular' | 'pill'
+}
+
+/** Google is initialised once per page load; each render points its callback at the latest button. */
+let initialized = false
+let activeCallback: ((credential: string) => void) | null = null
+
 /**
  * Renders the official Google button into `container` and invokes `onCredential` with the signed
  * ID token when the user completes sign-in. Resolves once the button is rendered; rejects if the
- * script can't load (offline, blocked) — the caller decides how quietly to degrade.
+ * script can't load (offline, blocked) — the caller decides how quietly to degrade. Calling it
+ * again (a new theme or width) redraws the button in place: Google's iframe cannot restyle itself.
  */
 export async function renderGoogleButton(
   container: HTMLElement,
   onCredential: (credential: string) => void,
-  options?: { text?: 'signin_with' | 'signup_with' | 'continue_with'; width?: number },
+  options?: GoogleButtonOptions,
 ): Promise<void> {
   if (!GOOGLE_CLIENT_ID) throw new Error('Google sign-in is not configured.')
   await loadGsiScript()
   const id = window.google?.accounts?.id
   if (!id) throw new Error('Google sign-in is unavailable.')
 
-  id.initialize({
-    client_id: GOOGLE_CLIENT_ID,
-    callback: (response) => onCredential(response.credential),
-    use_fedcm_for_prompt: true,
-  })
+  activeCallback = onCredential
+  if (!initialized) {
+    // GIS asks for a single initialize per page; the callback forwards to the latest button's.
+    id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: (response) => activeCallback?.(response.credential),
+      use_fedcm_for_prompt: true,
+    })
+    initialized = true
+  }
+  container.replaceChildren()
   id.renderButton(container, {
     type: 'standard',
-    theme: 'outline',
+    theme: options?.theme ?? 'outline',
     size: 'large',
-    shape: 'rectangular',
+    shape: options?.shape ?? 'rectangular',
     text: options?.text ?? 'continue_with',
     width: options?.width,
     logo_alignment: 'center',

@@ -1,10 +1,10 @@
 # Registration & Login
 
-**ID prefix:** REG | **Scope:** The `/login` page in both modes: the segmented "Sign in" / "Create account" toggle, the create-account form (first/last name, email, password, currency picker, number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes by `client/e2e/a11y.spec.ts`). **Do not test for:** separate username — none exists (username == email). The forgot/reset-password flow (`/forgot-password`, `/reset-password`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`) IS in scope — see the "Password reset" section (REG-051..REG-066). **Google sign-in** (`POST /api/auth/google`, the "Sign in with Google" button) IS in scope — see the "Google sign-in" section (REG-073..REG-081).
+**ID prefix:** REG | **Scope:** The `/login` page in both modes, in the signed-out frame it shares with `/forgot-password`, `/reset-password` and `/accept-invite` (restyle PR 9, `AuthFrame.tsx`: on desktop a green room across the top holding the AllotJar wordmark, the **Dark mode** button and the one line "Give every … a job." over a shelf of four glass jars, with the off-white card in front of it; on a phone a compact green band and the card as a sheet under it down to the bottom of the screen): the quiet "Sign in | Create account" switch at the top of the card, the create-account form (first/last name, email, password, currency picker with its (i), number-format picker, opt-in sample-budget checkbox, terms consent, staging data-loss consent) with every client- and server-side validation rule (`POST /api/auth/register`), HIBP breached-password rejection, duplicate-email handling, the sign-in form (`POST /api/auth/login`) with wrong-credential, anti-enumeration, lockout and rate-limiting behavior, returnUrl navigation at sign-in time, and the first-login landing state for both PR #170 paths (empty account vs seeded sample budget). | **Out of scope:** everything after a session exists — silent refresh, 401 interceptor, `sessionExpired()` production, cross-tab broadcast, logout, refresh-replay grace window (sessions file 03; REG only covers the login-form *rendering* of `?reason=expired` and the sign-in leg of returnUrl); landing-page CTAs, staging banner on public pages, analytics consent banner, SEO (01-landing-public.md); `/accept-invite` registration path and household greetings `?started/?left` (households & people file); `/account` preferences and change-password (account settings file); ConsentModal general behavior and the onboarding welcome/tour (routing & app shell file); full dark/responsive/a11y sweeps (cross-cutting files — `/login` is already axe-scanned in both modes/themes, with the currency (i) and the session-expired (i) open, by `client/e2e/a11y.spec.ts`). **Do not test for:** separate username — none exists (username == email). The forgot/reset-password flow (`/forgot-password`, `/reset-password`, `POST /api/auth/forgot-password`, `POST /api/auth/reset-password`) IS in scope — see the "Password reset" section (REG-051..REG-066). **Google sign-in** (`POST /api/auth/google`, the "Sign in with Google" button) IS in scope — see the "Google sign-in" section (REG-073..REG-081).
 
 **Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, no `zbb.*` localStorage keys. (b) An existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), Owner of a solo household with at least one budget month. (c) Fresh unique registration emails per case (`reg-<case>@example.test`) and random non-breached passwords of shape `Aa1-<uuid>` (HIBP rejects fixed common passwords — journey-harness gotcha). (d) Unless a case says otherwise, run against a **staging-mode** build (`VITE_APP_ENV=staging`, e.g. staging.allotjar.com or a local staging build) where the staging banner and the required staging data-loss checkbox render; REG-016 covers the GA/default build. (e) Server defaults: rate limit 20 auth requests/min per source IP (`RateLimiting:AuthPermitLimit`), lockout 5 failures → 15 min, HIBP reachable. (f) Browser locale `en-GB` unless the case pins another locale. (g) Password-reset cases: run against a Development-env API with NO `Email:ApiKey` configured — outbound mail is then captured in-memory and readable at `GET /api/dev/emails?to=<email>` (`textBody` carries the reset link); production sends via Resend instead and has no mailbox endpoint. For "direct API" steps use any HTTP client against `POST /api/auth/register` with a JSON body — the UI blocks those inputs client-side.
 
-## Page chrome & mode toggle
+## Page frame & mode switch
 
 ### REG-001 - Login page renders sign-in mode by default with full chrome
 - **Priority:** P1
@@ -14,29 +14,32 @@
   1. Load `/login` and wait for the auth bootstrap splash to clear (cold load 401s the cookie refresh).
   2. Inspect the page.
 - **Expected:**
-  - Staging banner (`role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (staging build only).
-  - ThemeToggle top-right; jar logo; heading "AllotJar"; tagline "Zero-based budgeting, in your currency."
-  - Segmented control with `aria-label="Sign in or create an account"`, options "Sign in" (selected) and "Create account".
-  - Only two fields: "Email" (`type=email`, placeholder "you@example.com", autocomplete `email`) and "Password" (`type=password`, placeholder "At least 8 characters", autocomplete `current-password`). No name/currency/format/checkbox fields.
-  - Submit button "Sign in". Footer tagline "Give every pound a job." (noun follows the locale-detected currency — en-GB → GBP → "pound"; EUR fallback locales read "euro"; see REG-031).
-- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration-only fields hidden in sign-in mode; client/e2e/a11y.spec.ts — axe scan of both modes)
+  - Staging banner (`role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (staging build only), a strip across the top of the page above the green room.
+  - Desktop: a green room across the top holds the wordmark (jar logo + "AllotJar", not a heading) at its left, the round **Dark mode** button (`aria-pressed`, a moon in light, a sun in dark) at its right, and the one line "Give every pound a job." with the money word in gold (noun follows the locale-detected currency — en-GB → GBP → "pound"; EUR fallback locales read "euro"; see REG-031), over a shelf of four glass jars, two each side of the card (decoration, hidden from assistive tech; under 1180px wide only the two inner jars, under 1000px no shelf). Phone (under 700px wide): the wordmark row, the button and the line in a compact green band with a small shelf of the same four jars, and the card a sheet with rounded top corners from under the band to the bottom of the screen. No tagline "Zero-based budgeting, in your currency." and no Light/Dark "Theme" group (both gone).
+  - The off-white card with a gold hairline edge. The page's only heading is a visually hidden h1 "Sign in to AllotJar".
+  - At the top of the card, the full-width switch (`role="group"`, `aria-label="Sign in or create an account"`), options "Sign in" (pressed) and "Create account".
+  - Only two fields: "Email" (`type=email`, placeholder "you@example.com", autocomplete `email`) and "Password" (`type=password`, placeholder "At least 8 characters", autocomplete `current-password`), with "Forgot password?" on the Password label's line. No name/currency/format/checkbox fields.
+  - One submit button, "Sign in", a full-width pill (Google's "or" and button under it only when configured, REG-080). Tab order: Dark mode, the switch's two options, Email, Forgot password?, Password, Sign in.
+  - On a 390×844 phone the switch, both fields and the submit are on the first screen without scrolling, and no signed-out page scrolls sideways.
+- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-001; `LoginPage.frame.test.tsx` — the room, the Dark mode button, the one heading, one submit, Tab order; `AuthPages.frame.test.tsx` — the staging banner; client/e2e/mobile-layout.spec.ts — signed-out pages on a phone; client/e2e/a11y.spec.ts — axe scan of both modes; the drawing itself — jars, glow, gold — is checked by eye)
 
 ### REG-002 - Switching to "Create account" reveals all registration fields
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Anonymous browser on `/login` (sign-in mode).
 - **Steps:**
-  1. Click "Create account" in the segmented control.
-  2. Inspect the form top-to-bottom.
+  1. Click "Create account" in the switch at the top of the card.
+  2. Inspect the form top-to-bottom; hover or focus the (i) beside "Currency".
   3. Click "Sign in" to switch back.
 - **Expected:**
-  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" select; "Number format" select; hint "Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time." (then it is the fixed budget currency, PREF-011/PREF-042); unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); staging build only: required amber checkbox "I understand this is the AllotJar staging test environment, and that my data may be reset or permanently lost."
-  - Password autocomplete switches to `new-password`; submit button label becomes "Create account".
+  - Registration mode adds, in order: "First name" + "Last name" side by side (both required, autocomplete `given-name`/`family-name`); "Currency" and "Number format" selects side by side, with an (i) button **About these settings** after the Currency label (outside it, so the field keeps its one label) whose tooltip reads "Your budget and its accounts use this currency. You can change it in account settings until you add your first account, month or transaction; the number format any time." (then it is the fixed budget currency, PREF-011/PREF-042); it opens on hover or focus and Escape closes it; unticked sample-figures checkbox ("Start with sample figures to explore — example groups and amounts you can edit or delete anytime. Leave unticked to start with an empty budget."); required terms checkbox ("I agree to the Terms of Service and Privacy Policy."); staging build only: under it, the required data-loss checkbox in an amber box, "I understand this is the AllotJar staging test environment, and that my data may be reset or permanently lost."
+  - Password autocomplete switches to `new-password`; submit button label becomes "Create account"; the visually hidden h1 reads "Create your AllotJar account". Still one submit button.
+  - Keyboard: from Password, Tab reaches the (i), then Currency, Number format, the terms checkbox, Terms of Service, Privacy Policy and the submit. Space or Enter on a switch option changes the mode and leaves focus on it; the next Tab goes into the new mode's first field.
   - The "Terms of Service" and "Privacy Policy" links open `/terms` and `/privacy` in a new tab (`target="_blank"`, `rel="noopener noreferrer"`).
   - Switching back to "Sign in" hides every registration-only field again; entered email/password values are kept.
-- **Automated:** Partial (client/src/pages/LoginPage.test.tsx — field visibility per mode + staging checkbox)
+- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-002 ×2 — the explainer read after hovering its (i); `LoginPage.frame.test.tsx` — the (i) as a tooltip, Escape, the one Currency label, Tab order, Space/Enter on the switch; client/src/pages/LoginPage.test.tsx + `AuthPages.frame.test.tsx` — staging checkbox; client/e2e/a11y.spec.ts — axe with the (i) open)
 
-### REG-003 - Deep link `/login?register=1` opens the Create-account tab
+### REG-003 - Deep link `/login?register=1` opens on Create account
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Anonymous browser.
@@ -44,21 +47,21 @@
   1. Navigate directly to `/login?register=1`.
   2. Also try `/login?register=anything` and `/login?register=` (param present with any/empty value).
 - **Expected:**
-  - All three land with the "Create account" tab pre-selected and registration fields visible (the code checks `searchParams.has('register')`, not its value). Plain `/login` still opens on "Sign in".
-- **Automated:** Partial (client/e2e-journey/helpers.ts — register() drives `/login?register=1`; client/src/pages/LandingPage.test.tsx — CTAs point at it)
+  - All three land with "Create account" pressed in the switch and registration fields visible (the code checks `searchParams.has('register')`, not its value). Plain `/login` still opens on "Sign in". The switch never changes the URL: switching to "Sign in" from `/login?register=1` (or either way from `/login?returnUrl=…`) leaves the address as it was.
+- **Automated:** Full (client `LoginPage.catalog.test.tsx` REG-003; `LoginPage.frame.test.tsx` — the switch and the URL; client/e2e-journey/helpers.ts — register() drives `/login?register=1`; client `LandingPage.catalog.test.tsx` — CTAs point at it)
 
 ### REG-004 - Switching tabs clears the current error message
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Anonymous browser on `/login`.
 - **Steps:**
-  1. Sign in with `owner@example.com` and a wrong password → error "Invalid email or password." appears (`role="alert"`, rose text).
-  2. Click "Create account".
+  1. Sign in with `owner@example.com` and a wrong password → error "Invalid email or password." appears as one red `role="alert"` line (with an alert icon) directly above the submit.
+  2. Click "Create account" in the switch.
   3. Click "Sign in" again.
 - **Expected:**
   - Step 2: the error disappears immediately (mode switch calls `setError(null)`).
   - Step 3: still no error; the form is clean.
-- **Automated:** No
+- **Automated:** Full (client `LoginPage.catalog.test.tsx` REG-004; `LoginPage.frame.test.tsx` — the one alert above the submit)
 
 ### REG-005 - Submit button busy state prevents double submission
 - **Priority:** P2
@@ -233,10 +236,10 @@
   2. Register with password `aaaaaaaa1` (no uppercase; fresh email) → observe the alert.
   3. Go offline and submit → observe the alert.
 - **Expected:**
-  - Step 1: `role="alert"` rose text with the exact server string ("An account with that email already exists.").
+  - Step 1: the one red `role="alert"` line directly above the submit, its own text the exact server string ("An account with that email already exists.").
   - Step 2: the Identity error descriptions joined with spaces (the client renders `data.errors.join(' ')` for the array shape).
   - Step 3: "Something went wrong." (network/unexpected fallback). The form stays filled; the user can correct and resubmit.
-- **Automated:** Partial (client/src/pages/LoginPage.test.tsx exercises the submit path; the three error-shape renderings are untested)
+- **Automated:** Full (client `LoginPage.catalog.test.tsx` REG-017/REG-023, REG-017/REG-019, REG-017/REG-047; `LoginPage.frame.test.tsx` — one alert, above the submit)
 
 ## Create account — password policy & HIBP
 
@@ -392,14 +395,14 @@
 - **Type:** Happy
 - **Preconditions:** Anonymous browsers pinned to specific locales (e.g. Playwright `locale`).
 - **Steps:**
-  1. Load `/login?register=1` under `en-US`; read the two selects and the footer tagline.
+  1. Load `/login?register=1` under `en-US`; read the two selects and the line in the green room (the band on a phone).
   2. Repeat under `en-IN`, `de-CH`, `de-DE`, and `pt-PT`.
 - **Expected:**
-  - `en-US`: USD + `1,234.56`; tagline "Give every dollar a job."
+  - `en-US`: USD + `1,234.56`; the line "Give every dollar a job." (the money word in gold).
   - `en-IN`: INR + `1,23,456.78` (lakh); "…every rupee…". `de-CH`: CHF + `1'234.56`; "…every franc…". `de-DE`: EUR + `1.234,56`; "…every euro…".
   - `pt-PT` (region not in the map): falls back to EUR; number format inferred from the locale's separators (comma decimal + space grouping → `1 234,56`).
   - Both selects remain fully user-overridable; the preselect is computed once on mount.
-- **Automated:** Partial (client/src/lib/money.test.ts — detectLocaleDefaults + currencyNoun; the form preselect itself is untested)
+- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-031 — en-GB, de-DE and en-US: the selects and the line, read as the whole line's text; client/src/lib/money.test.ts — detectLocaleDefaults + currencyNoun)
 
 ### REG-032 - Chosen currency and format actually govern the app after sign-up
 - **Priority:** P1
@@ -412,7 +415,7 @@
 - **Expected:**
   - Money renders in PLN with dot-comma grouping app-wide (hero "Remaining to budget" shows the seeded 800 as `800,00 zł`-style per the PLN formatter with de-DE grouping).
   - Account-menu chip shows "PLN · Your household" (the budget currency). `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56" while the budget is still empty; once it holds an account, month or transaction the currency shows read-only with "Your budget currency is fixed once your budget has accounts, months or transactions." (PREF-011), and every month is created in PLN.
-  - Footer tagline on later logged-out visits aside, the in-app "give every złoty a job" surfaces use the noun "złoty".
+  - The signed-out pages' line on later visits aside (it follows the browser locale, REG-031), the in-app "give every złoty a job" surfaces use the noun "złoty".
 - **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration submits the chosen prefs; client/src/lib/money.test.ts — formats render; the end-to-end render isn't tested)
 
 ### REG-033 - Invalid currency code is rejected server-side
@@ -473,8 +476,9 @@
 - **Steps:**
   1. Sign in with the right email and password `WrongPass1x`.
 - **Expected:**
-  - 401; alert (`role="alert"`) reads exactly "Invalid email or password." The user stays on the form with fields intact; no cookie is set; correcting the password immediately succeeds.
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/LoginTests.cs — invalid credentials never issue a token; the UI rendering is untested)
+  - 401; the one `role="alert"` line directly above the submit reads exactly "Invalid email or password." The user stays on the form with fields intact; no cookie is set; correcting the password immediately succeeds.
+  - Keyboard: when the attempt was sent from the focused "Sign in" button (disabled while busy), focus is back on that button once the error shows, so Shift+Tab reaches Password; when it was sent with Enter in a field, focus stays in that field.
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Application/LoginTests.cs — invalid credentials never issue a token; client `LoginPage.catalog.test.tsx` REG-037/REG-038; `LoginPage.frame.test.tsx` — the alert's place and where focus lands; client/e2e/keyboard-a11y.spec.ts — "login: after a failed sign-in from the submit button, focus is back on the button")
 
 ### REG-038 - Unknown email returns the identical error (anti-enumeration)
 - **Priority:** P1
@@ -534,20 +538,20 @@
   2. Step 2: redirected to `/reports` (sanitized returnUrl honored even on the authed path).
 - **Automated:** No
 
-### REG-043 - Expired-session banner renders only in sign-in mode
+### REG-043 - Expired-session notice renders only in sign-in mode
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** PR #169 — genuinely dead sessions bounce to `/login?reason=expired` with an explanation instead of an unexplained sign-out
 - **Preconditions:** Anonymous browser.
 - **Steps:**
-  1. Load `/login?reason=expired&returnUrl=%2Ftransactions`.
-  2. Click "Create account".
+  1. Load `/login?reason=expired&returnUrl=%2Ftransactions`; hover or focus the (i) beside the notice.
+  2. Click "Create account" in the switch.
   3. Click "Sign in".
 - **Expected:**
-  - Step 1: amber banner (`role="status"`): "Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where you left off." above the sign-in form.
-  - Step 2: banner disappears in Create-account mode (it explains a sign-*in* situation only).
-  - Step 3: banner returns. Signing in then lands on `/transactions` (the sign-in leg of the returnUrl round-trip; the bounce *production* is file 03).
-- **Automated:** Partial (client/e2e-journey/session-expiry.spec.ts — banner text + returnUrl round-trip; the register-tab hiding is untested)
+  - Step 1: at the top of the card, above the switch, one quiet line in the warning colour with a clock icon (`role="status"`, no box) reading "Your session has expired."; beside it an (i) **Why you were signed out** whose tooltip reads "Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where you left off." On a 390×844 phone the switch, both fields and the submit still fit the first screen.
+  - Step 2: the notice disappears in Create-account mode (it explains a sign-*in* situation only).
+  - Step 3: the notice returns. Signing in then lands on `/transactions` (the sign-in leg of the returnUrl round-trip; the bounce *production* is file 03).
+- **Automated:** Full (client `LoginPage.catalog.test.tsx` REG-043 ×2; `LoginPage.frame.test.tsx` — the line, its place and its (i); client/e2e-journey/session-expiry.spec.ts — notice text + returnUrl round-trip; client/e2e/mobile-layout.spec.ts — fits a phone's first screen; client/e2e/a11y.spec.ts — axe with the (i) open)
 
 ## Lockout & rate limiting
 
@@ -665,10 +669,11 @@
   3. Fresh page: submit while the API is unreachable.
   4. Fresh page: submit `not-an-email`.
 - **Expected:**
-  - Steps 1–2: IDENTICAL confirmation panel (`role="status"`): "If an account exists for {email}, we've emailed it a link…", "valid for 2 hours", spam-folder hint. The form is gone (no resubmit loop); "Back to sign in" → `/login`. `password_reset_requested` fires.
-  - Step 3: generic retryable error ("We couldn't send the email just now…"), still on the form, no analytics event. The error must not reveal whether the account exists.
+  - The page: the same frame as `/login` without the switch. The card opens with its title (the page's h1) "Reset your password" and an (i) **About resetting** beside it holding "Enter your account's email address and we'll send you a link to choose a new password."; then "Email", the submit "Email me a reset link", and "Back to sign in" at the card's foot.
+  - Steps 1–2: IDENTICAL confirmation (`role="status"`) in place of the form: the title "Check your inbox" (h1; it takes focus, and the next Tab reaches its (i)) with an (i) **If nothing arrives** holding the spam-folder hint ("No email after a few minutes? Check your spam folder, or try again."), and the visible sentence "If an account exists for {email}, we've emailed it a link to choose a new password. The link is valid for 2 hours." The form is gone (no resubmit loop); "Back to sign in" stays at the card's foot → `/login`. `password_reset_requested` fires.
+  - Step 3: generic retryable error as the one alert line above the submit ("We couldn't send the email just now…"), still on the form, no analytics event; sent from the focused button, focus is back on it. The error must not reveal whether the account exists.
   - Step 4: blocked client-side (`type=email` + `required`) — no POST.
-- **Automated:** Full (client/src/pages/ForgotPasswordPage.catalog.test.tsx — REG-052 ×3)
+- **Automated:** Full (client/src/pages/ForgotPasswordPage.catalog.test.tsx — REG-052 ×3; `AuthPages.frame.test.tsx` — the title and its (i), the sent state's (i), focus, Back to sign in in the card; client/e2e/keyboard-a11y.spec.ts — "Check your inbox" takes focus)
 
 ### REG-053 - Server: forgot-password is always 204 and only real accounts get mail
 - **Priority:** P1
@@ -853,8 +858,8 @@
   2. Open the exact link from the captured email; set a new password (matching confirmation).
   3. Try the old password; then the new one.
 - **Expected:**
-  - The reset page names the account being reset and warns "This signs you out everywhere else." A successful reset signs THIS device straight in (fresh token + `zbb_rt` cookie) and lands on the dashboard; `password_reset_completed` fires. The old password is refused ("Invalid email or password."); the new one signs in.
-- **Automated:** Full (e2e-journey/password-reset.spec.ts; PasswordResetFlowTests — REG-063; ResetPasswordPage.catalog.test.tsx client leg)
+  - The reset page's card is titled "Choose a new password" (its h1) and, in a visible line under the title, names the account being reset and warns "This signs you out everywhere else." A successful reset signs THIS device straight in (fresh token + `zbb_rt` cookie) and lands on the dashboard; `password_reset_completed` fires. The old password is refused ("Invalid email or password."); the new one signs in.
+- **Automated:** Full (e2e-journey/password-reset.spec.ts; PasswordResetFlowTests — REG-063; ResetPasswordPage.catalog.test.tsx client leg; `AuthPages.frame.test.tsx` — the title and the visible line)
 
 ### REG-064 - Reset failures are indistinguishable for unknown email vs bad token
 - **Priority:** P1
@@ -877,20 +882,20 @@
   3. Valid link, server answers Identity password-policy `errors`.
   4. Open with the token missing from the query.
 - **Expected:**
-  - 1: inline "Those passwords don't match." — no POST.
-  - 2: the generic message verbatim + a "Request a new link" button → `/forgot-password`.
+  - 1: the one alert line above the submit reads "Those passwords don't match."; the "Confirm new password" field is marked invalid (red edge, `aria-invalid`) and described by that line ("New password" is not) — no POST.
+  - 2: the generic message verbatim in the alert line + a "Request a new link" button (a secondary pill under the alert, above the submit) → `/forgot-password`. A server error never marks the confirm field invalid.
   - 3: the joined Identity errors; NO new-link button (the link is still redeemable).
-  - 4: the incomplete-link state (no doomed form) with the same recovery button.
-- **Automated:** Full (client/src/pages/ResetPasswordPage.catalog.test.tsx — REG-065 ×4)
+  - 4: the incomplete-link state (no doomed form): the card's title "This link isn't complete" with an (i) **About this link** holding "The reset link is missing some of its details — it may have been split across two lines in the email. You can request a fresh one below.", the same recovery button (here the primary pill), and "Back to sign in" at the card's foot.
+- **Automated:** Full (client/src/pages/ResetPasswordPage.catalog.test.tsx — REG-065 ×4; `AuthPages.frame.test.tsx` — the confirm field marked invalid on a mismatch only, the incomplete link's title and (i))
 
 ### REG-066 - Forgot/reset pages pass axe in both themes
 - **Priority:** P2
 - **Type:** A11y
 - **Preconditions:** Stubbed-API e2e build.
 - **Steps:**
-  1. Scan `/forgot-password` (form + confirmation state) and `/reset-password` (form + incomplete-link state) in light and dark.
+  1. Scan `/forgot-password` (form + confirmation state) and `/reset-password` (form, the mismatch alert with the confirm field marked invalid, incomplete-link state) in light and dark.
 - **Expected:**
-  - No WCAG 2.x A/AA violations in any of the four states × two themes.
+  - No WCAG 2.x A/AA violations in any of the five states × two themes.
 - **Automated:** Full (client/e2e/a11y.spec.ts — REG-066)
 
 ### REG-067 - A successful reset clears an active lockout
@@ -990,9 +995,10 @@ rejects anything else, INCLUDING a real Google token — production uses `Google
 - **Type:** UX
 - **Steps:**
   1. Render the login page with a client id, without one, and with the GSI script failing.
+  2. With a client id, press **Dark mode** in the green room, then again.
 - **Expected:**
-  - With a client id: the button + an "or" divider appear (the divider follows the button's readiness). Without one, or on script failure: nothing — the card is byte-identical to the password-only experience (no orphaned divider, no dead button).
-- **Automated:** Full (client/src/components/GoogleSignInButton.catalog.test.tsx + LoginPage.catalog.test.tsx — REG-080)
+  - With a client id: an "or" divider and Google's own button appear under the submit (the divider follows the button's readiness). Google draws it as its large pill ("Continue with Google", logo centred), as wide as the card's column up to Google's 400px: `outline` (white, grey edge) on the light page, `filled_black` on the dark one; a theme change redraws it. Without a client id, or on script failure: nothing — the card ends with the submit, as the password-only experience (no orphaned divider, no dead button).
+- **Automated:** Full (client/src/components/GoogleSignInButton.catalog.test.tsx — REG-080 ×3 and the pill/outline → filled_black redraw; client/src/lib/googleAuth.test.ts — the options passed to Google, one initialise, redraw in place; LoginPage.catalog.test.tsx — REG-080)
 
 ### REG-081 - The Google credential round-trip on the login page
 - **Priority:** P1
@@ -1120,6 +1126,8 @@ Setup: a Development-env API with NO `Email:ApiKey` so verification/reclaim emai
 - **Type:** Happy
 - **Steps:**
   1. Submit the register form for an email the server answers with `verificationPending:true`.
+  2. Click "Use a different email".
 - **Expected:**
-  - The form is replaced by a "Check your inbox" panel naming the email; the app is NOT navigated to (no session). No sign_up analytics fires (no account was created for this caller).
-- **Automated:** Full (client/src/pages/LoginPage.catalog.test.tsx — REG-093)
+  - Step 1: in the card, the switch, the form and Google's button are replaced by a `role="status"` block: the title "Check your inbox" (an h2 under the page's hidden h1; it takes focus, and the next Tab reaches its (i)) with an (i) **What to do next** holding "If that's you, follow the link to take it over. If not, you can ignore this.", the visible sentence naming the email ("An account with {email} already exists but hasn't been confirmed. …"), and "Use a different email" at the card's foot. The app is NOT navigated to (no session). No sign_up analytics fires (no account was created for this caller).
+  - Step 2: the Create account form returns (still on Create account, the address kept) with the caret in "Email".
+- **Automated:** Full (client/src/pages/LoginPage.catalog.test.tsx — REG-093; `LoginPage.frame.test.tsx` — the (i), focus on the title, back to the Email field)
