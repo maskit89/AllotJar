@@ -41,7 +41,7 @@ validation message, every invariant with its PR origin). Read a **case file** to
 | [01-landing-public.md](cases/01-landing-public.md) | `LAND` | 43 | Public landing, legal pages, SEO, consent/staging banners |
 | [02-registration-login.md](cases/02-registration-login.md) | `REG` | 50 | Create-account + sign-in, validation, HIBP, lockout, sample-budget opt-in |
 | [03-session-auth-lifecycle.md](cases/03-session-auth-lifecycle.md) | `SESS` | 42 | Token/refresh lifecycle, silent refresh, expiry prompt, cross-tab logout |
-| [04-account-preferences.md](cases/04-account-preferences.md) | `PREF` | 39 | Profile, currency label, number format, change password, theme |
+| [04-account-preferences.md](cases/04-account-preferences.md) | `PREF` | 45 | Profile, currency label, number format, change password, theme |
 | [05-onboarding.md](cases/05-onboarding.md) | `ONBD` | 31 | Welcome, tour, getting-started checklist |
 | [06-dashboard-budget-view.md](cases/06-dashboard-budget-view.md) | `DASH` | 70 | Budget month view, planned edits, actuals, remaining/balanced hero |
 | [07-month-lifecycle.md](cases/07-month-lifecycle.md) | `BUDG` | 56 | Create/copy/template months, rollover, navigation, duplicates |

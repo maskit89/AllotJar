@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { JOURNEY_PASSWORD, personAction, register, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
+import { JOURNEY_PASSWORD, personAction, register, rowAction, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * The household invite journey (H1), end-to-end: an owner adds a person, emails them a one-time invite
@@ -61,8 +61,9 @@ test('an owner invites a new person who accepts and lands in the shared househol
   // --- Invitee leaves again: lands in their own household, explained, with NO sample data ---
   // The leave path materializes a pure invitee's own household without sample figures
   // (seedSampleBudget: false), so the landing is the create-month hero plus the ?left greeting.
+  // Leave household sits behind the Household card's ⋯ and asks first in a dialog.
   await guest.goto('/account')
-  await guest.getByRole('button', { name: 'Leave household' }).click()
+  await rowAction(guest, 'Household: more actions', 'Leave household')
   await guest.getByRole('button', { name: 'Yes, leave' }).click()
 
   await expect(guest.getByText(/left that household/)).toBeVisible()

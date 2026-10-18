@@ -157,7 +157,7 @@
 - **Preconditions:** Signed in; a second scenario with a dead session on `/account`.
 - **Steps:**
   1. On `/login`, submit a wrong password. Observe the network log.
-  2. Sign in, go to `/account`, kill the session server-side (console `fetch('/api/auth/logout', {method:'POST', credentials:'include'})`), then click "Save preferences".
+  2. Sign in, go to `/account`, kill the session server-side (console `fetch('/api/auth/logout', {method:'POST', credentials:'include'})`), then click Save (named "Save preferences").
 - **Expected:**
   - Step 1: the 401 from `POST /auth/login` triggers NO `/auth/refresh` and no redirect — the form shows "Invalid email or password." (exempt list: `/auth/login`, `/auth/register`, `/auth/refresh`, `/auth/accept-invite`, `/auth/logout`).
   - Step 2: the 401 from `PUT /auth/preferences` (NOT exempt) triggers refresh → refresh fails (cookie revoked) → hard navigation to `/login?reason=expired&returnUrl=%2Faccount` with the expired-session notice ("Your session has expired.") at the top of the card. `/account` is never a silent dead end.
@@ -525,7 +525,7 @@
 - **Origin:** PR #169 / change-password now revokes ALL refresh tokens and returns 200 AuthResponse (was 204) which the client must apply
 - **Preconditions:** Same login on device A (browser, on `/account`) and device B (second browser, signed in on `/`).
 - **Steps:**
-  1. On device A: "Change password" card → fill "Current password", "New password", "Confirm new password" (new random non-breached value) → click "Change password".
+  1. On device A: the Sign-in card's Password row → "Change" (named "Change password") → in the Change password dialog fill "Current password", "New password", "Confirm new password" (new random non-breached value) → click the dialog's "Change password".
   2. Still on device A: keep using the app past the old access token's lifetime (force a silent refresh).
   3. On device B: trigger any API action (or refocus the tab).
   4. From device B's login prompt, sign in with the NEW password.

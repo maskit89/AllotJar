@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import { screen, waitFor, within } from '@testing-library/react'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { Routes, Route } from 'react-router-dom'
 import type { HouseholdMemberDto, MeResponse } from '../types'
 import { formatMoney, fromAmount, setMoneyFormat } from '../lib/money'
 
 // Catalog: docs/testing/cases/04-account-preferences.md (prefix PREF).
-// AccountPage.test.tsx keeps the mismatch-blocked-without-API, Sharing-card,
-// start-own/leave and locked-currency cases. This file covers the change-password and
-// name/prefs saves, side effects, currency relabel, format-immediate-effect,
-// change-password validation, read-only self-serve, sharing navigation and theme.
+// AccountPage.test.tsx keeps the mismatch-blocked-without-API, Household-card,
+// start-own/leave and locked-currency cases, and the restyle's pencil, dialogs, ⋯ menus and (i)
+// hints (restyle PR 12). This file covers the change-password and name/prefs saves, side effects,
+// currency relabel, format-immediate-effect, change-password validation, read-only self-serve,
+// sharing navigation and theme. Since the restyle the name fields open from the pencil ("Edit
+// name"), the password is changed in a dialog opened by the Password row's "Change" (named
+// "Change password", so the dialog's own submit is looked up inside the dialog), the explanations
+// sit behind (i) buttons, and Disconnect sits behind the Google row's ⋯.
 //
 // Determinism notes (this RTL suite is flake-prone under parallel workers):
 //  - every async wait carries an explicit { timeout: 5000 };
@@ -51,6 +55,21 @@ function CurrencyProbe() {
 
 let membersData: HouseholdMemberDto[] = []
 let meData: MeResponse = ownerMe
+
+/** The text behind the (i) named `name` (it renders only while open), read as a pointer would. */
+async function hintText(user: UserEvent, name: string): Promise<string> {
+  const button = await screen.findByRole('button', { name }, { timeout: 5000 })
+  await user.hover(button)
+  const text = (await screen.findByRole('tooltip', {}, { timeout: 5000 })).textContent ?? ''
+  await user.unhover(button)
+  return text
+}
+
+/** Opens the Change password dialog from the Password row's "Change" (named "Change password"). */
+async function openChangePassword(user: UserEvent): Promise<HTMLElement> {
+  await user.click(await screen.findByRole('button', { name: 'Change password' }, { timeout: 5000 }))
+  return screen.findByRole('dialog', { name: 'Change password' }, { timeout: 5000 })
+}
 
 function renderPage(opts: { withPeopleRoute?: boolean } = {}) {
   return renderWithProviders(
@@ -95,6 +114,8 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
+    // The name opens as fields from its pencil.
+    await user.click(await screen.findByRole('button', { name: 'Edit name' }, { timeout: 5000 }))
     const first = (await screen.findByLabelText('First name', {}, { timeout: 5000 })) as HTMLInputElement
     const last = screen.getByLabelText('Last name') as HTMLInputElement
     await user.clear(first)
@@ -131,8 +152,10 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   })
 
   // PREF-012 — The Currency select offers exactly the curated 24-currency list and the
-  // Number-format select exactly 5 worked-example options, with the helper copy above.
+  // Number-format select exactly 5 worked-example options, with the helper copy behind the
+  // Currency (i).
   it('PREF-012: the currency and number-format selects offer the curated option sets', async () => {
+    const user = userEvent.setup()
     renderPage()
 
     const currency = (await screen.findByLabelText('Currency', {}, { timeout: 5000 })) as HTMLSelectElement
@@ -150,7 +173,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
       '1,23,456.78',
     ])
 
-    expect(screen.getByText(/number format controls the decimal and grouping separators/)).toBeInTheDocument()
+    expect(await hintText(user, 'About these settings')).toMatch(/number format controls the decimal and grouping separators/)
   })
 
   // PREF-011 — Changing the preferred currency re-labels (never converts): the chip reads
@@ -270,7 +293,8 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
   // PREF-022 — A successful change clears all three fields and keeps THIS device signed in
   // (the 200 AuthResponse is adopted, no bounce to /login). Extends the existing happy path,
-  // which asserts only the POST + success line.
+  // which asserts only the POST + success line. The dialog closes on success, so the cleared
+  // fields are checked by opening it again.
   it('PREF-022: a successful password change clears the fields and keeps this device signed in', async () => {
     mockPost.mockResolvedValue({
       data: { token: 'fresh-token', expiresAtUtc: '2999-01-01T00:00:00Z', userId: 'u1', email: 'alex@x.com', role: 0, displayName: 'Alex' },
@@ -279,13 +303,14 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    const current = (await screen.findByLabelText('Current password', {}, { timeout: 5000 })) as HTMLInputElement
-    const next = screen.getByLabelText('New password') as HTMLInputElement
-    const confirm = screen.getByLabelText('Confirm new password') as HTMLInputElement
+    const dialog = await openChangePassword(user)
+    const current = within(dialog).getByLabelText('Current password') as HTMLInputElement
+    const next = within(dialog).getByLabelText('New password') as HTMLInputElement
+    const confirm = within(dialog).getByLabelText('Confirm new password') as HTMLInputElement
     await user.type(current, 'Sunlit-Meadow-42a')
     await user.type(next, 'Aa1-fresh-secret')
     await user.type(confirm, 'Aa1-fresh-secret')
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    await user.click(within(dialog).getByRole('button', { name: 'Change password' }))
 
     await waitFor(
       () =>
@@ -296,17 +321,19 @@ describe('AccountPage — preferences catalog (PREF)', () => {
       { timeout: 5000 },
     )
     expect(await screen.findByText(/password has been changed/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(current).not.toBeInTheDocument()
 
+    // No navigation — the change-password form is still reachable and usable, its three fields empty.
+    const again = await openChangePassword(user)
     await waitFor(
       () => {
-        expect(current.value).toBe('')
-        expect(next.value).toBe('')
-        expect(confirm.value).toBe('')
+        expect((within(again).getByLabelText('Current password') as HTMLInputElement).value).toBe('')
+        expect((within(again).getByLabelText('New password') as HTMLInputElement).value).toBe('')
+        expect((within(again).getByLabelText('Confirm new password') as HTMLInputElement).value).toBe('')
       },
       { timeout: 5000 },
     )
-    // No navigation — the change-password form is still mounted and usable.
-    expect(screen.getByRole('button', { name: 'Change password' })).toBeInTheDocument()
+    expect(within(again).getByRole('button', { name: 'Change password' })).toBeInTheDocument()
   })
 
   // PREF-024 — A wrong current password surfaces the Identity message verbatim and keeps
@@ -317,15 +344,17 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    const current = (await screen.findByLabelText('Current password', {}, { timeout: 5000 })) as HTMLInputElement
+    const dialog = await openChangePassword(user)
+    const current = within(dialog).getByLabelText('Current password') as HTMLInputElement
     await user.type(current, 'Wrong-Guess-99z')
-    await user.type(screen.getByLabelText('New password'), 'Aa1-fresh-secret')
-    await user.type(screen.getByLabelText('Confirm new password'), 'Aa1-fresh-secret')
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    await user.type(within(dialog).getByLabelText('New password'), 'Aa1-fresh-secret')
+    await user.type(within(dialog).getByLabelText('Confirm new password'), 'Aa1-fresh-secret')
+    await user.click(within(dialog).getByRole('button', { name: 'Change password' }))
 
     expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent('Incorrect password.')
     expect(screen.queryByText(/password has been changed/)).not.toBeInTheDocument()
-    // Session untouched, values kept for correction.
+    // Session untouched, values kept for correction (the dialog stays open).
+    expect(current).toBeInTheDocument()
     expect(current.value).toBe('Wrong-Guess-99z')
   })
 
@@ -339,10 +368,11 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Current password', {}, { timeout: 5000 }), 'Sunlit-Meadow-42a')
-    await user.type(screen.getByLabelText('New password'), 'alllowercase')
-    await user.type(screen.getByLabelText('Confirm new password'), 'alllowercase')
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    const dialog = await openChangePassword(user)
+    await user.type(within(dialog).getByLabelText('Current password'), 'Sunlit-Meadow-42a')
+    await user.type(within(dialog).getByLabelText('New password'), 'alllowercase')
+    await user.type(within(dialog).getByLabelText('Confirm new password'), 'alllowercase')
+    await user.click(within(dialog).getByRole('button', { name: 'Change password' }))
 
     const banner = await screen.findByRole('alert', {}, { timeout: 5000 })
     expect(banner).toHaveTextContent(upper)
@@ -359,10 +389,11 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    await user.type(await screen.findByLabelText('Current password', {}, { timeout: 5000 }), 'Sunlit-Meadow-42a')
-    await user.type(screen.getByLabelText('New password'), 'Password123')
-    await user.type(screen.getByLabelText('Confirm new password'), 'Password123')
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    const dialog = await openChangePassword(user)
+    await user.type(within(dialog).getByLabelText('Current password'), 'Sunlit-Meadow-42a')
+    await user.type(within(dialog).getByLabelText('New password'), 'Password123')
+    await user.type(within(dialog).getByLabelText('Confirm new password'), 'Password123')
+    await user.click(within(dialog).getByRole('button', { name: 'Change password' }))
 
     expect(await screen.findByRole('alert', {}, { timeout: 5000 })).toHaveTextContent(hibp)
     expect(screen.queryByText(/password has been changed/)).not.toBeInTheDocument()
@@ -377,13 +408,15 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    const current = await screen.findByLabelText('Current password', {}, { timeout: 5000 })
-    const next = screen.getByLabelText('New password') as HTMLInputElement
-    const confirm = screen.getByLabelText('Confirm new password') as HTMLInputElement
+    const dialog = await openChangePassword(user)
+    const submit = within(dialog).getByRole('button', { name: 'Change password' })
+    const current = within(dialog).getByLabelText('Current password')
+    const next = within(dialog).getByLabelText('New password') as HTMLInputElement
+    const confirm = within(dialog).getByLabelText('Confirm new password') as HTMLInputElement
     await user.type(current, 'Sunlit-Meadow-42a')
     await user.type(next, 'Aa1xyzw') // 7 characters
     await user.type(confirm, 'Aa1xyzw')
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    await user.click(submit)
 
     // Blocked below the minimum — no request, no success.
     expect(mockPost).not.toHaveBeenCalled()
@@ -394,7 +427,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     await user.type(next, 'Aa1xyzw2') // 8 characters
     await user.clear(confirm)
     await user.type(confirm, 'Aa1xyzw2')
-    await user.click(screen.getByRole('button', { name: 'Change password' }))
+    await user.click(submit)
 
     await waitFor(
       () =>
@@ -423,6 +456,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     const saveBtn = screen.getByRole('button', { name: 'Save preferences' })
     expect(saveBtn).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Change password' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Edit name' }))
     expect(screen.getByLabelText('First name')).toBeEnabled()
 
     await user.selectOptions(screen.getByLabelText('Number format'), 'dot-comma')
@@ -441,9 +475,9 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(await screen.findByText(/preferences have been saved/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
-  // PREF-034 — The solo Sharing card carries the on-your-own copy and its "Share this
-  // budget" button navigates (SPA) to /people. Extends the existing test, which asserts
-  // only the button's presence.
+  // PREF-034 — The solo sharing row ("Just you") carries the on-your-own copy behind its (i) and
+  // its "Share this budget" button navigates (SPA) to /people. Extends the existing test, which
+  // asserts only the button's presence.
   it('PREF-034: the solo Sharing card explains sharing and navigates to /people', async () => {
     membersData = []
     const user = userEvent.setup()
@@ -451,7 +485,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     renderPage({ withPeopleRoute: true })
 
     const shareBtn = await screen.findByRole('button', { name: 'Share this budget' }, { timeout: 5000 })
-    expect(screen.getByText(/budgeting on your own/)).toBeInTheDocument()
+    expect(await hintText(user, 'About sharing')).toMatch(/budgeting on your own/)
 
     await user.click(shareBtn)
     expect(await screen.findByText('PEOPLE PAGE SENTINEL', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -481,36 +515,42 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(localStorage.getItem('zbb.theme')).toBe('light')
   })
 
-  // PREF-040 — a Google-created (passwordless) login sees no change-password form; instead an
-  // "add a password via Forgot password" note. A password login keeps the form.
+  // PREF-040 — a Google-created (passwordless) login sees no change-password form; instead the
+  // Password row's "Set a password" (the forgot-password flow), with the add-a-password note behind
+  // its (i). A password login keeps the form.
   it('PREF-040: a passwordless login gets an add-password note, not a change-password form', async () => {
     meData = { ...ownerMe, hasPassword: false } as typeof ownerMe
+    const user = userEvent.setup()
 
     renderPage()
 
-    // The card retitles and the form is gone.
+    // The row is titled Password and the form is gone.
     expect(await screen.findByRole('heading', { name: 'Password' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Change password' })).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Current password')).not.toBeInTheDocument()
 
     // The way to ADD a password is the (passwordless-safe) forgot-password flow.
-    const link = screen.getByRole('link', { name: 'Forgot password' })
+    const link = screen.getByRole('link', { name: 'Set a password' })
     expect(link).toHaveAttribute('href', '/forgot-password')
-    expect(screen.getByText(/sign in with Google/i)).toBeInTheDocument()
+    expect(await hintText(user, 'About the password')).toMatch(/sign in with Google/i)
   })
 
-  // PREF-040 — the ordinary password login is unchanged: the change-password form is present.
+  // PREF-040 — the ordinary password login is unchanged: the change-password form is present
+  // (in the dialog the Password row's "Change" opens), and no "Set a password".
   it('PREF-040: a password login keeps the change-password form', async () => {
     meData = { ...ownerMe, hasPassword: true } as typeof ownerMe
+    const user = userEvent.setup()
 
     renderPage()
 
-    expect(await screen.findByRole('heading', { name: 'Change password' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Current password')).toBeInTheDocument()
+    const dialog = await openChangePassword(user)
+    expect(within(dialog).getByRole('heading', { name: 'Change password' })).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Current password')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Set a password' })).not.toBeInTheDocument()
   })
 
-  // PREF-041 — the "Connected accounts" card only shows when Google is linked; with a password,
-  // Disconnect is enabled and POSTs /auth/google/unlink; the reissued session is applied.
+  // PREF-041 — the Google row only shows when Google is linked; with a password, Disconnect (behind
+  // the row's ⋯) is enabled and POSTs /auth/google/unlink; the reissued session is applied.
   it('PREF-041: a linked login with a password can disconnect Google', async () => {
     meData = { ...ownerMe, hasGoogle: true, hasPassword: true } as typeof ownerMe
     mockPost.mockResolvedValue({
@@ -520,38 +560,48 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    const disconnect = await screen.findByRole('button', { name: 'Disconnect' }, { timeout: 5000 })
-    expect(disconnect).toBeEnabled()
+    await user.click(await screen.findByRole('button', { name: 'Google: more actions' }, { timeout: 5000 }))
+    const disconnect = await screen.findByRole('menuitem', { name: 'Disconnect' }, { timeout: 5000 })
+    expect(disconnect).not.toHaveAttribute('aria-disabled')
     await user.click(disconnect)
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/google/unlink'), { timeout: 5000 })
     expect(await screen.findByText('Google has been disconnected.')).toBeInTheDocument()
   })
 
-  // PREF-041 — a passwordless linked login can't disconnect (it's the only way in): the button is
-  // disabled and the card explains to set a password first.
+  // PREF-041 — a passwordless linked login can't disconnect (it's the only way in): the menu item is
+  // disabled and the line under it explains to set a password first.
   it('PREF-041: a passwordless linked login sees Disconnect disabled with a set-a-password hint', async () => {
     meData = { ...ownerMe, hasGoogle: true, hasPassword: false } as typeof ownerMe
+    const user = userEvent.setup()
 
     renderPage()
 
-    const disconnect = await screen.findByRole('button', { name: 'Disconnect' }, { timeout: 5000 })
-    expect(disconnect).toBeDisabled()
+    await user.click(await screen.findByRole('button', { name: 'Google: more actions' }, { timeout: 5000 }))
+    const disconnect = await screen.findByRole('menuitem', { name: 'Disconnect' }, { timeout: 5000 })
+    expect(disconnect).toHaveAttribute('aria-disabled', 'true')
     expect(screen.getByText(/only way to sign in, so it can't be disconnected/i)).toBeInTheDocument()
-    // A passwordless account shows a "Forgot password" link in BOTH the Password card and this
-    // Connected-accounts hint — both point at /forgot-password.
-    const forgotLinks = screen.getAllByRole('link', { name: 'Forgot password' })
-    expect(forgotLinks.length).toBeGreaterThanOrEqual(1)
-    forgotLinks.forEach((l) => expect(l).toHaveAttribute('href', '/forgot-password'))
+    expect(disconnect).toHaveAccessibleDescription(/only way to sign in, so it can't be disconnected/i)
+    await user.click(disconnect)
+    expect(mockPost).not.toHaveBeenCalled()
+    await user.keyboard('{Escape}')
+    // The way to set one is the Password row's "Set a password" — it points at /forgot-password.
+    const setLinks = screen.getAllByRole('link', { name: 'Set a password' })
+    expect(setLinks.length).toBeGreaterThanOrEqual(1)
+    setLinks.forEach((l) => expect(l).toHaveAttribute('href', '/forgot-password'))
   })
 
-  // PREF-041 — no Google linked ⇒ no "Connected accounts" card at all.
+  // PREF-041 — no Google linked ⇒ no Google row (and no "Connected accounts" card) at all.
   it('PREF-041: no card when Google is not linked', async () => {
     meData = { ...ownerMe, hasGoogle: false } as typeof ownerMe
 
     renderPage()
 
-    await screen.findByRole('heading', { name: 'Change password' }, { timeout: 5000 })
+    await screen.findByRole('heading', { name: 'Sign-in' }, { timeout: 5000 })
+    await screen.findByRole('button', { name: 'Change password' }, { timeout: 5000 })
     expect(screen.queryByRole('heading', { name: 'Connected accounts' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Google' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Google: more actions' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument()
   })
 })

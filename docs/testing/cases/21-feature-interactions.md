@@ -552,7 +552,7 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Steps:**
   1. On `/people` add a second budget person "Alex" (PPL-030).
   2. Without reloading, open `/transactions` add/split, re-open `/people`, and check the top nav.
-- **Expected:** `isShared` flips to true the moment headcount reaches 2, so: the member select appears on the transaction add/split forms (PPL-033, TX-015/16), the People sharing card copy switches to the shared wording (PPL-069), and the **Allocation** nav pill appears (`householdAllocation && isShared` — ALLOC-003). Solo gating is a live derived state (members ≥ 2), not a stored mode.
+- **Expected:** `isShared` flips to true the moment headcount reaches 2, so: the member select appears on the transaction add/split forms (PPL-033, TX-015/16), the Account settings sharing row switches from "Just you" to the people's faces and names (PPL-069), and the **Allocation** nav pill appears (`householdAllocation && isShared` — ALLOC-003). Solo gating is a live derived state (members ≥ 2), not a stored mode.
 - **Automated:** Partial (client/src/pages/PeoplePage.test.tsx + TransactionsPage.test.tsx + AppNav.test.tsx)
 
 ### CMB-044 - Archiving back to one member flips shared → solo but the Allocation page stays URL-reachable

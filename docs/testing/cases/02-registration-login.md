@@ -362,7 +362,7 @@
   1. Register with First name `José-María`, Last name `Żółć 🌱`.
   2. After landing, open the account menu and `/account`.
 - **Expected:**
-  - Registration succeeds. Account menu chip and `/account` "Name" row show `José-María Żółć 🌱` (DisplayName = `"{First} {Last}".Trim()`), rendered without mojibake.
+  - Registration succeeds. Account menu chip and the `/account` profile's name heading show `José-María Żółć 🌱` (DisplayName = `"{First} {Last}".Trim()`), rendered without mojibake.
 - **Automated:** No
 
 ### REG-029 - Very long names don't break registration or the shell
@@ -411,10 +411,10 @@
 - **Steps:**
   1. Register with Currency = "Polish złoty (zł)" and Number format = "1.234,56", sample figures **ticked**.
   2. Inspect the dashboard hero and the account menu.
-  3. Open `/account` → Preferences card.
+  3. Open `/account` → Preferences (under the profile in the "Your account" card).
 - **Expected:**
   - Money renders in PLN with dot-comma grouping app-wide (hero "Remaining to budget" shows the seeded 800 as `800,00 zł`-style per the PLN formatter with de-DE grouping).
-  - Account-menu chip shows "PLN · Your household" (the budget currency). `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56" while the budget is still empty; once it holds an account, month or transaction the currency shows read-only with "Your budget currency is fixed once your budget has accounts, months or transactions." (PREF-011), and every month is created in PLN.
+  - Account-menu chip shows "PLN · Your household" (the budget currency). `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56" while the budget is still empty; once it holds an account, month or transaction the currency shows read-only with a lock, and its (i) "About the lock" reads "Your budget currency is fixed once your budget has accounts, months or transactions. …" (PREF-011), and every month is created in PLN.
   - The signed-out pages' line on later visits aside (it follows the browser locale, REG-031), the in-app "give every złoty a job" surfaces use the noun "złoty".
 - **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration submits the chosen prefs; client/src/lib/money.test.ts — formats render; the end-to-end render isn't tested)
 
@@ -628,8 +628,8 @@
 - **Expected:**
   - Chip shows the display name and "{budget currency} · Your household"; no household-switcher section (single household); menu offers "Account settings" and "Sign out".
   - Nav: "People" is visible (always — project invariant); "Allocation" is hidden (solo household of 1 member — the owner is member #1, never a 0-member household).
-  - `/account`: "Access level" = "Owner"; the Sharing card reads the solo variant ("You're budgeting on your own. …" with "Share this budget"); no "Leave household" card.
-- **Automated:** Partial (client/src/components/AppNav.test.tsx — People always/Allocation solo-hidden; client/src/pages/AccountPage.test.tsx — solo cards; client/src/components/HouseholdSwitcher.test.tsx — hidden for single household; not exercised as one post-registration flow)
+  - `/account`: the access level chip reads "Owner"; the Household card's sharing row reads the solo variant ("Just you", with "You're budgeting on your own. …" behind its (i), and "Share this budget"); no Household ⋯ (no "Leave household").
+- **Automated:** Partial (client/src/components/AppNav.test.tsx — People always/Allocation solo-hidden; client/src/pages/AccountPage.test.tsx — the solo sharing row; client/src/components/HouseholdSwitcher.test.tsx — hidden for single household; not exercised as one post-registration flow)
 
 ### REG-050 - Analytics events fire with whitelisted params only
 - **Priority:** P3

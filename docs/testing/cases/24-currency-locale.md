@@ -183,7 +183,7 @@
 - **Origin:** `setMoneyFormat` mutates the module-level active locale; `numberFormat` is an auth-context dependency, so consumers re-render app-wide.
 - **Preconditions:** U-EUR (comma-dot) with data on every screen (budget lines, a transaction, a transfer, a jar, an allocation preview, an account, a report month, a committed import).
 - **Steps:**
-  1. Open `/account` → Preferences, change **Number format** from **1,234.56** to **1.234,56** (dot-comma), Save preferences.
+  1. Open `/account` → Preferences, change **Number format** from **1,234.56** to **1.234,56** (dot-comma), **Save** (named "Save preferences").
   2. Visit `/`, `/transactions`, `/jars`, `/allocation`, `/reports`, `/accounts`, `/import` result.
 - **Expected:** On save, "Your preferences have been saved." Every money value across all surfaces switches grouping/decimal style (e.g. `1,100.00` → `1.100,00`, symbol moves to suffix) — dashboard hero + lines, register rows, transfer amounts, jar balances, allocation steps, report bars/table, account cards/hero, import commit sums, and delete/confirm text. Currency **codes/symbols are unchanged**; only formatting changes. No page reload required.
 - **Automated:** No
@@ -276,7 +276,7 @@
   1. `/account` → Preferences: read "Currency".
   2. `PUT /auth/preferences` with `preferredCurrency: "USD"`.
   3. Visit `/jars` and `/allocation`.
-- **Expected:** Step 1: a read-only "Euro (€)" with "Your budget currency is fixed once your budget has accounts, months or transactions." Step 2: 400 "Your budget is in EUR and already has accounts, months or transactions, so its currency can't be changed.". Step 3: "Emergency" and "Total saved" read **€500.00**; "Income to allocate" **€2,000.00** — unchanged symbol and number. (PREF-011/PREF-042.)
+- **Expected:** Step 1: a read-only "Euro (€)" with a lock; its (i) "About the lock" (and, for a screen reader, the field's description) says "Your budget currency is fixed once your budget has accounts, months or transactions." Step 2: 400 "Your budget is in EUR and already has accounts, months or transactions, so its currency can't be changed.". Step 3: "Emergency" and "Total saved" read **€500.00**; "Income to allocate" **€2,000.00** — unchanged symbol and number. (PREF-011/PREF-042.)
 - **Automated:** Partial (client/src/pages/AccountPage.test.tsx — read-only locked currency; ForeignAmountsTests — `The_budget_currency_is_fixed_once_the_household_holds_anything`)
 
 ### CURR-027 - Every surface labels money in the same budget currency (no mixed-symbol app)
