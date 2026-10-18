@@ -223,7 +223,7 @@ jobs:
           }
           # Only runs on main count: a run of the same commit on another branch (PR CI skips
           # the journey and a11y jobs) must not stand in for main's CI.
-          FIELDS='.workflow_runs[] | select(.head_branch == "main") | "\(.head_sha) \(.status) \(.conclusion // "")"'
+          FIELDS='.workflow_runs[] | select(.head_branch == "main" and .event != "pull_request") | "\(.head_sha) \(.status) \(.conclusion // "")"'
 
           # The run for this exact commit, asked for by SHA: the newest-first list below
           # is sometimes served stale and can miss it.
@@ -273,7 +273,7 @@ jobs:
             fi
             verdict "$run_sha" "$status" "$conclusion"
           done <<< "$runs"
-          refuse "No CI run found on main at or before $SHA."
+          refuse "No CI run found on main at or before $SHA among the newest 100 CI runs (a 404 from the runs list can also mean the token lacks actions: read)."
 
   build-production:
     name: build release (production)
