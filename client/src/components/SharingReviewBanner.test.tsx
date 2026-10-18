@@ -89,7 +89,10 @@ describe('SharingReviewBanner', () => {
     await user.click(await screen.findByRole('button', { name: 'Review sharing' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', { name: 'Who sees your accounts' }))
     await user.click(dialog.getByRole('button', { name: 'Save' }))
-    await user.click(dialog.getByRole('button', { name: 'Save' }))
+    // Busy: the button keeps focus (aria-disabled) but a second click or Enter sends nothing.
+    const busy = dialog.getByRole('button', { name: 'Saving…' })
+    await user.click(busy)
+    expect(busy).toHaveFocus()
     await user.keyboard('{Enter}')
     expect(mockPost.mock.calls.filter(([url]) => url === '/accounts/sharing-review')).toHaveLength(1)
     finish({ data: { pending: false, accounts: [] } })

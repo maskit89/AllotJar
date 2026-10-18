@@ -1288,7 +1288,7 @@ export function PeoplePage() {
                 {invited.method === 'direct' ? (
                   <>
                     We couldn't email <span className="font-medium">{invited.email}</span> their link. When they sign
-                    in with the temporary password, they can ask for it again with "Email me the link again".
+                    in with the temporary password, they can ask for it again with "Email me the link".
                   </>
                 ) : (
                   <>

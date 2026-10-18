@@ -105,6 +105,8 @@ test.describe('the analytics consent banner', () => {
     await expectOneLine(page, 'We use Google Analytics for anonymous usage only; change it under Help.', 'info')
     const card = region.locator('[data-tone]')
     const tabbar = page.locator('[data-tabbar]')
+    // Measure only once Hanken Grotesk has swapped in: the line re-wraps when it does (CI 937's race).
+    await page.evaluate(() => document.fonts.ready.then(() => true))
     const cardBox = (await card.boundingBox())!
     const tabBox = (await tabbar.boundingBox())!
     expect(cardBox.y + cardBox.height).toBeLessThanOrEqual(tabBox.y)
@@ -113,10 +115,16 @@ test.describe('the analytics consent banner', () => {
     await expect(page).toHaveURL(/\/jars$/)
     await expect(region).toBeVisible()
     // The room it publishes for the Help page is the whole wrapper, the tab bar's room included.
+    // --consent-h follows the box on the next ResizeObserver callback, so poll until they agree.
+    await page.evaluate(() => document.fonts.ready.then(() => true))
+    await expect
+      .poll(async () => {
+        const box = (await region.boundingBox())!
+        const published = await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--consent-h'))
+        return published === `${Math.ceil(box.height)}px`
+      })
+      .toBe(true)
     const regionBox = (await region.boundingBox())!
-    expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--consent-h'))).toBe(
-      `${Math.ceil(regionBox.height)}px`,
-    )
     expect(regionBox.height).toBeGreaterThan(cardBox.height + tabBox.height)
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390)
   })
@@ -129,6 +137,7 @@ test.describe('the analytics consent banner', () => {
     const region = page.getByRole('region', { name: 'Analytics consent' })
     const card = region.locator('[data-tone]')
     await expect(card).toBeVisible()
+    await page.evaluate(() => document.fonts.ready.then(() => true))
     const cardBox = (await card.boundingBox())!
     const sidebar = (await page.locator('[data-sidebar]').boundingBox())!
     expect(cardBox.x).toBeGreaterThanOrEqual(sidebar.x + sidebar.width)
