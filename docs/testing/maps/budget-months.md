@@ -96,12 +96,12 @@ Dashboard render states (DashboardPage.tsx):
 - **"+ Add group"** button (aria "Add a group") reveals: name input (placeholder "Add a category group (e.g. Subscriptions, Insurance)…" or, when kind=savings, "Add a savings group (e.g. Travel, Big purchases)…"; aria "New category group name"; Enter submits, Escape cancels), kind `<select>` with options **Expense** / **Savings** (aria "New group kind"), **"Add"** (aria "Add category group"), **"Cancel"** (aria "Cancel adding group").
 
 ### Getting-started checklist steps (GettingStartedChecklist.tsx:89-95)
-1. "Create your first month" — hint "Start blank or pick a template — later months can copy the previous one." (wording from PR #170)
-2. "Plan your income" — hint "Add what you expect to earn this month."
-3. "Add a jar" — hint "A yearly bill, a holiday or a rainy-day pot." — links to `/jars`; done when `GET /jars` returns a jar (jar setup plan, PR 3); left out while the `jars` flag is off.
-4. "Give every {noun} a job" — hint "Assign it all until Remaining reaches zero." — done requires `income > 0 && remaining === 0` (line 55; matches #172).
-5. "Log your first transaction" — hint "Record real spending and assign it to a line."
-Plus collapse/dismiss buttons, progress bar, "All set — every {noun} has a job! 🎉" when complete. Progress refreshes on mount, on every route change, and on window focus.
+1. "Create your first month"
+2. "Plan your income"
+3. "Add a jar" — links to `/jars`; done when `GET /jars` returns a jar (jar setup plan, PR 3); left out while the `jars` flag is off.
+4. "Give every {noun} a job" — done requires `income > 0 && remaining === 0` (matches #172).
+5. "Log your first transaction"
+No hint under the rows since restyle PR 19: one (i) "About getting started" on the eyebrow holds them ("Steps tick themselves off as you go. Start a month blank or from a template, add your income and a jar, assign it all until Remaining to budget reads zero, then log your spending."). Plus collapse/dismiss buttons, a thin progress line, the one line "Every {noun} has a job." with a quiet "Dismiss" when complete. Progress refreshes on mount, on every route change, and on window focus.
 
 ### Analytics events fired here
 - `budgetMonthCreated` `{source: 'copy'|'blank'|'template'}` (DashboardPage.tsx:151,176)

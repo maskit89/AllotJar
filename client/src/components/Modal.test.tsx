@@ -88,4 +88,28 @@ describe('Modal', () => {
     await user.click(close[0])
     expect(onClose).toHaveBeenCalledTimes(1)
   })
+
+  // Restyle PR 19 (the onboarding welcome): two opt-ins; left out, nothing changes.
+  it('sheet `banner` draws above the title row; `describedBy` sets aria-describedby; left out, neither is there', () => {
+    const { unmount } = render(
+      <Modal sheet title="Welcome" banner={<div data-testid="room" />} describedBy="line" onClose={() => {}}>
+        <p id="line">One line.</p>
+      </Modal>,
+    )
+    const dialog = screen.getByRole('dialog', { name: 'Welcome' })
+    expect(dialog).toHaveAttribute('aria-describedby', 'line')
+    const room = within(dialog).getByTestId('room')
+    const title = within(dialog).getByRole('heading', { name: 'Welcome' })
+    expect(room.compareDocumentPosition(title) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    unmount()
+
+    render(
+      <Modal sheet title="Plain" onClose={() => {}}>
+        <p>Body</p>
+      </Modal>,
+    )
+    const plain = screen.getByRole('dialog', { name: 'Plain' })
+    expect(plain).not.toHaveAttribute('aria-describedby')
+    expect(within(plain).getByRole('heading', { name: 'Plain' }).parentElement?.parentElement?.previousElementSibling).toBeNull()
+  })
 })

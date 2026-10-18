@@ -119,6 +119,12 @@ function ReplayTrigger() {
 }
 
 const KEY = 'zbb.onboarding:u-me'
+
+/** Opens an (i) (focus shows its popover, as a keyboard user reaches it) and returns the popover. */
+async function openHint(scope: HTMLElement, label: string) {
+  act(() => within(scope).getByRole('button', { name: label }).focus())
+  return screen.findByRole('tooltip')
+}
 const readRecord = () => JSON.parse(localStorage.getItem(KEY) || '{}')
 
 describe('Onboarding — catalog (ONBD)', () => {
@@ -136,7 +142,8 @@ describe('Onboarding — catalog (ONBD)', () => {
   })
 
   // ONBD-001 — the welcome auto-opens with the exact OWNER copy, bullets, controls, dialog role,
-  // and nothing persisted until an action is taken.
+  // and nothing persisted until an action is taken. Restyle PR 19: one sentence (the budget currency's noun, as
+  // the landing page), and the three bullets behind the title's (i) in two sentences.
   it('ONBD-001: welcome auto-opens with owner copy, bullets, controls and nothing persisted yet', { timeout: 15000 }, async () => {
     renderOnboarding()
 
@@ -144,14 +151,16 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(within(dialog).getByRole('heading', { name: 'Welcome to AllotJar' })).toBeInTheDocument()
 
-    // Owner body branch speaks the default euro noun; the joined branch is absent.
-    expect(within(dialog).getByText('every euro a job')).toBeInTheDocument()
+    // Owner body branch speaks the default euro noun; the joined branch is absent. The line describes the dialog.
+    const line = within(dialog).getByText('A budget that gives every euro a job.')
+    expect(dialog).toHaveAttribute('aria-describedby', line.id)
     expect(screen.queryByText(/joined a shared household budget/)).not.toBeInTheDocument()
 
-    // The three owner bullets, verbatim.
-    expect(within(dialog).getByText('Plan a month and assign your income')).toBeInTheDocument()
-    expect(within(dialog).getByText('Track real spending against each line')).toBeInTheDocument()
-    expect(within(dialog).getByText('Save toward goals with jars')).toBeInTheDocument()
+    // The three owner bullets, behind the (i).
+    const about = await openHint(dialog, 'About AllotJar')
+    expect(about).toHaveTextContent('Plan a month and assign your income')
+    expect(about).toHaveTextContent(/track real spending against each line/i)
+    expect(about).toHaveTextContent('Save toward goals with jars')
 
     // Controls: secondary skip, primary tour, and the top-right close.
     expect(within(dialog).getByRole('button', { name: 'Skip for now' })).toBeInTheDocument()
@@ -172,12 +181,13 @@ describe('Onboarding — catalog (ONBD)', () => {
     // The joined branch appears once /auth/me resolves the (non-own) active household.
     await screen.findByText(/joined a shared household budget/, {}, { timeout: 5000 })
     expect(screen.getByRole('heading', { name: 'Welcome to AllotJar' })).toBeInTheDocument()
-    // Member bullets replace the owner set.
-    expect(screen.getByText(/See the month.s plan and where money goes/)).toBeInTheDocument()
-    expect(screen.getByText('Record spending as it happens')).toBeInTheDocument()
-    expect(screen.getByText('Watch jars fill toward shared goals')).toBeInTheDocument()
+    // Member bullets replace the owner set, behind the (i).
+    const about = await openHint(screen.getByRole('dialog'), 'About AllotJar')
+    expect(about).toHaveTextContent(/See the month.s plan and where money goes/)
+    expect(about).toHaveTextContent(/record spending as it happens/i)
+    expect(about).toHaveTextContent('Watch jars fill toward shared goals')
     // The owner-only bullet is gone.
-    expect(screen.queryByText('Plan a month and assign your income')).not.toBeInTheDocument()
+    expect(about).not.toHaveTextContent('Plan a month and assign your income')
   })
 
   // ONBD-003 — Close X, backdrop click and Escape each behave like "Skip for now": dialog closes,
@@ -305,7 +315,8 @@ describe('Onboarding — catalog (ONBD)', () => {
   })
 
   // ONBD-014 — the initial checklist for an empty account: 0 of 5, exact steps/hints/links, a
-  // 0-valued progressbar, both header buttons, and nothing ticked.
+  // 0-valued progressbar, both header buttons, and nothing ticked. Restyle PR 19: the hints that sat
+  // under every row are one (i) on the title.
   it('ONBD-014: empty-account checklist renders 0 of 5 with exact steps, hints, links and progressbar', { timeout: 15000 }, async () => {
     renderOnboarding()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
@@ -319,29 +330,29 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(bar).toHaveAttribute('aria-valuemin', '0')
     expect(bar).toHaveAttribute('aria-valuemax', '5')
 
-    // Step labels + hints, verbatim.
+    // Step labels, verbatim; the hints behind the (i).
     expect(within(region).getByText('Create your first month')).toBeInTheDocument()
-    expect(within(region).getByText(/Start blank or pick a template/)).toBeInTheDocument()
     expect(within(region).getByText('Plan your income')).toBeInTheDocument()
-    expect(within(region).getByText('Add what you expect to earn this month.')).toBeInTheDocument()
     expect(within(region).getByText('Add a jar')).toBeInTheDocument()
-    expect(within(region).getByText('A yearly bill, a holiday or a rainy-day pot.')).toBeInTheDocument()
     expect(within(region).getByText('Give every euro a job')).toBeInTheDocument()
-    expect(within(region).getByText('Assign it all until Remaining reaches zero.')).toBeInTheDocument()
     expect(within(region).getByText('Log your first transaction')).toBeInTheDocument()
-    expect(within(region).getByText('Record real spending and assign it to a line.')).toBeInTheDocument()
+    const about = await openHint(region, 'About getting started')
+    expect(about).toHaveTextContent(/Start a month blank or from a template/)
+    expect(about).toHaveTextContent(/add your income and a jar/)
+    expect(about).toHaveTextContent(/assign it all until Remaining to budget reads zero/)
+    expect(about).toHaveTextContent(/log your spending/)
 
     // Links: month/income/balance → "/", jar → "/jars", transaction → "/transactions".
     expect(within(region).getByText('Create your first month').closest('a')).toHaveAttribute('href', '/')
     expect(within(region).getByText('Add a jar').closest('a')).toHaveAttribute('href', '/jars')
     expect(within(region).getByText('Log your first transaction').closest('a')).toHaveAttribute('href', '/transactions')
 
-    // Header controls + all steps unticked ("To do:" x5, no "Done:", no strikethrough).
+    // Header controls + all steps unticked ("To do:" x5, no "Done:", each row named as to do).
     expect(within(region).getByRole('button', { name: 'Collapse getting started' })).toBeInTheDocument()
     expect(within(region).getByRole('button', { name: 'Dismiss getting started' })).toBeInTheDocument()
     expect(within(region).getAllByText('To do:')).toHaveLength(5)
     expect(within(region).queryByText('Done:')).not.toBeInTheDocument()
-    expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
+    expect(within(region).getByRole('link', { name: 'To do: Give every euro a job' })).toBeInTheDocument()
   })
 
   // ONBD-016 — PR #172 guard: a zero-income month with remaining exactly 0 must NOT tick "Give
@@ -356,9 +367,9 @@ describe('Onboarding — catalog (ONBD)', () => {
     await within(region).findByText('1 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '1')
     // Month created ✓, but income + balance stay unticked despite remaining === 0.
-    expect(within(region).getByText('Create your first month')).toHaveClass('line-through')
-    expect(within(region).getByText('Plan your income')).not.toHaveClass('line-through')
-    expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
+    expect(within(region).getByRole('link', { name: 'Done: Create your first month' })).toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'To do: Plan your income' })).toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'To do: Give every euro a job' })).toBeInTheDocument()
   })
 
   // ONBD-029 — the opted-in sample start pre-ticks exactly 2 of 5: month ✓, income ✓, balance ✗
@@ -373,15 +384,15 @@ describe('Onboarding — catalog (ONBD)', () => {
 
     await within(region).findByText('2 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '2')
-    expect(within(region).getByText('Create your first month')).toHaveClass('line-through')
-    expect(within(region).getByText('Plan your income')).toHaveClass('line-through')
-    expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
-    expect(within(region).getByText('Log your first transaction')).not.toHaveClass('line-through')
-    expect(within(region).queryByText(/All set/)).not.toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'Done: Create your first month' })).toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'Done: Plan your income' })).toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'To do: Give every euro a job' })).toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'To do: Log your first transaction' })).toBeInTheDocument()
+    expect(within(region).queryByText(/has a job\./)).not.toBeInTheDocument()
   })
 
   // ONBD-015 (end state) — a fully-built month reads 5 of 5 with every step ticked, a full
-  // progressbar and the all-done footer + "Hide this checklist".
+  // progressbar and the all-done line + a quiet "Dismiss" (restyle PR 19: no emoji).
   it('ONBD-015: a complete budget reads 5 of 5 with the all-done footer', { timeout: 15000 }, async () => {
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
@@ -394,8 +405,8 @@ describe('Onboarding — catalog (ONBD)', () => {
     await within(region).findByText('5 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '5')
     expect(within(region).getAllByText('Done:')).toHaveLength(5)
-    expect(within(region).getByText('All set — every euro has a job! 🎉')).toBeInTheDocument()
-    expect(within(region).getByRole('button', { name: 'Hide this checklist' })).toBeInTheDocument()
+    expect(within(region).getByText('Every euro has a job.')).toBeInTheDocument()
+    expect(within(region).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
   })
 
   // ONBD-019 — progress refreshes on route change: a step ticks up without a reload once the
@@ -429,7 +440,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }, { timeout: 5000 }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
     await within(region).findByText('5 of 5 done', {}, { timeout: 5000 })
-    expect(within(region).getByText('All set — every euro has a job! 🎉')).toBeInTheDocument()
+    expect(within(region).getByText('Every euro has a job.')).toBeInTheDocument()
 
     // Teardown: transactions gone and the month back to zero income (the month itself still exists).
     transactionsData = []
@@ -439,10 +450,10 @@ describe('Onboarding — catalog (ONBD)', () => {
 
     await within(region).findByText('1 of 5 done', {}, { timeout: 5000 })
     expect(within(region).getByRole('progressbar', { name: 'Onboarding progress' })).toHaveAttribute('aria-valuenow', '1')
-    expect(within(region).getByText('Create your first month')).toHaveClass('line-through')
-    expect(within(region).getByText('Give every euro a job')).not.toHaveClass('line-through')
-    expect(within(region).queryByText(/All set/)).not.toBeInTheDocument()
-    expect(within(region).queryByRole('button', { name: 'Hide this checklist' })).not.toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'Done: Create your first month' })).toBeInTheDocument()
+    expect(within(region).getByRole('link', { name: 'To do: Give every euro a job' })).toBeInTheDocument()
+    expect(within(region).queryByText(/has a job\./)).not.toBeInTheDocument()
+    expect(within(region).queryByRole('button', { name: 'Dismiss' })).not.toBeInTheDocument()
   })
 
   // ONBD-018 — Collapse is session-only (component-local), not the persisted Dismiss: the panel
@@ -454,10 +465,10 @@ describe('Onboarding — catalog (ONBD)', () => {
     await within(region).findByText('0 of 5 done', {}, { timeout: 5000 })
 
     fireEvent.click(within(region).getByRole('button', { name: 'Collapse getting started' }))
-    // Panel gone, replaced by a "Getting started · 0/5" pill.
+    // Panel gone, replaced by a "Getting started" pill with a "0 of 5" chip (restyle PR 19).
     await waitFor(() => expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument(), { timeout: 5000 })
     const pill = screen.getByRole('button', { name: /Getting started/ })
-    expect(pill).toHaveTextContent('0/5')
+    expect(pill).toHaveTextContent('0 of 5')
     // Collapse is NOT a dismiss — nothing persisted it.
     expect(readRecord().checklistDismissed).not.toBe(true)
 
@@ -521,7 +532,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     )
   })
 
-  // ONBD-004 — the currency noun threads through the welcome body, tour step 3, checklist step 3
+  // ONBD-004 — the currency noun threads through the welcome line, tour step 3, checklist step 3
   // and the all-done line (USD → "dollar").
   it('ONBD-004: the currency noun (USD → "dollar") threads through welcome, tour, checklist and all-done', { timeout: 15000 }, async () => {
     localStorage.setItem('zbb.currency', 'USD')
@@ -532,9 +543,10 @@ describe('Onboarding — catalog (ONBD)', () => {
     jarsData = [{ id: 'j1' }]
     renderOnboarding()
 
-    // Welcome body uses the dollar noun.
+    // The welcome line uses the dollar noun.
     const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
-    expect(within(dialog).getByText('every dollar a job')).toBeInTheDocument()
+    expect(within(dialog).getByText('A budget that gives every dollar a job.')).toBeInTheDocument()
+    expect(within(dialog).queryByText(/euro/)).not.toBeInTheDocument()
 
     // Tour step 3 title uses the dollar noun.
     fireEvent.click(within(dialog).getByRole('button', { name: 'Take the tour' }))
@@ -546,17 +558,21 @@ describe('Onboarding — catalog (ONBD)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Skip tour' }))
     const region = await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })
     expect(within(region).getByText('Give every dollar a job')).toBeInTheDocument()
-    expect(await within(region).findByText('All set — every dollar has a job! 🎉', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await within(region).findByText('Every dollar has a job.', {}, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // ONBD-004 (fallback) — an unknown/blank preferred currency falls back to the neutral "unit"
-  // noun — no crash, no empty string.
+  // noun — no crash, no empty string — in the welcome line and on tour step 3.
   it('ONBD-004: an unknown currency falls back to the "unit" noun', { timeout: 15000 }, async () => {
     localStorage.setItem('zbb.currency', 'XYZ')
     meData = { ...ME, preferredCurrency: 'XYZ' }
     renderOnboarding()
     const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
-    expect(within(dialog).getByText('every unit a job')).toBeInTheDocument()
+    expect(within(dialog).getByText('A budget that gives every unit a job.')).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Take the tour' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Next' }, { timeout: 5000 }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Next' }, { timeout: 5000 }))
+    expect(await screen.findByRole('heading', { name: 'Give every unit a job' }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // ONBD-025 (A) — an unparseable onboarding record is swallowed and defaults apply (welcome opens).

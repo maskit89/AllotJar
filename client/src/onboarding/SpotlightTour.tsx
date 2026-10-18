@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, typ
 import { Button } from '../components/ui'
 import { useAuth } from '../auth/AuthContext'
 import { currencyNoun } from '../lib/money'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { useOnboarding } from './OnboardingContext'
 import { buildTourSteps } from './tourSteps'
 import { useDialogA11y } from './useDialogA11y'
@@ -27,8 +28,11 @@ function onScreen(r: DOMRect): boolean {
 const PAD = 8
 const TIP_WIDTH = 340
 const GAP = PAD + 12
-// Rough tooltip height, used only to keep a side-placed card on screen.
-const TIP_EST_HEIGHT = 280
+// Rough card height (eyebrow, title, one sentence, the buttons), used only to keep a side-placed card on screen.
+const TIP_EST_HEIGHT = 210
+
+/** The tour's buttons: 36px, 44px for a finger on a phone. */
+const TOUR_BUTTON = 'h-9 rounded-[10px]! max-[699.98px]:h-11'
 
 /**
  * Place the tooltip on whichever side of the target has room — below or above
@@ -68,9 +72,25 @@ function tooltipStyle(box: Box | null): CSSProperties {
 }
 
 /**
+ * On a phone the card docks to the foot of the screen, just above the tab bar (`--tabbar-h`, safe
+ * area included) and within the page's 12px gutter, instead of floating over the tiles.
+ */
+const DOCKED: CSSProperties = {
+  position: 'fixed',
+  left: 'max(12px, env(safe-area-inset-left))',
+  right: 'max(12px, env(safe-area-inset-right))',
+  bottom: 'max(calc(var(--tabbar-h) + 12px), calc(env(safe-area-inset-bottom) + 12px))',
+}
+
+/**
  * A coach-mark tour: dims the page, spotlights the current step's target with a
  * cut-out, and anchors an explanatory dialog next to it. Steps whose target is
  * missing or off-screen show as a centred card, so the tour works in any state.
+ *
+ * The card (restyle PR 19): the dialogs' surface and shadow, an eyebrow "Step n of 9", a short title
+ * and one sentence, the quiet "Skip tour" at its left and the quiet Back beside the one primary,
+ * Next (Finish on the last step). On a phone (below 700px) it docks above the tab bar, and a
+ * target it would cover, or one scrolled off the screen, is scrolled into view.
  */
 export function SpotlightTour() {
   const { tourStep, totalTourSteps, nextTourStep, prevTourStep, endTour } = useOnboarding()
@@ -80,6 +100,7 @@ export function SpotlightTour() {
   const dialogRef = useRef<HTMLDivElement>(null)
   const headingRef = useRef<HTMLHeadingElement>(null)
   const [box, setBox] = useState<Box | null>(null)
+  const docked = useMediaQuery('(max-width: 699.98px)')
 
   useDialogA11y(dialogRef, endTour)
 
@@ -112,6 +133,24 @@ export function SpotlightTour() {
     }
   }, [measure])
 
+  // Keep the spotlit element in sight: one laid out but scrolled off the screen, or (docked) sitting
+  // under the card, is scrolled to the middle of the screen. The scroll listener above re-measures.
+  useEffect(() => {
+    if (!step.selector) return
+    const shown = Array.from(document.querySelectorAll<HTMLElement>(step.selector)).filter((el) => {
+      const r = el.getBoundingClientRect()
+      return r.width > 0 && r.height > 0
+    })
+    const target = shown.find((el) => onScreen(el.getBoundingClientRect())) ?? shown[0]
+    if (!target) return
+    const r = target.getBoundingClientRect()
+    const cardTop = docked ? (dialogRef.current?.getBoundingClientRect().top ?? window.innerHeight) : window.innerHeight
+    const covered = r.top < cardTop && r.bottom > cardTop - PAD
+    if (onScreen(r) && !covered) return
+    const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    target.scrollIntoView?.({ block: 'center', behavior: still ? 'auto' : 'smooth' })
+  }, [step.selector, docked])
+
   // Announce each step to screen readers by moving focus to its heading.
   useEffect(() => {
     headingRef.current?.focus()
@@ -124,7 +163,7 @@ export function SpotlightTour() {
     ? { top: box.top - PAD, left: box.left - PAD, width: box.width + PAD * 2, height: box.height + PAD * 2 }
     : null
 
-  const tipStyle = tooltipStyle(box)
+  const tipStyle = docked ? DOCKED : tooltipStyle(box)
 
   return (
     <div className="fixed inset-0 z-[60]">
@@ -132,13 +171,15 @@ export function SpotlightTour() {
       <div className="absolute inset-0" aria-hidden="true" />
 
       {highlight ? (
+        // The cut-out: a 2px gold ring (the frame's gold marker) and the scrim around it, both drawn by
+        // the one box-shadow (an inline shadow would hide a ring utility's own).
         <div
           aria-hidden="true"
-          className="pointer-events-none absolute rounded-xl ring-2 ring-brand-400 transition-all duration-200"
-          style={{ ...highlight, boxShadow: '0 0 0 9999px rgba(2, 6, 23, 0.6)' }}
+          className="pointer-events-none absolute rounded-[18px] ring-2 transition-all duration-200"
+          style={{ ...highlight, boxShadow: '0 0 0 2px var(--onb-ring), 0 0 0 9999px var(--onb-scrim)' }}
         />
       ) : (
-        <div aria-hidden="true" className="absolute inset-0 bg-slate-950/60" />
+        <div aria-hidden="true" className="absolute inset-0 bg-[var(--onb-scrim)]" />
       )}
 
       <div
@@ -147,53 +188,46 @@ export function SpotlightTour() {
         aria-modal="true"
         aria-labelledby="zb-tour-title"
         aria-describedby="zb-tour-body"
-        className="rounded-2xl border border-slate-200/70 bg-surface p-5 shadow-card"
+        data-docked={docked ? '' : undefined}
+        className="onb-card rounded-2xl border border-slate-200/80 p-5 text-sm shadow-[var(--shadow-frame-lg)] max-[699.98px]:px-[18px] max-[699.98px]:pt-4 max-[699.98px]:pb-3.5"
         style={tipStyle}
       >
-        <p className="text-xs font-semibold uppercase tracking-wide text-brand-600 dark:text-brand-200">
+        <p className="text-xs font-semibold tracking-[0.05em] text-slate-500 uppercase">
           Step {tourStep + 1} of {totalTourSteps}
         </p>
         <h2
           ref={headingRef}
           tabIndex={-1}
           id="zb-tour-title"
-          className="mt-1 text-lg font-bold tracking-tight text-slate-900 focus:outline-none"
+          className="mt-1.5 text-base leading-snug font-bold tracking-[-0.01em] text-slate-900 focus:outline-none"
         >
           {step.title}
         </h2>
-        <p id="zb-tour-body" className="mt-2 text-sm leading-relaxed text-slate-600">
+        <p id="zb-tour-body" className="mt-1 text-sm leading-normal text-slate-500">
           {step.body}
         </p>
 
-        <div className="mt-5 flex items-center justify-between gap-3">
-          <button
-            type="button"
+        <div className="mt-4 flex items-center gap-2 max-[699.98px]:mt-3.5">
+          <Button
+            variant="ghost"
             onClick={endTour}
-            className="text-sm font-medium text-slate-500 transition hover:text-slate-700"
+            className={`${TOUR_BUTTON} -ml-2.5 px-2.5! text-slate-500! dark:hover:bg-foreground/7`}
           >
             Skip tour
-          </button>
-          <div className="flex items-center gap-2">
+          </Button>
+          <div className="ml-auto flex items-center gap-2">
             {tourStep > 0 && (
-              <Button variant="secondary" size="sm" onClick={prevTourStep}>
+              <Button variant="ghost" onClick={prevTourStep} className={`${TOUR_BUTTON} px-3.5! text-slate-500! dark:hover:bg-foreground/7`}>
                 Back
               </Button>
             )}
-            <Button size="sm" onClick={onNext}>
+            <Button
+              onClick={onNext}
+              className={`${TOUR_BUTTON} min-w-[84px] px-4! shadow-[0_1px_2px_rgb(10_50_30/0.2),inset_0_1px_0_rgb(255_255_255/0.12)] dark:bg-primary dark:hover:bg-brand-600`}
+            >
               {isLast ? 'Finish' : 'Next'}
             </Button>
           </div>
-        </div>
-
-        <div className="mt-4 flex justify-center gap-1.5" aria-hidden="true">
-          {steps.map((s, i) => (
-            <span
-              key={s.id}
-              className={`h-1.5 rounded-full transition-all ${
-                i === tourStep ? 'w-5 bg-brand-600' : 'w-1.5 bg-slate-300'
-              }`}
-            />
-          ))}
         </div>
       </div>
     </div>

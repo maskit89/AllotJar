@@ -2,6 +2,8 @@
 
 **ID prefix:** ONBD | **Scope:** The first-run onboarding layer mounted once inside the authenticated app (`client/src/App.tsx:181-184` — `{isAuthenticated && !needsConsent && <Onboarding/>}`): the auto-opening "Welcome to AllotJar" dialog (`client/src/onboarding/WelcomeDialog.tsx`) with its owner vs joined-member copy branches; the 9-step SpotlightTour (`SpotlightTour.tsx` + `tourSteps.tsx`) with spotlight anchoring, centred-card fallback and linear navigation; the pinned "Getting started" checklist (`GettingStartedChecklist.tsx`) with its 5 auto-detected steps (4 while the `jars` flag is off: no "Add a jar") polled from `GET /budget/months`, `GET /budget/{y}/{m}`, `GET /jars` and `GET /transactions`; the per-user persistence record `localStorage['zbb.onboarding:{email}']` = `{v:1, welcomeSeen, tourDone, checklistDismissed}` (`OnboardingContext.tsx`); the "Replay welcome tour" action on `/help`; the accounts-first start (rule 81: no sample data; the Budget page's "Set up your budget" checklist — accounts, month, jar); and behavior for invite-created users landing in an existing household (joined copy, owner-only checklist). | **Out of scope:** the registration form itself, the "Start with sample figures" checkbox mechanics and the `includeSampleData` payload (02-registration-login.md); session expiry, cross-tab sign-out and refresh races (03-session-auth-lifecycle.md); the `/account` page including the Start-my-own-budget and Leave-household buttons themselves (04-account-preferences.md and the households/people case file — only their *onboarding after-effects* live here); ConsentModal content and the consent POST (households/people file — only the onboarding-vs-consent mounting rule lives here); dashboard budgeting behaviors, the create-month hero, IsBalanced hero badge and PR #172 dashboard cases (budget-months case file — only the *checklist's* balanced detection lives here); the Help page's topic rows and analytics consent switch (routing/shell and analytics files); GA event delivery/redaction (analytics file — expected `track()` calls are noted but not asserted here); dark/responsive/a11y sweeps (cross-cutting file — `client/e2e/a11y.spec.ts` already axe-scans the welcome dialog, every tour step and the checklist region in both themes). **Do not test for:** an `onboarding_step_completed` analytics event (defined in `events.ts` but never fired — dead code); any server-side persistence of onboarding progress (there is none — it is purely per-browser localStorage); a "resume tour at step N" feature (replay always restarts at the welcome).
 
+**Look (restyle PR 19, the approved warm look):** the welcome is the sheet dialog (`Modal sheet`: a centred card on desktop, a bottom sheet with a grab handle on a phone below 700 px) with the green room and its shelf of four glass jars above the title, one line ("A budget that gives every {noun} a job.", the budget currency's noun), what AllotJar does behind the title's (i) "About AllotJar", and a quiet "Skip for now" beside the one primary "Take the tour". The tour card sits on the dialogs' surface: eyebrow "Step n of 9", a short title, one sentence, the quiet "Skip tour" and Back beside the one primary Next/Finish (no progress dots); the spotlit element has a gold ring; on a phone (below 700 px) the card docks to the foot of the screen above the tab bar and a target it would cover is scrolled into view. The checklist is a compact off-white card: eyebrow "Getting started" with an (i) "About getting started" (the step hints, once under every row), "n of 5 done", a thin progress line and one row per step (a check and a short name; a done row is muted, not struck through, and named "Done: …"); collapsed, a quiet pill "Getting started" + a chip "n of 5" + a chevron (never a green button); all done, one line "Every {noun} has a job." with a quiet "Dismiss". On a phone it starts collapsed above the tab bar and, opened, is full width within the 16 px gutter and capped below the Dashboard hero. The record, the sequence and what ticks a step are unchanged.
+
 **Test data setup:** (a) Fresh browser profile per case unless stated (empty localStorage — the onboarding record is per-browser); locale `en-GB`, desktop viewport ≥ 900 px unless stated. (b) Owner login `onbd-owner@example.test`, registered through `/login?register=1` with defaults (sample checkbox UNTICKED, currency EUR → noun "euro"), password random `Aa1-<uuid>` shape (HIBP rejects fixed common passwords). (c) Sample-start login `onbd-sample@example.test`, registered identically but with "Start with sample figures to explore…" TICKED — its seeded current month (from `BudgetSeeder.SeedDefaultMonthAsync`): income "Take-home Pay" 3,000.00; planned lines Housing (Rent 1,100.00, Utilities 180.00), Transport (Fuel 120.00, Public Transport 60.00), Food (Groceries 400.00, Dining Out 90.00), Savings ("Emergency Fund" 250.00 backed by a real jar) — planned total 2,200.00, Remaining to budget **800.00** (deliberately unbalanced), zero transactions. (d) Shared household owned by `onbd-inviter@example.test` (registered WITH samples so the joined budget has content) with a pending invite link for `onbd-member@example.test`. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). (f) Where a case inspects localStorage, key names are exact: `zbb.onboarding:{email}`, `zbb.email`.
 
 ## Welcome dialog — first-run trigger & content
@@ -14,13 +16,13 @@
   1. Observe the screen immediately after landing on the dashboard.
   2. Read the dialog content top to bottom without clicking anything.
 - **Expected:**
-  - A focus-trapped modal (`role="dialog" aria-modal="true"`) opens over a dimmed backdrop, z-order above the page but below any consent prompt.
-  - Jar logo, heading "Welcome to AllotJar", body copy (owner branch): "AllotJar is a **zero-based** budget — every month you give **every euro a job** before you spend it. Setting up your first month takes a few minutes. Want a quick 60-second tour to see how it fits together?"
-  - Three check-bulleted lines: "Plan a month and assign your income" / "Track real spending against each line" / "Save toward goals with jars".
-  - Buttons: secondary "Skip for now" and primary "Take the tour"; a close button `aria-label="Close"` top-right.
-  - Focus is inside the dialog (first focusable element); Tab cycles within the dialog only.
+  - A focus-trapped modal (`role="dialog" aria-modal="true"`, named "Welcome to AllotJar") opens over a dimmed backdrop, z-order above the page but below any consent prompt; a centred card on desktop, a bottom sheet on a phone.
+  - The green room with four glass jars on a shelf (decoration, hidden from assistive tech), heading "Welcome to AllotJar" with an (i) "About AllotJar", one line (owner branch) "A budget that gives every euro a job." which is the dialog's description (`aria-describedby`).
+  - The (i) (hover or focus) holds the three former bullets in two sentences: "Plan a month and assign your income, then track real spending against each line. Save toward goals with jars."
+  - Buttons: quiet "Skip for now" and the one primary "Take the tour"; a close control named "Close" (the ✕ top-right on desktop, the grab handle on a phone).
+  - Focus opens on the close control inside the dialog; Tab cycles within the dialog only.
   - `localStorage['zbb.onboarding:onbd-owner@example.test']` does not yet exist (nothing persisted until an action is taken).
-- **Automated:** Partial (client/src/onboarding/Onboarding.test.tsx — auto-open for a brand-new user; client/e2e/a11y.spec.ts — dialog axe-scanned both themes; exact copy/bullets unasserted)
+- **Automated:** Yes (client/src/onboarding/onboarding.catalog.test.tsx ONBD-001 — the line, its `aria-describedby`, the (i)'s two sentences, the controls, nothing persisted; client/src/onboarding/Onboarding.test.tsx — "one primary button at a time"; client/e2e/a11y.spec.ts — dialog axe-scanned both themes)
 
 ### ONBD-002 - "Skip for now" dismisses the welcome, reveals the checklist and persists welcomeSeen
 - **Priority:** P1
@@ -31,7 +33,7 @@
   2. Inspect the bottom-right corner of the page.
   3. Inspect `localStorage['zbb.onboarding:onbd-owner@example.test']`.
 - **Expected:**
-  - Dialog closes; no tour starts; the "Getting started" checklist panel (section `aria-label="Getting started"`) appears pinned bottom-right.
+  - Dialog closes; no tour starts; the "Getting started" checklist panel (section `aria-label="Getting started"`) appears pinned bottom-right (on a phone, below 700 px: the collapsed pill above the tab bar).
   - Stored record is `{"v":1,"welcomeSeen":true,"tourDone":false,"checklistDismissed":false}`.
   - (When analytics is live, an `onboarding_dismissed {context:'welcome'}` event fires — asserted in the analytics file.)
 - **Automated:** Yes (client/src/onboarding/Onboarding.test.tsx — "skips cleanly, shows the checklist, and never auto-opens again")
@@ -41,7 +43,7 @@
 - **Type:** Edge
 - **Preconditions:** Welcome dialog open as in ONBD-001. Run three variants (fresh profile or cleared `zbb.onboarding:*` key each time).
 - **Steps:**
-  1. Variant A: click the close button (`aria-label="Close"`).
+  1. Variant A: click the close button (`aria-label="Close"`: the ✕, or the grab handle on a phone).
   2. Variant B: click the dimmed backdrop outside the dialog.
   3. Variant C: press Escape while focus is inside the dialog.
   4. After each, inspect the checklist and the localStorage record; note where keyboard focus landed (variant C).
@@ -49,20 +51,20 @@
   - All three variants behave identically to "Skip for now": dialog closes, checklist appears, record persists `welcomeSeen:true` (tour NOT marked done).
   - Focus returns to the element focused before the dialog opened (`useDialogA11y` restore).
   - No variant leaves a stuck backdrop or blocks interaction with the page.
-- **Automated:** No
+- **Automated:** Yes (client/src/onboarding/onboarding.catalog.test.tsx ONBD-003 — the three variants and the focus restore)
 
-### ONBD-004 - Currency noun flows through welcome, tour step 3, checklist step 4 and the all-done line
+### ONBD-004 - Currency noun flows through tour step 3, checklist step 4 and the all-done line (the welcome says "euro")
 - **Priority:** P3
 - **Type:** Edge
 - **Preconditions:** A user registered with currency USD (fresh profile); a second fresh user whose currency is a valid ISO code outside the noun map (e.g. ISK), set via API `PUT /auth/preferences` while the budget is still empty (once it holds an account, month or transaction the currency is locked — PREF-042; a blank value is stored as EUR). The noun comes from the **budget currency** (`/auth/me` `budgetCurrency`), which for a new household is the chosen currency.
 - **Steps:**
-  1. As the USD user, read the welcome body, then take the tour to step 3, then skip to the checklist and read step 4's label.
+  1. As the USD user, read the welcome line, then take the tour to step 3, then skip to the checklist and read step 4's label.
   2. As the ISK user, repeat.
 - **Expected:**
-  - USD: "give **every dollar a job**" in the welcome body; tour step 3 titled "Give every dollar a job"; checklist step 4 labeled "Give every dollar a job"; all-done message (when reached) "All set — every dollar has a job! 🎉".
-  - ISK (no noun mapped): the noun falls back to "unit" ("give every unit a job") — no crash, no empty string.
+  - USD: the welcome line reads "A budget that gives every dollar a job."; tour step 3 titled "Give every dollar a job"; checklist step 4 labeled "Give every dollar a job"; all-done line (when reached) "Every dollar has a job.".
+  - ISK (no noun mapped): the noun falls back to "unit" (tour step 3 "Give every unit a job") — no crash, no empty string.
   - Tour step count stays 9 regardless of noun.
-- **Automated:** Partial (client/src/lib/money.test.ts — `currencyNoun` mapping incl. `unit` fallback; the onboarding surfaces themselves unasserted)
+- **Automated:** Yes (client/src/lib/money.test.ts — `currencyNoun` mapping incl. `unit` fallback; client/src/onboarding/onboarding.catalog.test.tsx ONBD-004 — USD through tour, checklist and the done line with the welcome kept on euro, and the `unit` fallback on tour step 3)
 
 ### ONBD-005 - Invite-created user sees the joined-member welcome copy
 - **Priority:** P1
@@ -71,11 +73,11 @@
 - **Steps:**
   1. Dismiss nothing; read the welcome dialog that auto-opens.
 - **Expected:**
-  - Heading is still "Welcome to AllotJar" but the body uses the joined branch: "You've joined a shared household budget. AllotJar is **zero-based** — the household gives **every euro a job** before spending it, and you're now part of that plan. Want a quick 60-second tour to see how it fits together?"
-  - Bullets are the member set: "See the month's plan and where money goes" / "Record spending as it happens" / "Watch jars fill toward shared goals".
+  - Heading is still "Welcome to AllotJar" but the line uses the joined branch: "You’ve joined a shared household budget that gives every euro a job."
+  - The (i) holds the member set: "See the month’s plan and where money goes, and record spending as it happens. Watch jars fill toward shared goals."
   - Buttons identical to the owner variant ("Skip for now" / "Take the tour").
   - The `?joined=1` greeting banner in the AppShell coexists behind the dialog and is readable after dismissal.
-- **Automated:** No
+- **Automated:** Partial (client/src/onboarding/onboarding.catalog.test.tsx ONBD-005 — the joined line and the member (i); the greeting banner unasserted)
 
 ### ONBD-006 - Onboarding never mounts under the blocking consent prompt
 - **Priority:** P1
@@ -103,13 +105,14 @@
   2. Click "Next" through every step, reading the header, title and spotlight each time.
   3. On the last step click "Finish".
 - **Expected:**
-  - Header reads "Step {n} of 9"; 9 progress dots with the current one elongated.
-  - Steps in order (title → spotlighted element): 1 "Find your way around" → sidebar; 2 "Pick the month you're planning" → month top bar; 3 "Give every euro a job" → the dashboard hero remaining banner; 4 "Track what you actually spend" → Transactions nav item; 5 "Know where your money sits" → Accounts nav item; 6 "Save up with jars" → Jars nav item; 7 "See the bigger picture" → Reports nav item; 8 "Sharing money with someone?" → People nav item; 9 "You're all set" → centred card (no spotlight).
-  - Spotlighted element shows a ring cut-out with the rest of the page dimmed; the tooltip card sits adjacent (below/above/side) without covering the spotlight.
-  - Step 9 body mentions the pinned "Getting started" checklist and replaying from Help.
+  - Eyebrow reads "Step {n} of 9" (no progress dots since restyle PR 19: the eyebrow says it); a short title and one sentence per step.
+  - Steps in order (title → spotlighted element → sentence): 1 "Find your way around" → sidebar → "Every page lives in this sidebar, with your account and household at its foot." (phone: the tab bar → "Your main pages sit in this bar, and More holds Accounts, People and the rest."); 2 "Pick the month you’re planning" → month switcher → "These arrows move every month-based page; the button beside them switches light and dark." (phone: "…; Dark mode is under More."); 3 "Give every euro a job" → the Dashboard's "Remaining to budget" KPI tile → "Assign all your income to lines and jars until Remaining to budget reads zero."; 4 "Track what you spend" → Transactions nav item; 5 "Know where your money sits" → Accounts nav item; 6 "Save up with jars" → Jars nav item; 7 "See the bigger picture" → Reports nav item; 8 "Sharing money with someone?" → People nav item; 9 "You're all set" → centred card (no spotlight).
+  - Spotlighted element shows a gold ring cut-out with the rest of the page dimmed; the card sits adjacent (below/above/side) without covering the spotlight. On a phone (below 700 px) the card is docked at the foot of the screen above the tab bar instead, and a target it would cover (or one scrolled off the screen) is scrolled into view.
+  - Step 9 ("You're all set", no emoji): "Getting started walks you through your first month, and Help replays this tour."
+  - One primary button on the screen at a time: Next (Finish on step 9); "Skip tour" and Back are quiet.
   - "Finish" (replaces "Next" on step 9 only) closes the tour; the checklist appears; record persists `{welcomeSeen:true, tourDone:true, checklistDismissed:false}`.
   - Focus moves to the step heading on every step change (screen-reader announcement).
-- **Automated:** Partial (client/src/onboarding/Onboarding.test.tsx — welcome→tour→checklist walk with step titles in jsdom; client/e2e/a11y.spec.ts — every step axe-scanned through Finish; spotlight geometry/anchoring unasserted)
+- **Automated:** Partial (client/src/onboarding/Onboarding.test.tsx — welcome→tour→checklist walk with step titles in jsdom, one primary per step, the phone dock (`data-docked`, above `--tabbar-h`) and no dock on a wide screen; client/e2e/a11y.spec.ts — every step axe-scanned through Finish; spotlight geometry/anchoring unasserted)
 
 ### ONBD-008 - Back/Next navigation is linear and clamped; Back hidden on step 1
 - **Priority:** P2
@@ -121,9 +124,9 @@
   3. From step 1, click "Back"-equivalent (none) then advance to step 9 and confirm no "Next" remains.
 - **Expected:**
   - Step 1 has no "Back" button (only "Skip tour" and "Next"); "Back" appears from step 2 onward.
-  - Next/Back move exactly one step; returning to step 1 re-renders it identically (dots update).
+  - Next/Back move exactly one step; returning to step 1 re-renders it identically (the eyebrow updates).
   - On step 9 the primary button is "Finish"; there is no way to advance past it. Step index never exceeds 8 or goes below 0.
-- **Automated:** No
+- **Automated:** Yes (client/src/onboarding/onboarding.catalog.test.tsx ONBD-008)
 
 ### ONBD-009 - "Skip tour" mid-way ends the tour cleanly and it never auto-resumes
 - **Priority:** P1
@@ -137,7 +140,7 @@
   - Tour closes immediately (no confirmation); the "Getting started" checklist appears.
   - Record persists `{welcomeSeen:true, tourDone:true, …}` — skipping marks the tour done; there is deliberately no "resume at step 4" state.
   - After reload: no welcome, no tour; checklist still present.
-- **Automated:** No
+- **Automated:** Partial (client/src/onboarding/onboarding.catalog.test.tsx ONBD-009 — skip mid-way persists `tourDone`; the reload unasserted)
 
 ### ONBD-010 - Escape ends the tour from any step
 - **Priority:** P2
@@ -147,7 +150,7 @@
   1. Press Escape.
 - **Expected:**
   - Identical outcome to "Skip tour" (ONBD-009): tour closes, checklist appears, `tourDone:true` persisted, focus restored to the pre-tour element.
-- **Automated:** No
+- **Automated:** Yes (client/src/onboarding/onboarding.catalog.test.tsx ONBD-010)
 
 ### ONBD-011 - Missing or off-screen anchors fall back to a centred card (mobile, flag-off, no month, non-dashboard page)
 - **Priority:** P2
@@ -156,7 +159,7 @@
 - **Steps:**
   1. Start the tour in each variant and step to the affected step(s): A → step 1 (sidebar) and nav-item steps; B → step 5 "Know where your money sits"; C and D → step 3 "Give every euro a job".
 - **Expected:**
-  - In every variant the affected step renders as a centred card over a fully dimmed backdrop — same title/body/buttons, no spotlight ring, no crash, no skipped step; the tour stays 9 steps.
+  - In every variant the affected step renders as a centred card over a fully dimmed backdrop (on a phone below 700 px, the card docked above the tab bar) — same title/body/buttons, no spotlight ring, no crash, no skipped step; the tour stays 9 steps.
   - Unaffected steps still spotlight normally (e.g. variant C steps 1-2 anchor fine).
   - Variant B: the step still describes Accounts even though the nav item is absent (copy is static).
 - **Automated:** No
@@ -187,7 +190,7 @@
 
 ## Getting-started checklist — rendering & progress detection
 
-### ONBD-014 - Initial checklist for an empty account: 0 of 5 with exact steps, hints and links
+### ONBD-014 - Initial checklist for an empty account: 0 of 5 with exact steps, the (i) and links
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** `onbd-owner@example.test` (empty account), welcome skipped, on `/`.
@@ -196,10 +199,11 @@
   2. Hover/click each step row and note its link target.
 - **Expected:**
   - Header "Getting started" + "0 of 5 done"; progress bar `role="progressbar"` `aria-label="Onboarding progress"` with `aria-valuenow=0`, `aria-valuemin=0`, `aria-valuemax=5`, visually 0% filled.
-  - Steps in order (label / hint / link): 1 "Create your first month" / "Start blank or pick a template — later months can copy the previous one." / `/`; 2 "Plan your income" / "Add what you expect to earn this month." / `/`; 3 "Add a jar" / "A yearly bill, a holiday or a rainy-day pot." / `/jars`; 4 "Give every euro a job" / "Assign it all until Remaining reaches zero." / `/`; 5 "Log your first transaction" / "Record real spending and assign it to a line." / `/transactions`.
-  - Every circle is empty (sr-only "To do:"); no strikethrough.
+  - Steps in order (label / link), no hint under any row: 1 "Create your first month" / `/`; 2 "Plan your income" / `/`; 3 "Add a jar" / `/jars`; 4 "Give every euro a job" / `/`; 5 "Log your first transaction" / `/transactions`.
+  - The (i) "About getting started" beside the eyebrow holds the hints: "Steps tick themselves off as you go. Start a month blank or from a template, add your income and a jar, assign it all until Remaining to budget reads zero, then log your spending." (without "and a jar" while the `jars` flag is off).
+  - Every circle is empty; each row is named "To do: {label}".
   - Header buttons present: `aria-label="Collapse getting started"` (chevron) and `aria-label="Dismiss getting started"` (X).
-- **Automated:** Partial (client/src/onboarding/Onboarding.test.tsx — region renders after skip; client/e2e/a11y.spec.ts — region axe-scanned; labels/links/progressbar values unasserted)
+- **Automated:** Yes (client/src/onboarding/onboarding.catalog.test.tsx ONBD-014 — labels, links, the (i), progressbar values, row names; client/e2e/a11y.spec.ts — region axe-scanned)
 
 ### ONBD-015 - Steps tick off automatically as the first month is built, ending in the all-done state
 - **Priority:** P1
@@ -212,10 +216,10 @@
   4. Back on `/`, add an expense group/line and assign planned amounts until "Remaining to budget" shows exactly 0.00; observe.
   5. Go to `/transactions` via checklist step 5's link and add a transaction (e.g. Groceries 45.30 assigned to a line); observe.
 - **Expected:**
-  - After step 1: "Create your first month" ticks (filled circle, sr-only "Done:", label struck through) — "1 of 5 done", bar 20%.
+  - After step 1: "Create your first month" ticks (filled green circle, label muted, row named "Done: Create your first month") — "1 of 5 done", bar 20%.
   - After step 2: "Plan your income" ticks — "2 of 5 done" (detection: `totalIncome > 0` on `GET /budget/2026/7`).
   - After step 3: "Add a jar" ticks — "3 of 5 done" (detection: `GET /jars` returns a jar). After step 4: "Give every euro a job" ticks — "4 of 5 done" (detection: income > 0 AND remaining === 0; the jar's Savings line counts toward the plan).
-  - After step 5: "Log your first transaction" ticks — "5 of 5 done", bar 100%, and a footer appears: "All set — every euro has a job! 🎉" with button "Hide this checklist" which dismisses it (same persistence as the X).
+  - After step 5: "Log your first transaction" ticks — "5 of 5 done", bar 100%, and one line appears under the rows: "Every euro has a job." with a quiet "Dismiss" which dismisses it (same persistence as the X, which steps aside while the line shows).
   - Ticks appear without a manual reload (progress re-polls on every route change and window focus).
 - **Automated:** No
 
@@ -229,7 +233,7 @@
 - **Expected:**
   - "Create your first month" is ticked; "Plan your income" is NOT ticked; "Give every euro a job" is NOT ticked even though remaining is exactly 0 — "1 of 5 done".
   - (The dashboard hero simultaneously shows the "Plan your income…" prompt, not the gold badge — asserted in the budget-months file.)
-- **Automated:** Partial (client/src/budgetModel.test.ts — empty month not balanced; client/src/onboarding/GettingStartedChecklist.tsx wiring `income > 0 && remaining === 0` has no direct test)
+- **Automated:** Yes (client/src/budgetModel.test.ts — empty month not balanced; client/src/onboarding/onboarding.catalog.test.tsx ONBD-016 — 1 of 5, rows named "Done:"/"To do:")
 
 ### ONBD-017 - Balanced detection boundary: exactly zero ticks, one cent either side does not
 - **Priority:** P2
@@ -256,12 +260,12 @@
   4. Click the X (`aria-label="Dismiss getting started"`).
   5. Reload again; also sign out and back in.
 - **Expected:**
-  - Step 1: panel collapses to a bottom-right pill "Getting started · 1/5".
-  - Step 2: pill expands back to the full panel (collapse state is component-local).
-  - Step 3: after reload the checklist is OPEN again (collapse was not persisted).
+  - Step 1: panel collapses to a quiet bottom-right pill: "Getting started", a chip "1 of 5" and a chevron (`aria-expanded="false"`; not a green button); focus moves to the pill.
+  - Step 2: pill expands back to the full panel (collapse state is component-local); focus moves to its collapse button.
+  - Step 3: after reload the checklist is OPEN again on desktop (collapse was not persisted); on a phone (below 700 px) it always starts as the pill, so the Dashboard's hero and budget card stay in sight.
   - Step 4: panel disappears entirely; record persists `checklistDismissed:true`.
   - Step 5: checklist stays hidden across reload and re-login; the welcome does not reappear either.
-- **Automated:** Partial (client/src/onboarding/Onboarding.test.tsx — dismissal hides + persists `checklistDismissed`; collapse/pill behavior unasserted)
+- **Automated:** Yes (client/src/onboarding/Onboarding.test.tsx — dismissal hides + persists `checklistDismissed`; the phone default (collapsed) and focus following the toggle; client/src/onboarding/onboarding.catalog.test.tsx ONBD-018 — collapse/pill not persisted; client/src/onboarding/GettingStartedChecklist.test.tsx — the pill's neutral chip, chevron, focus, no green)
 
 ### ONBD-019 - Progress refreshes on route change and window focus (cross-tab/second-client edits picked up)
 - **Priority:** P2
@@ -437,7 +441,7 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** The checklist is a pure live recompute from the user's own data on every route change / window focus (`GettingStartedChecklist.tsx:34-69`, ONBD-019), so removing data must UN-tick steps exactly as adding it ticked them (ONBD-015) — the panel must not ratchet forward and stick on its high-water mark. Exercises the PR #172 `income > 0 && remaining === 0` guard (ONBD-016) and CAT-042 line/income-source deletion in reverse; the mirror of the build-only ONBD-015 and the live-edit CMB-043.
-- **Preconditions:** `onbd-owner@example.test`, own household (checklist rendered — ONBD-021), current calendar month = July 2026, checklist visible and fully built to **"5 of 5 done"** per ONBD-015 (month created; a never-used jar "Rainy day" added; income "Take-home Pay" 2,500.00; expenses assigned so "Remaining to budget" = 0.00; one transaction logged and assigned to a line). The all-done footer "All set — every euro has a job! 🎉" is showing. Each teardown leg below is read AFTER a checklist refresh — click any nav item and return, or refocus the window; the panel re-polls only on route change / window focus, never on the in-place mutation itself (same cadence as the build direction, ONBD-015/019).
+- **Preconditions:** `onbd-owner@example.test`, own household (checklist rendered — ONBD-021), current calendar month = July 2026, checklist visible and fully built to **"5 of 5 done"** per ONBD-015 (month created; a never-used jar "Rainy day" added; income "Take-home Pay" 2,500.00; expenses assigned so "Remaining to budget" = 0.00; one transaction logged and assigned to a line). The all-done line "Every euro has a job." is showing. Each teardown leg below is read AFTER a checklist refresh — click any nav item and return, or refocus the window; the panel re-polls only on route change / window focus, never on the in-place mutation itself (same cadence as the build direction, ONBD-015/019).
 - **Steps:**
   1. In the transactions register, delete the only transaction (✕ per the transactions case, no confirm); refresh the checklist and read it.
   2. Back on `/`, delete an expense line (✕ "Delete {name}", CAT-042) — or lower its planned — so "Remaining to budget" is no longer 0.00 while income is untouched; refresh and read.
@@ -445,7 +449,7 @@
   4. On `/jars`, delete the never-used jar "Rainy day" (Edit → Delete); refresh and read.
   5. Read the final checklist state, progressbar (`aria-valuenow`) and footer.
 - **Expected:**
-  - After step 1: `GET /transactions` now returns `[]` → step 5 "Log your first transaction" un-ticks — "4 of 5 done", bar 80%, `aria-valuenow=4`. The all-done footer (heading + "Hide this checklist" button) disappears the instant `doneCount < 5` (`allDone` false).
+  - After step 1: `GET /transactions` now returns `[]` → step 5 "Log your first transaction" un-ticks — "4 of 5 done", bar 80%, `aria-valuenow=4`. The all-done line ("Every euro has a job." + the quiet "Dismiss") disappears the instant `doneCount < 5` (`allDone` false).
   - After step 2: `remainingToBudget(vm) !== 0` with income still > 0 → step 4 "Give every euro a job" un-ticks — "3 of 5 done", bar 60%, `aria-valuenow=3`. This is the ONBD-015/CMB-043 balanced tick run in reverse.
   - After step 3: `totalIncome(vm)` drops to 0 → step 2 "Plan your income" un-ticks; step 4 STAYS un-ticked — the PR #172 `income > 0 && remaining === 0` guard means a zero-income month never re-ticks step 4 even though Remaining is once again technically 0 with nothing planned (ONBD-016) — "2 of 5 done", bar 40%, `aria-valuenow=2`.
   - After step 4: `GET /jars` now returns `[]` → step 3 "Add a jar" un-ticks — "1 of 5 done", bar 20%, `aria-valuenow=1`.

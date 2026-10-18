@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { act, fireEvent, waitFor } from '@testing-library/react'
+import { act, fireEvent, waitFor, within } from '@testing-library/react'
 
 // #301 P3-4b: the checklist read today once, when the module loaded, so a tab left open over a
 // month's end kept asking about the old month. It reads today's month on every check.
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
+const { dismissChecklist } = vi.hoisted(() => ({ dismissChecklist: vi.fn() }))
 vi.mock('./OnboardingContext', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./OnboardingContext')>()),
-  useOnboarding: () => ({ dismissChecklist: () => {} }),
+  useOnboarding: () => ({ dismissChecklist }),
 }))
 
 import { mockGet, resetApiMocks } from '../test/apiMock'
@@ -84,5 +85,52 @@ describe('GettingStartedChecklist: the jar step', () => {
     const off = renderWithProviders(<GettingStartedChecklist />, { features: true })
     expect(await off.findByText('0 of 4 done')).toBeInTheDocument()
     expect(off.queryByText('Add a jar')).not.toBeInTheDocument()
+  })
+})
+
+// Restyle PR 19: the collapsed pill and the done line.
+describe('GettingStartedChecklist: the collapsed pill and the done line', () => {
+  beforeEach(() => {
+    resetApiMocks()
+    dismissChecklist.mockReset()
+  })
+
+  it('collapses to a quiet pill with the count in a chip and a chevron, never a green button', async () => {
+    mockGet.mockResolvedValue({ data: [] })
+    const view = renderWithProviders(<GettingStartedChecklist />)
+    const region = await view.findByRole('region', { name: 'Getting started' })
+    fireEvent.click(within(region).getByRole('button', { name: 'Collapse getting started' }))
+
+    const pill = await view.findByRole('button', { name: /^Getting started/ })
+    expect(pill).toHaveAttribute('aria-expanded', 'false')
+    expect(pill).not.toHaveClass('bg-brand-600')
+    const chip = pill.querySelector('[data-tone]')
+    expect(chip).toHaveTextContent('0 of 5')
+    expect(chip).toHaveAttribute('data-tone', 'neutral')
+    expect(pill.querySelector('svg')).not.toBeNull()
+    await waitFor(() => expect(pill).toHaveFocus())
+  })
+
+  it('all done: one line, "Every euro has a job.", no emoji, and a quiet Dismiss in place of the ✕', async () => {
+    const balanced = budgetMonth({
+      categories: [
+        budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'pay', name: 'Pay', plannedAmount: 3000 })] }),
+        budgetCategory({ id: 'hou', name: 'Housing', kind: 'Expense', items: [budgetItem({ id: 'rent', name: 'Rent', plannedAmount: 3000 })] }),
+      ],
+    })
+    mockGet.mockImplementation((url: string) => {
+      if (url.startsWith('/budget/') && url !== '/budget/months') return Promise.resolve({ data: balanced })
+      return Promise.resolve({ data: [{ id: 'x1' }] })
+    })
+    const view = renderWithProviders(<GettingStartedChecklist />)
+    const region = await view.findByRole('region', { name: 'Getting started' })
+    expect(await within(region).findByText('Every euro has a job.')).toBeInTheDocument()
+    expect(region.textContent).not.toMatch(/\p{Extended_Pictographic}/u)
+    expect(within(region).queryByRole('button', { name: 'Dismiss getting started' })).not.toBeInTheDocument()
+
+    const dismiss = within(region).getByRole('button', { name: 'Dismiss' })
+    expect(dismiss).not.toHaveClass('bg-brand-600')
+    fireEvent.click(dismiss)
+    expect(dismissChecklist).toHaveBeenCalledTimes(1)
   })
 })

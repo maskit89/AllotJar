@@ -1,97 +1,65 @@
-import { useRef, type ReactNode } from 'react'
 import { Button } from '../components/ui'
-import { CheckIcon, CloseIcon } from '../components/icons'
-import { JarLogo } from '../components/Jar'
+import { BandShelf } from '../components/AuthFrame'
+import { Modal } from '../components/Modal'
+import { DIALOG_ACTIONS, DIALOG_CANCEL, DIALOG_PRIMARY } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { currencyNoun } from '../lib/money'
 import { useOnboarding } from './OnboardingContext'
-import { useDialogA11y } from './useDialogA11y'
 
-function Bullet({ children }: { children: ReactNode }) {
-  return (
-    <li className="flex gap-2">
-      <CheckIcon className="mt-0.5 h-4 w-4 shrink-0 text-brand-600" />
-      <span>{children}</span>
-    </li>
-  )
-}
-
-/** The first-run welcome. Auto-opens once; offers the tour or a clean skip. */
+/**
+ * The first-run welcome. Auto-opens once; offers the tour or a clean skip.
+ *
+ * A sheet dialog (Modal `sheet`, restyle PR 19): a centred card on a wide screen, a bottom sheet on
+ * a phone. Above the title, the green room with its shelf of glass jars (the sign-in band's
+ * BandShelf); under it one sentence in the budget currency's noun, as the tour and the checklist
+ * say it (only the public pages say "euro" always); what AllotJar does sits behind the title's (i). The footer has the
+ * quiet "Skip for now" and the one primary "Take the tour". The ✕ (the grab handle on a phone), the
+ * scrim and Escape skip it too.
+ */
 export function WelcomeDialog() {
   const { startTour, dismissWelcome } = useOnboarding()
-  const { budgetCurrency, households } = useAuth()
-  const ref = useRef<HTMLDivElement>(null)
-  useDialogA11y(ref, dismissWelcome)
+  const { households, budgetCurrency } = useAuth()
+  const noun = currencyNoun(budgetCurrency)
 
   // Someone who arrived via a household invite is looking at a budget that already exists —
   // greet them as a member joining it, not as an owner about to set one up.
   const activeHousehold = households.find((h) => h.isActive)
   const joined = activeHousehold ? !activeHousehold.isOwn : false
-  const noun = currencyNoun(budgetCurrency)
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-950/60" aria-hidden="true" onClick={dismissWelcome} />
-
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="zb-welcome-title"
-        aria-describedby="zb-welcome-body"
-        className="relative w-full max-w-md rounded-2xl border border-slate-200/70 bg-surface p-6 shadow-card sm:p-7"
-      >
-        <button
-          type="button"
-          onClick={dismissWelcome}
-          aria-label="Close"
-          className="absolute right-3 top-3 rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-        >
-          <CloseIcon className="h-5 w-5" />
-        </button>
-
-        <JarLogo lg />
-
-        <h2 id="zb-welcome-title" className="mt-4 text-2xl font-bold tracking-tight text-slate-900">
-          Welcome to AllotJar
-        </h2>
-        {joined ? (
-          <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
-            You’ve joined a shared household budget. AllotJar is <strong>zero-based</strong> — the
-            household gives <strong>every {noun} a job</strong> before spending it, and you’re now part
-            of that plan. Want a quick 60-second tour to see how it fits together?
-          </p>
-        ) : (
-          <p id="zb-welcome-body" className="mt-2 text-sm leading-relaxed text-slate-600">
-            AllotJar is a <strong>zero-based</strong> budget — every month you give{' '}
-            <strong>every {noun} a job</strong> before you spend it. Setting up your first month takes a
-            few minutes. Want a quick 60-second tour to see how it fits together?
-          </p>
-        )}
-
-        <ul className="mt-4 space-y-1.5 text-sm text-slate-600">
-          {joined ? (
-            <>
-              <Bullet>See the month’s plan and where money goes</Bullet>
-              <Bullet>Record spending as it happens</Bullet>
-              <Bullet>Watch jars fill toward shared goals</Bullet>
-            </>
-          ) : (
-            <>
-              <Bullet>Plan a month and assign your income</Bullet>
-              <Bullet>Track real spending against each line</Bullet>
-              <Bullet>Save toward goals with jars</Bullet>
-            </>
-          )}
-        </ul>
-
-        <div className="mt-6 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button variant="secondary" onClick={dismissWelcome}>
+    <Modal
+      sheet
+      zIndex={60}
+      title="Welcome to AllotJar"
+      describedBy="zb-welcome-body"
+      hint={
+        joined
+          ? 'See the month’s plan and where money goes, and record spending as it happens. Watch jars fill toward shared goals.'
+          : 'Plan a month and assign your income, then track real spending against each line. Save toward goals with jars.'
+      }
+      hintLabel="About AllotJar"
+      onClose={dismissWelcome}
+      banner={
+        <div className="onb-room" aria-hidden>
+          <BandShelf />
+        </div>
+      }
+      footer={
+        <div className={DIALOG_ACTIONS}>
+          <Button variant="ghost" onClick={dismissWelcome} className={DIALOG_CANCEL}>
             Skip for now
           </Button>
-          <Button onClick={startTour}>Take the tour</Button>
+          <Button onClick={startTour} className={DIALOG_PRIMARY}>
+            Take the tour
+          </Button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <p id="zb-welcome-body" className="-mt-1 text-sm leading-normal text-slate-500">
+        {joined
+          ? `You’ve joined a shared household budget that gives every ${noun} a job.`
+          : `A budget that gives every ${noun} a job.`}
+      </p>
+    </Modal>
   )
 }
