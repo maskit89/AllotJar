@@ -231,6 +231,23 @@ export function formatMoney(minor: Minor, currency: string): string {
   return formatterFor(currency).format(toAmount(minor))
 }
 
+const shortFormatters = new Map<string, Intl.NumberFormat>()
+
+/**
+ * The amount for a summary chip: a whole amount drops its decimals ("€30", "€175 into jars"), one
+ * with cents keeps them ("€30.50"), so a list of them stays short. Same locale as formatMoney.
+ */
+export function formatMoneyShort(minor: Minor, currency: string): string {
+  if (!Number.isInteger(toAmount(minor))) return formatMoney(minor, currency)
+  const key = `${activeLocale}:${currency}`
+  let fmt = shortFormatters.get(key)
+  if (!fmt) {
+    fmt = new Intl.NumberFormat(activeLocale, { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 })
+    shortFormatters.set(key, fmt)
+  }
+  return fmt.format(toAmount(minor))
+}
+
 // A plain grouped number (no currency symbol), for inline-editable amount fields
 // that already render their own "€" prefix — e.g. "1,100.00" in en-GB.
 const plainFormatters = new Map<string, Intl.NumberFormat>()

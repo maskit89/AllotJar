@@ -429,7 +429,7 @@
 - **Type:** Happy
 - **Preconditions:** A generic CSV whose amounts are `1.234,56`-style (dot grouping, comma decimal).
 - **Steps:**
-  1. Upload on `/import`; in the mapping, set **Number format** (aria "Number format") to **1.234,56** (Comma = 2) and re-scan.
+  1. Upload on `/import`; open **Columns** → **More options**, set **Number format** (aria "Number format") to **1.234,56** (Comma = 2) and **Apply changes & re-scan**.
 - **Expected:** Amounts parse under the Comma style (`.` grouping stripped, `,` → decimal) → `1.234,56` becomes `1234.56`. Selecting **1,234.56** (Dot = 1) instead strips `,` grouping and keeps `.` decimal. **Auto-detect** (0) resolves per the right-most-separator/trailing-digit heuristic. (Area coverage: IMP-030, IMP-034.)
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs, ParserToleranceTests.cs)
 
@@ -447,7 +447,7 @@
 - **Type:** Happy
 - **Preconditions:** CSV with a Currency column containing EUR and GBP rows; budget currency EUR; no import account.
 - **Steps:**
-  1. Import; confirm the currency column is mapped, then re-run mapping it to **"Use EUR for every row"** (null column).
+  1. Import; in **Columns** → **More options** confirm the currency column is mapped, then re-scan with it set to **"Use EUR for every row"** (null column).
 - **Expected:** Mapped column → each row stamped its own code (GBP rows → GBP transactions, which arrive **waiting** — CURR-044). Null column → `ResolveCurrency` falls back to `DefaultCurrency` for every row — the client sends the import account's currency, else the budget currency (EUR). A cell whose value isn't a 3-letter code also falls back to the default. (Area coverage: IMP-021.)
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs — reads currency + default; client/src/pages/ImportPage.test.tsx — the fallback is the import account's currency)
 

@@ -69,12 +69,14 @@ export function CategoryChip({ color, icon, line = false, children }: { color: s
  * The row's assign control, one button whichever way it looks, so focus stays on it when a save
  * turns "+ Assign" into the category chip: `color` set, the category chip (Reassign); unset, the
  * dashed gold "+ Assign". The page names it ("Reassign Lidl"); the category it shows is its
- * accessible description, so a screen reader still hears the row's category.
+ * accessible description, so a screen reader still hears the row's category. A disabled chip fades
+ * to 60%; `fade={false}` (opt-in, the Import review's unticked row, restyle PR 14) keeps its colour,
+ * so a line already drawn in the muted colour stays readable.
  */
 export const AssignChip = forwardRef<
   HTMLButtonElement,
-  ButtonHTMLAttributes<HTMLButtonElement> & { color?: string; icon?: ReactNode; line?: boolean; label: ReactNode }
->(function AssignChip({ color, icon, line = false, label, className = '', ...rest }, ref) {
+  ButtonHTMLAttributes<HTMLButtonElement> & { color?: string; icon?: ReactNode; line?: boolean; label: ReactNode; fade?: boolean }
+>(function AssignChip({ color, icon, line = false, label, className = '', fade = true, ...rest }, ref) {
   const labelId = useId()
   return (
     <button
@@ -88,7 +90,7 @@ export const AssignChip = forwardRef<
             ? `${LINE_CHIP} transition hover:text-slate-900`
             : `${CAT_CHIP} transition hover:shadow-[inset_0_0_0_1px_color-mix(in_srgb,currentColor_30%,transparent)]`
           : FILL_CHIP
-      } disabled:opacity-60 ${className}`}
+      } ${fade ? 'disabled:opacity-60' : ''} ${className}`}
       style={color && !line ? catChipStyle(color) : undefined}
       {...rest}
     >

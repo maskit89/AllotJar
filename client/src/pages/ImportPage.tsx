@@ -1,8 +1,32 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
+import {
+  ArrowLeftRight,
+  Check,
+  ChevronDown,
+  Columns3,
+  FileCode,
+  FileSpreadsheet,
+  Lock,
+  Pencil,
+  ReceiptText,
+  Split,
+  TriangleAlert,
+  Undo2,
+  User,
+  Users,
+  X,
+} from 'lucide-react'
 import { AppShell } from '../components/AppShell'
-import { Badge, Button, Card, ErrorBanner, Input, PageHeader, Select } from '../components/ui'
+import { Button, ErrorBanner } from '../components/ui'
 import { Modal } from '../components/Modal'
+import { InfoHint } from '../components/InfoHint'
+import { StatusChip } from '../components/StatusChip'
+import { ActionSheet, RowMenu, type RowAction } from '../components/RowActions'
+import { AssignChip, NEUTRAL, TxTile } from '../components/transactions/TxParts'
+import { DASH_CARD } from '../components/budget/card'
+import { AccountTypeGlyph } from '../components/accounts/AccountParts'
+import { ImportIcon, JarNavIcon } from '../components/icons'
 import { api, commitImport, previewImport, type StatementFormat } from '../lib/api'
 import { bucketCount, EVENTS, track } from '../analytics'
 import { useAuth } from '../auth/AuthContext'
@@ -21,12 +45,14 @@ import type {
 } from '../types'
 import { TransactionType, type TransferMatchCandidate } from '../types'
 import { buildItemOptions, type ItemOptionGroup } from '../lib/transactions'
-import { formatMoney, fromAmount, parseMinor, sumMinor, toAmount, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
+import { currencySymbol, formatMoney, formatMoneyShort, fromAmount, parseMinor, sumMinor, toAmount, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
-import { formatDate, monthYear } from '../lib/dates'
+import { formatDate, monthYear, shortDate } from '../lib/dates'
 import { crossMonthError, serverErrors } from '../lib/serverErrors'
 import { activeJars, useJarLedgers } from '../lib/jarLedgers'
 import { jarAllocationsTotal, toJarAllocations } from '../lib/jarAllocationFields'
+import { hueColor, hueForIndex, type CategoryHue } from '../lib/categoryColors'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { JarAllocationFields } from '../components/jars/JarAllocationFields'
 import { PaidFromJarSelect } from '../components/jars/PaidFromJarSelect'
 import type { SplitRowDraft } from '../components/SplitLinesEditor'
@@ -55,6 +81,9 @@ const FORMATS: Record<Format, { label: string; accept: string; hint: string; wir
     wire: 'Camt053',
   },
 }
+
+/** The format's short name, for the review's file strip. */
+const FORMAT_SHORT: Record<Format, string> = { generic: 'Bank CSV', hsbc: 'HSBC CSV', camt: 'CAMT.053' }
 
 /** Human names for the parser the server actually used, keyed by the wire StatementFormat. */
 const DETECTED_FORMAT_LABELS: Record<string, string> = {
@@ -88,6 +117,21 @@ const DATE_FORMAT_OPTIONS: { value: string; label: string }[] = [
   { value: 'dd.MM.yy', label: 'DD.MM.YY' },
   { value: 'dd-MM-yy', label: 'DD-MM-YY' },
 ]
+
+// ---- The page's sentences, behind the (i) buttons (the mock-ups' hints) -----------------------
+
+const DUPES = "Re-importing the same file won't create duplicates."
+const ACCOUNT_HINT =
+  'Optional. Stamps each transaction onto this account so its balance reflects the import. Pick one to record transfers between your accounts.'
+const SUMMARY_HINT =
+  'Rows already imported are skipped, so re-importing a file never duplicates them. A possible duplicate (an existing transaction with the same amount and a similar payee within a few days) starts unticked: tick it to import it anyway.'
+const MAP_HINT =
+  'We guessed how to read your file. If the rows look off, fix a column and re-scan. Rows that are the same before and after keep the categories you already gave them.'
+const PENDING_HINT = 'Held for review until the departure date is known; nothing is posted to either account yet.'
+const NO_ACCOUNT_HINT =
+  'Some rows look like transfers between your accounts. Re-import with an account selected to record them as transfers.'
+const HELD_HINT = 'Record the missing money first and commit again, or untick a row to discard it.'
+const INCOMPLETE_HINT = 'Splits must add up, transfers need an account, a fee needs a category, and jar amounts can’t exceed what arrived.'
 
 /** One slice of a row's split; the same draft the Transactions page edits. */
 type SplitDraft = SplitRowDraft
@@ -331,6 +375,114 @@ function CategoryOptions({
   )
 }
 
+// ---- The look (the approved mock-ups: importer*.py), shared with the other restyled pages --------
+
+/** The page's one primary action (the Transactions page's Add transaction look). */
+const PRIMARY_BUTTON =
+  'h-[38px] gap-[7px] rounded-[10px] px-4 shadow-[0_1px_2px_rgb(10_50_30/0.2),inset_0_1px_0_rgb(255_255_255/0.12)] max-[899.98px]:h-10 max-[899.98px]:px-3.5 dark:bg-primary dark:hover:bg-brand-600'
+
+/** The file strip's quiet Columns button (the mock-ups' small outline button; 40px on a phone). */
+const OUTLINE_SM =
+  'h-8 gap-1.5 rounded-[10px] border-slate-200 px-3 py-0 text-[13px] text-slate-900 shadow-none max-[699.98px]:h-10 max-[699.98px]:w-10 max-[699.98px]:border-transparent max-[699.98px]:bg-transparent max-[699.98px]:px-0 dark:hover:bg-foreground/7'
+
+/** A dialog's or the upload form's field label (13px, muted). */
+const FIELD_LABEL = 'flex min-h-[22px] items-center gap-1 text-[13px] font-semibold whitespace-nowrap text-slate-500'
+
+/** An (i) in a row, a strip or beside a label: a 22px target, the icon at 15px, in the line's colour. */
+const LINE_HINT =
+  "relative -my-1 inline-grid size-[22px] shrink-0 place-items-center rounded-full opacity-85 transition after:absolute after:-inset-[9px] after:content-[''] hover:bg-[color-mix(in_srgb,currentColor_10%,transparent)] hover:opacity-100"
+const ROW_HINT = `${LINE_HINT} text-slate-500`
+
+/** The ⋯ shows while the row is hovered or holds focus (and always on a touch screen), as on Transactions. */
+const HOVER_TRIGGER =
+  'opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 focus-visible:opacity-100 data-[state=open]:opacity-100 [@media(hover:none)]:opacity-100'
+
+/** A sheet dialog's footer buttons (the Allocation dialogs' Cancel / Save). */
+const FOOT_BTN = 'h-10! min-w-[104px] px-[18px]! max-[699.98px]:h-11! max-[699.98px]:flex-1'
+const FOOT_GHOST = 'h-10! gap-1.5 px-3! text-slate-500 max-[699.98px]:h-11! max-[699.98px]:px-2.5!'
+
+/** The include checkbox: a 40px target around the 20px box (`.im-check` in index.css draws the box).
+ *  The target is the label's ::after, kept behind the box (its own stacking context) so a click
+ *  on the box lands on the input itself: a hit test, as Playwright's `uncheck()` does, finds it. */
+const CHECK_WRAP = "im-check relative isolate grid size-[30px] shrink-0 cursor-pointer place-items-center after:absolute after:-inset-[5px] after:-z-10 after:content-['']"
+
+/** A chip that gives way first when its line is short of room: it truncates, at most its cell wide. */
+const GIVES_WAY = 'max-w-full min-w-0 shrink!'
+
+/** A dialog's labelled select: the words are the select's label; an (i) may sit beside them. */
+function SelectField({
+  label,
+  hint,
+  hintLabel,
+  locked = false,
+  className = '',
+  children,
+}: {
+  label: string
+  hint?: ReactNode
+  hintLabel?: string
+  /** A locked field shows a lock in place of the chevron (the select itself is disabled). */
+  locked?: boolean
+  className?: string
+  children: ReactNode
+}) {
+  return (
+    <div className={`flex min-w-0 flex-col gap-1.5 ${className}`}>
+      <span className={FIELD_LABEL}>
+        <span>{label}</span>
+        {hint && (
+          <InfoHint fixed label={hintLabel ?? `About ${label.toLowerCase()}`} buttonClassName={LINE_HINT}>
+            {hint}
+          </InfoHint>
+        )}
+      </span>
+      <span className="dlg-sel block [&_select:disabled]:bg-transparent [&_select:disabled]:text-slate-500">
+        {children}
+        {locked ? <Lock aria-hidden strokeWidth={1.8} /> : <ChevronDown aria-hidden strokeWidth={1.8} />}
+      </span>
+    </div>
+  )
+}
+
+/** What a row dialog edits: the statement row, in a field-coloured panel (as Allocate's people). */
+function RowSummary({ row, account, tile }: { row: ReviewRow; account: string | null; tile: ReactNode }) {
+  return (
+    <div className="flex min-h-[62px] items-center gap-3 rounded-xl bg-[var(--dlg-field)] py-2.5 pr-4 pl-3.5 shadow-[inset_0_0_0_1px_var(--color-line)] max-[699.98px]:pr-3.5 max-[699.98px]:pl-3">
+      {tile}
+      <span className="flex min-w-0 flex-col">
+        <b className="truncate text-base font-semibold text-slate-900">{row.payee}</b>
+        <small className="truncate text-[13px] text-slate-500">
+          {shortDate(row.date)}
+          {account && ` · ${account}`}
+        </small>
+      </span>
+      <span className={`ml-auto shrink-0 text-base font-semibold tabular-nums ${row.isTransfer ? 'text-slate-500' : row.isCredit ? 'text-ok' : 'text-slate-900'}`}>
+        {row.isCredit ? '+' : '−'}
+        {formatMoney(fromAmount(row.amount), row.currency)}
+      </span>
+    </div>
+  )
+}
+
+/** One stat of the done card: its label over its value, in one div (the journeys read the pair). */
+function Stat({ label, value, tone, hint, hintLabel }: { label: string; value: ReactNode; tone?: 'ok'; hint?: ReactNode; hintLabel?: string }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="flex items-center gap-1 text-[13px] text-slate-500">
+        {label}
+        {hint && (
+          <InfoHint fixed label={hintLabel ?? `About ${label.toLowerCase()}`} buttonClassName={LINE_HINT}>
+            {hint}
+          </InfoHint>
+        )}
+      </dt>
+      <dd className={`text-lg font-[650] tracking-[-0.01em] break-words tabular-nums max-[699.98px]:text-base ${tone === 'ok' ? 'text-ok' : 'text-slate-900'}`}>
+        {value}
+      </dd>
+    </div>
+  )
+}
+
 export function ImportPage() {
   // Importing a statement creates/edits budget structure, so it needs Admin+ (canWrite).
   const { canWrite, budgetCurrency } = useAuth()
@@ -351,6 +503,7 @@ export function ImportPage() {
   // The mapping that produced the CURRENT preview rows. Compared against `mapping` to tell when the
   // user has edited the mapping but not re-scanned — so we never import a stale parse silently.
   const [scannedMapping, setScannedMapping] = useState<CsvMapping | null>(null)
+  // The row whose split editor (a dialog) is open, by key.
   const [splitOpen, setSplitOpen] = useState<string | null>(null)
   const [bulkMember, setBulkMember] = useState('')
   const [bulkCategory, setBulkCategory] = useState('')
@@ -367,14 +520,62 @@ export function ImportPage() {
   const nextRowKey = useRef(0)
   // The latest commit that held rows back: while set, the review shows only those rows.
   const [heldResult, setHeldResult] = useState<ImportStatementResult | null>(null)
-  // Count of categorised rows dated outside the loaded budget month — set when Import needs the
-  // one-per-batch cross-month confirmation before committing.
-  // The batch's cross-month question: the rows the screen counted, or the server's own refusal.
+  // The batch's one-per-batch cross-month question before committing: the categorised rows the
+  // screen counted outside the loaded budget month, or the server's own refusal.
   const [crossMonthAsk, setCrossMonthAsk] = useState<{ count: number; message?: string } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // The jar-backed accounts (rules 78/79): the prompts only apply when the import account is one.
   const { byAccount } = useJarLedgers()
+
+  // ---- The review's dialogs and open editors (restyle PR 14), each by the row's key ----------
+  // The Columns dialog (the Bank CSV column mapping) and the error of a re-scan it asked for.
+  const [columnsOpen, setColumnsOpen] = useState(false)
+  const [rescanError, setRescanError] = useState<string | null>(null)
+  // The transfer editor, the member picker and the "From jar" picker, each for one row.
+  const [transferFor, setTransferFor] = useState<string | null>(null)
+  const [memberFor, setMemberFor] = useState<string | null>(null)
+  const [jarFor, setJarFor] = useState<string | null>(null)
+  // The list bar's bulk actions (a dialog each).
+  const [bulkOpen, setBulkOpen] = useState<'member' | 'category' | null>(null)
+  // The row whose category picker is open in the row, and the rows whose jar fields are open.
+  const [assigning, setAssigning] = useState<string | null>(null)
+  // The row whose category chip takes focus back once its picker closes by a pick or Escape (a blur
+  // means focus already went somewhere else).
+  const assignReturn = useRef<string | null>(null)
+  useEffect(() => {
+    if (assigning !== null || !assignReturn.current) return
+    const key = assignReturn.current
+    assignReturn.current = null
+    document.querySelector<HTMLElement>(`[data-import-row="${key}"] [data-assign-chip]`)?.focus()
+  }, [assigning])
+  // The row whose trigger (the ⋯, or the payee on a phone) takes focus back when the Transfer or Split
+  // dialog closes by removing its own opener (Undo transfer, Clear split): the chip that opened it is
+  // gone by then, so the dialog's own focus return would land nowhere.
+  const dialogReturn = useRef<string | null>(null)
+  useEffect(() => {
+    if (transferFor !== null || splitOpen !== null || !dialogReturn.current) return
+    const key = dialogReturn.current
+    dialogReturn.current = null
+    document.querySelector<HTMLElement>(`[data-import-row="${key}"] [data-row-trigger]`)?.focus()
+  }, [transferFor, splitOpen])
+  const [jarsOpen, setJarsOpen] = useState<string[]>([])
+  // The row whose phone action sheet is open.
+  const [sheetFor, setSheetFor] = useState<string | null>(null)
+  // The page action sits in the top bar from 900px (AppShell's own breakpoint); below it the
+  // page pins its own bar above the tab bar. The rows take their phone shape below 700px.
+  const desktop = useMediaQuery('(min-width: 900px)')
+  const phone = useMediaQuery('(max-width: 699.98px)')
+  const allBox = useRef<HTMLInputElement>(null)
+  // Focus moves to the new step's heading when the step changes: the button that was pressed is gone
+  // by then, so the keyboard carries on from the new card and a screen reader hears where it is.
+  const stepHeading = useRef<HTMLHeadingElement>(null)
+  const lastPhase = useRef(phase)
+  useEffect(() => {
+    if (lastPhase.current === phase) return
+    lastPhase.current = phase
+    stepHeading.current?.focus()
+  }, [phase])
 
   useEffect(() => {
     let cancelled = false
@@ -394,6 +595,7 @@ export function ImportPage() {
   }, [])
 
   const expenseGroups = useMemo(() => buildItemOptions(month, TransactionType.Expense), [month])
+  const incomeGroups = useMemo(() => buildItemOptions(month, TransactionType.Income), [month])
   const includedCount = useMemo(() => rows.filter((r) => r.include).length, [rows])
   const possibleDuplicateCount = useMemo(() => rows.filter((r) => r.possibleDuplicate).length, [rows])
   const reusedReferenceCount = useMemo(() => rows.filter((r) => r.reusedReference).length, [rows])
@@ -425,13 +627,29 @@ export function ImportPage() {
   // The currency a CSV row without its own currency column is read in: the chosen import
   // account's currency, else the budget currency.
   const fallbackCurrency = importAccount?.currency || budgetCurrency
-  // The month's jar lines (a savings line names its jar), whose debits never ask for a jar.
   /** Every line of the loaded month: a categorised row's line is one of them, a matched fee's may not be. */
   const monthLineIds = useMemo(() => new Set((month?.categories ?? []).flatMap((c) => c.items).map((i) => i.id)), [month])
+  // The month's jar lines (a savings line names its jar), whose debits never ask for a jar.
   const jarLineIds = useMemo(
     () => new Set((month?.categories ?? []).flatMap((c) => c.items).filter((i) => i.savingsId).map((i) => i.id)),
     [month],
   )
+  // Each budget line's colour and name, for the rows' category chips (the Transactions list's palette).
+  const lines = useMemo(() => {
+    const hue: Record<string, CategoryHue> = {}
+    const name: Record<string, string> = {}
+    if (!month) return { hue, name }
+    let expenseIdx = 0
+    let fundIdx = 0
+    for (const c of month.categories) {
+      const h: CategoryHue = c.kind === 'Income' ? 'emerald' : c.kind === 'Savings' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
+      for (const it of c.items) {
+        hue[it.id] = h
+        name[it.id] = it.name
+      }
+    }
+    return { hue, name }
+  }, [month])
   // Block the import while a split doesn't add up, a transfer hasn't picked a counterparty (a
   // return names its transfer instead, and a chosen match its counterparty, which may be private
   // to another login), a typed fee isn't less than the row, a fee has no line (the server
@@ -452,6 +670,12 @@ export function ImportPage() {
   // Rows held by the latest commit (rule 74): the review shows only those until they post or are unticked.
   const heldMode = heldResult !== null
   const heldEverCount = useMemo(() => new Set(heldEver).size, [heldEver])
+
+  // The header checkbox reads mixed while only some of the rows it ticks are included.
+  const someIncluded = bulkRows.some((r) => r.include)
+  useEffect(() => {
+    if (allBox.current) allBox.current.indeterminate = !allIncluded && someIncluded
+  }, [allIncluded, someIncluded])
 
   // Fold a preview result into the review state (shared by the first upload and CSV re-scans).
   // On a re-scan, `priorRows` carries the user's per-row work forward for any row whose identity
@@ -498,6 +722,12 @@ export function ImportPage() {
       setScannedMapping(data.layout.suggested)
     }
     setSplitOpen(null)
+    setTransferFor(null)
+    setMemberFor(null)
+    setJarFor(null)
+    setAssigning(null)
+    setJarsOpen([])
+    setSheetFor(null)
   }
 
   async function onPreview(e: FormEvent) {
@@ -526,10 +756,11 @@ export function ImportPage() {
 
   // Re-parse the same CSV with the user's corrected column mapping and refresh the preview rows,
   // carrying forward the categorisation the user has already done for rows that survive unchanged.
+  // The Columns dialog closes once the re-scan is in; a refusal stays in the dialog.
   async function reScanCsv() {
     if (!file || !mapping) return
     setBusy(true)
-    setError(null)
+    setRescanError(null)
     try {
       const priorRows = rows
       const data = await previewImport(file, 'GenericCsv', {
@@ -538,11 +769,19 @@ export function ImportPage() {
         accountId: accountId || null,
       })
       applyPreview(data, priorRows)
+      setColumnsOpen(false)
     } catch (err) {
-      setError(errorMessage(err))
+      setRescanError(errorMessage(err))
     } finally {
       setBusy(false)
     }
+  }
+
+  /** Cancel, ✕ or Escape on the Columns dialog: the mapping goes back to the one the rows were read with. */
+  function closeColumns() {
+    setMapping(scannedMapping)
+    setRescanError(null)
+    setColumnsOpen(false)
   }
 
   function updateRow(index: number, patch: Partial<ReviewRow>) {
@@ -820,1040 +1059,1566 @@ export function ImportPage() {
     setBulkMember('')
     setBulkCategory('')
     setCrossMonthAsk(null)
+    setColumnsOpen(false)
+    setRescanError(null)
+    setTransferFor(null)
+    setMemberFor(null)
+    setJarFor(null)
+    setBulkOpen(null)
+    setAssigning(null)
+    setJarsOpen([])
+    setSheetFor(null)
   }
 
-  return (
-    <AppShell active="import" title="Import transactions" maxWidth="5xl">
-      <div>
-        <Link to="/transactions" className="text-sm font-medium text-brand-700 hover:underline dark:text-brand-200">
-          ← Back to transactions
-        </Link>
+  // ---- The page action: "Import N transactions", in the top bar (desktop) or the pinned bar (phone) ----
+  const importDisabled = busy || (includedCount === 0 && !heldMode) || reviewIncomplete || mappingDirty
+  const importLabel = busy
+    ? 'Importing…'
+    : heldMode
+      ? includedCount === 0
+        ? 'Finish without the held rows'
+        : 'Commit held rows'
+      : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`
+  const reviewing = canWrite && phase === 'review' && !!preview && rows.length > 0
+  const importButton = reviewing ? (
+    <Button onClick={() => onCommit()} disabled={importDisabled} className={`${PRIMARY_BUTTON} max-[899.98px]:w-full`}>
+      {!busy && <ImportIcon className="size-4" />}
+      {importLabel}
+    </Button>
+  ) : null
+
+  const rowByKey = (key: string | null) => (key === null ? -1 : rows.findIndex((r) => r.key === key))
+  const transferIndex = rowByKey(transferFor)
+  const splitIndex = rowByKey(splitOpen)
+  const memberIndex = rowByKey(memberFor)
+  const jarIndex = rowByKey(jarFor)
+  const groupsFor = (r: ReviewRow) => (r.isCredit ? incomeGroups : expenseGroups)
+
+  // ---- The review rows -------------------------------------------------------------------------
+  function renderRow(r: ReviewRow, index: number) {
+    const groups = groupsFor(r)
+    const info = splitInfo(r)
+    const domId = rowDomId(r.reference, index)
+    const name = `${r.payee} on ${r.date}`
+    const match = chosenMatch(r)
+    const returning = match?.kind === 'Return'
+    const feeMinor = rowFeeMinor(r)
+    // An unticked row steps back to the muted colours; nothing fades (the empty box says it is left out).
+    const off = !r.include
+    // The jar prompts (rules 78/79) apply only to a ticked row into/out of a jar-backed account.
+    const showAllocation = importBacksJars && r.include && r.isCredit && !isReturnRow(r)
+    const showPaidFrom = importBacksJars && r.include && paidFromApplies(r, jarLineIds)
+    const jarsAreOpen = showAllocation && jarsOpen.includes(r.key)
+    const jarTotal = jarAllocationsTotal(r.jarAllocation)
+    const paidFromJar = showPaidFrom && r.paidFromJarId ? importJars.find((j) => j.jarId === r.paidFromJarId) : undefined
+    const lineColor = r.budgetItemId && lines.hue[r.budgetItemId] ? hueColor(lines.hue[r.budgetItemId]) : NEUTRAL
+    const jarLine = !!r.budgetItemId && jarLineIds.has(r.budgetItemId)
+
+    // ---- The row's actions: the ⋯ menu (desktop) and the phone sheet, one list ----------------
+    const actions: RowAction[] = []
+    if (r.isTransfer) {
+      actions.push({
+        key: 'edit-transfer',
+        label: 'Edit transfer',
+        ariaLabel: `Edit transfer for ${name}`,
+        icon: <Pencil aria-hidden />,
+        after: 'dialog',
+        onSelect: () => setTransferFor(r.key),
+      })
+      actions.push({
+        key: 'undo-transfer',
+        label: 'Undo transfer',
+        ariaLabel: `Undo transfer for ${name}`,
+        icon: <Undo2 aria-hidden />,
+        onSelect: () => clearTransfer(index),
+      })
+    } else if (r.splits) {
+      actions.push({
+        key: 'edit-split',
+        label: 'Edit split',
+        ariaLabel: `Edit split for ${name}`,
+        icon: <Split aria-hidden />,
+        after: 'dialog',
+        onSelect: () => setSplitOpen(r.key),
+      })
+      actions.push({ key: 'clear-split', label: 'Clear split', icon: <X aria-hidden />, onSelect: () => clearSplit(index) })
+    } else {
+      actions.push({
+        key: 'split',
+        label: 'Split',
+        ariaLabel: `Split ${name}`,
+        icon: <Split aria-hidden />,
+        disabled: !r.include,
+        after: 'dialog',
+        onSelect: () => startSplit(index, r.key),
+      })
+      if (canTransfer) {
+        actions.push({
+          key: 'transfer',
+          label: 'Mark as transfer',
+          ariaLabel: `Mark ${name} as a transfer`,
+          icon: <ArrowLeftRight aria-hidden />,
+          disabled: !r.include,
+          after: 'dialog',
+          onSelect: () => {
+            startTransfer(index)
+            setTransferFor(r.key)
+          },
+        })
+      }
+      actions.push({
+        key: 'member',
+        label: 'Member',
+        ariaLabel: `Member for ${name}`,
+        icon: <User aria-hidden />,
+        disabled: !r.include || members.length === 0,
+        after: 'dialog',
+        onSelect: () => setMemberFor(r.key),
+      })
+    }
+    if (showPaidFrom) {
+      actions.push({
+        key: 'from-jar',
+        label: 'From jar…',
+        ariaLabel: `From jar for ${name}`,
+        icon: <JarNavIcon aria-hidden strokeWidth={1.8} />,
+        after: 'dialog',
+        onSelect: () => setJarFor(r.key),
+      })
+    }
+
+    // ---- The flags beside the payee (desktop) or under the category (phone) --------------------
+    const flags: ReactNode[] = []
+    if (r.heldMessage !== null) {
+      flags.push(
+        <span key="held" className="inline-flex items-center gap-0.5">
+          <StatusChip tone="bad">Held</StatusChip>
+          <InfoHint fixed label={`Why ${r.payee} was held`} buttonClassName={ROW_HINT} align={phone ? 'center' : 'start'}>
+            {r.heldMessage}
+          </InfoHint>
+        </span>,
+      )
+    }
+    if (r.possibleDuplicate) flags.push(<StatusChip key="dup" tone="warn">Possible duplicate</StatusChip>)
+    if (r.reusedReference) {
+      flags.push(
+        <span key="ref" className="inline-flex items-center gap-0.5">
+          <StatusChip tone="warn">Same reference</StatusChip>
+          <InfoHint fixed label={`About the bank reference of ${r.payee}`} buttonClassName={ROW_HINT} align={phone ? 'center' : 'start'}>
+            An entry with this bank reference was already imported: {formatDate(r.reusedReference.date)}{' '}
+            {r.reusedReference.isCredit ? '+' : '−'}
+            {formatMoney(fromAmount(r.reusedReference.amount), r.currency)}. Tick it only if this is a different payment.
+          </InfoHint>
+        </span>,
+      )
+    }
+    if (r.likelyTransfer && !r.isTransfer) flags.push(<StatusChip key="likely" tone="line">Looks like a transfer</StatusChip>)
+    if (!r.likelyTransfer && !r.isTransfer && r.transferMatches.some((m) => m.kind === 'Return')) {
+      flags.push(<StatusChip key="back" tone="line">Looks like a transfer coming back</StatusChip>)
+    }
+
+    // ---- The category cell: the transfer, the split, or the line (a chip, or its picker) -------
+    let main: ReactNode
+    let xflag: ReactNode = null
+    if (r.isTransfer) {
+      const incomplete = !returning && !r.transferAccountId && !r.matchTransferId
+      const other = returning
+        ? 'coming back'
+        : match && match.counterpartyAccountId === null
+          ? `${r.isCredit ? 'from' : 'to'} ${match.counterpartyAccountName || 'Private account'}`
+          : r.transferAccountId
+            ? `${r.isCredit ? 'from' : 'to'} ${otherAccounts.find((a) => a.id === r.transferAccountId)?.name ?? '…'}`
+            : 'Choose account…'
+      main = (
+        <button
+          type="button"
+          onClick={() => setTransferFor(r.key)}
+          aria-label={`Edit transfer for ${name}`}
+          className={`group/x relative flex min-w-0 items-center gap-2 rounded-lg after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] ${phone ? 'z-10' : ''}`}
+        >
+          {/* On a phone the icon alone says "transfer" (the mock-up's row), the chip only on a wide screen. */}
+          {!phone && (
+            <StatusChip tone={incomplete ? 'bad' : 'line'}>
+              <ArrowLeftRight aria-hidden strokeWidth={2} />
+              Transfer
+            </StatusChip>
+          )}
+          <span className={`flex min-w-0 items-center gap-1.5 text-[13px] whitespace-nowrap transition group-hover/x:text-slate-900 ${phone ? 'text-slate-500' : 'text-slate-400'} ${incomplete ? 'text-bad!' : ''}`}>
+            {phone && <ArrowLeftRight aria-hidden strokeWidth={2} className="size-[13px] shrink-0" />}
+            <span className="truncate">{other}</span>
+          </span>
+        </button>
+      )
+      if (!returning && r.transferMatches.length > 0 && !r.matchTransferId) {
+        xflag = (
+          <button
+            type="button"
+            onClick={() => setTransferFor(r.key)}
+            aria-label={`Already recorded? ${name}`}
+            className={`relative after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] ${phone ? 'z-10' : ''}`}
+          >
+            <StatusChip tone="warn">Already recorded?</StatusChip>
+          </button>
+        )
+      } else if (!returning && r.isCredit && !r.matchTransferId) {
+        xflag = (
+          <span className="inline-flex items-center gap-0.5">
+            <StatusChip tone="warn">Pending review</StatusChip>
+            <InfoHint fixed label="About pending review" buttonClassName={ROW_HINT} align={phone ? 'center' : 'start'}>
+              {PENDING_HINT}
+            </InfoHint>
+          </span>
+        )
+      }
+    } else if (r.splits) {
+      const slices = r.splits.map((s) => {
+        const lineName = lines.name[s.budgetItemId] ?? 'Unassigned'
+        const minor = parseMinor(s.amount)
+        return minor !== null && s.amount.trim() ? `${lineName} ${formatMoneyShort(minor, r.currency)}` : lineName
+      })
+      main = (
+        <button
+          type="button"
+          onClick={() => setSplitOpen(r.key)}
+          aria-label={`Edit split for ${name}`}
+          title={`Split: ${slices.join(' · ')}`}
+          className={`relative min-w-0 after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] ${phone ? 'z-10' : ''}`}
+        >
+          <StatusChip tone={info.valid ? 'line' : 'bad'} className={GIVES_WAY}>
+            <Split aria-hidden strokeWidth={2} />
+            <span className="sr-only">Split: </span>
+            <span className="min-w-0 truncate">{slices.join(' · ')}</span>
+          </StatusChip>
+        </button>
+      )
+    } else if (assigning === r.key) {
+      main = (
+        <select
+          autoFocus
+          value={r.budgetItemId}
+          aria-label={`Category for ${name}`}
+          onChange={(e) => {
+            updateRow(index, { budgetItemId: e.target.value })
+            assignReturn.current = r.key
+            setAssigning(null)
+          }}
+          onBlur={() => setAssigning(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.stopPropagation()
+              assignReturn.current = r.key
+              setAssigning(null)
+            }
+          }}
+          className="relative z-10 h-8 w-56 max-w-full max-[699.98px]:h-10 rounded-lg border border-input bg-surface px-2 text-sm text-slate-700 focus:border-brand-600 focus:ring-2 focus:ring-brand-500/40 focus:outline-none focus-visible:outline-none! disabled:opacity-50"
+        >
+          <CategoryOptions groups={groups} />
+        </select>
+      )
+    } else {
+      main = (
+        <AssignChip
+          color={r.budgetItemId ? (off ? NEUTRAL : lineColor) : undefined}
+          line={jarLine}
+          icon={jarLine ? <JarNavIcon strokeWidth={2} /> : undefined}
+          label={r.budgetItemId ? (lines.name[r.budgetItemId] ?? 'Unassigned') : 'Assign'}
+          aria-label={`${r.budgetItemId ? 'Reassign' : 'Assign'} ${name}`}
+          disabled={!r.include}
+          // Unticked, the line is already in the muted colour: it stays readable, only the dashed Assign fades.
+          fade={!r.budgetItemId}
+          onClick={() => setAssigning(r.key)}
+          className={phone ? 'z-10' : ''}
+        />
+      )
+    }
+    const jarChip = paidFromJar && (
+      <StatusChip tone="line" className={GIVES_WAY} title={`From jar: ${paidFromJar.name}`}>
+        <JarNavIcon aria-hidden strokeWidth={2} />
+        <span className="min-w-0 truncate">From {paidFromJar.name}</span>
+      </StatusChip>
+    )
+    const memberName = !r.isTransfer && !r.splits && r.memberId ? members.find((m) => m.id === r.memberId)?.name : undefined
+    const memberChip = memberName && (
+      <StatusChip tone="line" className={GIVES_WAY} title={`Member: ${memberName}`}>
+        <User aria-hidden strokeWidth={2} />
+        <span className="min-w-0 truncate">{memberName}</span>
+      </StatusChip>
+    )
+
+    // ---- The amount, and under it a credit's jar answer (which opens the jar fields) ------------
+    const amount = (
+      <div className="flex min-w-0 flex-col items-end gap-[3px] text-right">
+        <span
+          data-import-amount=""
+          className={`text-sm whitespace-nowrap tabular-nums ${
+            off ? 'font-semibold text-slate-500' : r.isTransfer ? 'font-semibold text-slate-500' : r.isCredit ? 'font-[650] text-ok' : 'font-[650] text-slate-900'
+          }`}
+        >
+          {r.isCredit ? '+' : '−'}
+          {formatMoney(fromAmount(r.amount), r.currency)}
+        </span>
+        {r.isTransfer && feeMinor !== null && (
+          <span className="text-xs whitespace-nowrap text-slate-400 tabular-nums">+ fee {formatMoney(feeMinor, r.currency)}</span>
+        )}
+        {showAllocation && (
+          <button
+            type="button"
+            aria-expanded={jarsAreOpen}
+            aria-controls={`${domId}-jars`}
+            onClick={() => setJarsOpen((open) => (open.includes(r.key) ? open.filter((k) => k !== r.key) : [...open, r.key]))}
+            className={`relative inline-flex items-center gap-[3px] rounded-md text-xs font-semibold whitespace-nowrap text-slate-500 transition after:absolute after:-inset-x-1.5 after:-inset-y-3 after:content-[''] hover:text-slate-900 ${phone ? 'z-10' : ''}`}
+          >
+            {jarTotal !== null && jarTotal > 0 ? `${formatMoneyShort(fromAmount(jarTotal), r.currency)} into jars` : 'Into jars'}
+            <ChevronDown aria-hidden strokeWidth={2} className={`size-3 text-slate-400 transition ${jarsAreOpen ? 'rotate-180' : ''}`} />
+          </button>
+        )}
       </div>
-      <PageHeader
-        subtitle="Upload a bank export, review and categorise the new transactions, then import. Re-importing the same file won't create duplicates."
-      />
+    )
 
-      {error && <ErrorBanner>{error}</ErrorBanner>}
+    const payeeText = (
+      <span className={`min-w-0 truncate text-left text-sm font-semibold ${off ? 'text-slate-500' : 'text-slate-900'}`}>{r.payee}</span>
+    )
+    const payee =
+      phone && actions.length > 0 ? (
+        <ActionSheet title={r.payee} description={shortDate(r.date)} actions={actions} open={sheetFor === r.key} onOpenChange={(open) => setSheetFor(open ? r.key : null)}>
+          <button
+            type="button"
+            data-row-trigger=""
+            className={`min-w-0 truncate text-left text-sm font-semibold after:absolute after:inset-0 after:rounded-[10px] after:content-[''] focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:-outline-offset-1 focus-visible:after:outline-ring ${off ? 'text-slate-500' : 'text-slate-900'}`}
+          >
+            {r.payee}
+          </button>
+        </ActionSheet>
+      ) : (
+        payeeText
+      )
 
-      {!canWrite && (
-        <Card className="p-6 text-sm text-slate-600">
-          Importing statements is available to admins and the household owner. You can still add
-          transactions by hand on the <Link to="/transactions" className="font-medium text-brand-700 hover:underline dark:text-brand-200">Transactions</Link> page.
-        </Card>
-      )}
+    const include = (
+      <label className={CHECK_WRAP}>
+        <input
+          type="checkbox"
+          aria-label={`Include ${name}`}
+          checked={r.include}
+          onChange={(e) => updateRow(index, { include: e.target.checked })}
+        />
+      </label>
+    )
 
-      {canWrite && phase === 'upload' && (
-        <Card as="section" aria-labelledby="import-form-heading" className="p-6">
-          <h2 id="import-form-heading" className="sr-only">
-            Upload a statement
-          </h2>
-          <form className="grid gap-5 sm:max-w-md" onSubmit={onPreview}>
-            <div className="grid gap-1.5">
-              <label htmlFor="import-format" className="text-sm font-medium text-slate-700">
-                File format
-              </label>
-              <Select
-                id="import-format"
-                value={format}
-                onChange={(e) => {
-                  setFormat(e.target.value as Format)
-                  setFile(null)
-                }}
+    // ---- The editors under the row: a credit's jar fields (rule 78) ----------------------------
+    const jarFields = showAllocation && (
+      <div
+        id={`${domId}-jars`}
+        hidden={!jarsAreOpen}
+        className="dlg-scope dlg-scope-panel mr-[46px] mb-3 ml-[110px] rounded-xl bg-surface-2 px-[18px] pt-3.5 pb-3 shadow-[inset_0_0_0_1px_var(--color-line)] max-[699.98px]:mr-0 max-[699.98px]:ml-[42px] max-[699.98px]:px-3.5 max-[699.98px]:pt-2.5 max-[699.98px]:pb-2.5 dark:bg-[color-mix(in_srgb,var(--color-background)_55%,var(--color-card))]"
+      >
+        <JarAllocationFields
+          look="dialog"
+          columns={2}
+          title={`Put into jars in ${importAccount?.name ?? ''}`}
+          hint={r.isTransfer && !r.matchTransferId ? 'These jar amounts apply once the transfer’s departure is confirmed.' : undefined}
+          jars={importJars}
+          accountName={importAccount?.name ?? ''}
+          currency={importCurrency}
+          amount={r.amount}
+          value={r.jarAllocation}
+          onChange={(value) => updateRow(index, { jarAllocation: value })}
+          idPrefix={domId}
+          placeholder="0.00"
+        />
+        {jarAllocationTooPrecise(r) && (
+          <p role="alert" className="mt-1.5 text-[13px] text-bad">
+            {TOO_MANY_DECIMALS}
+          </p>
+        )}
+      </div>
+    )
+
+    const more = !phone && actions.length > 0 && (
+      <RowMenu label={`${name}: more actions`} actions={actions} triggerClassName={HOVER_TRIGGER} />
+    )
+
+    return (
+      <li key={r.key} data-import-row={r.key} className="not-first:border-t not-first:border-line">
+        <div
+          data-testid="import-row"
+          className={
+            phone
+              ? 'group relative grid min-h-[60px] grid-cols-[30px_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-[5px] py-[11px]'
+              : // Below 1024px (a tablet) the payee column takes a little more than the category column, so a flagged payee is not cut short beside an emptier cell.
+                'group relative grid min-h-14 grid-cols-[30px_52px_minmax(0,1fr)_minmax(0,1.3fr)_128px_32px] items-center gap-x-3.5 py-3 max-[1023.98px]:grid-cols-[30px_52px_minmax(0,1.2fr)_minmax(0,1fr)_128px_32px]'
+          }
+        >
+          {phone ? (
+            <>
+              {/* Above the payee button's full-row overlay (as the chips are), so a tap on the box ticks it. */}
+              <div className="relative z-10 col-start-1 row-span-2 row-start-1 self-center">{include}</div>
+              {/* Line 1: the payee and what flags it (a flag that would not fit beside it drops under it; a long payee
+                  truncates); line 2: the line, the date, the rest. */}
+              <div className="col-start-2 row-start-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                {payee}
+                {flags}
+              </div>
+              <div className="col-start-2 row-start-2 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1.5">
+                {main}
+                <span className={`shrink-0 text-xs whitespace-nowrap tabular-nums text-slate-400`}>
+                  {r.isTransfer && <span aria-hidden>· </span>}
+                  {shortDate(r.date)}
+                </span>
+                {jarChip}
+                {memberChip}
+                {xflag}
+              </div>
+              <div className="col-start-3 row-span-2 row-start-1 self-center">{amount}</div>
+            </>
+          ) : (
+            <>
+              {include}
+              <span className={`text-[13px] whitespace-nowrap tabular-nums text-slate-400`}>{shortDate(r.date)}</span>
+              <div className="flex min-w-0 items-center gap-2">
+                {payee}
+                {flags}
+              </div>
+              <div className="flex min-w-0 items-center gap-2">
+                {main}
+                {jarChip}
+                {memberChip}
+                {xflag}
+              </div>
+              {amount}
+              <div className="flex justify-end">{more}</div>
+            </>
+          )}
+        </div>
+        {jarFields}
+      </li>
+    )
+  }
+
+  // ---- The transfer editor (a dialog on a wide screen, a bottom sheet on a phone) ---------------
+  function renderTransferDialog() {
+    if (transferIndex < 0) return null
+    const r = rows[transferIndex]
+    const index = transferIndex
+    const name = `${r.payee} on ${r.date}`
+    const match = chosenMatch(r)
+    const returning = match?.kind === 'Return'
+    const feeMinor = rowFeeMinor(r)
+    const typedFee = !r.isCredit && !match
+    const privateSide = !!match && match.counterpartyAccountId === null
+    const domId = rowDomId(r.reference, index)
+    const close = () => setTransferFor(null)
+    return (
+      <Modal
+        sheet
+        title="Transfer"
+        onClose={close}
+        footer={
+          <div className="mt-[22px] flex items-center gap-2 max-[699.98px]:mt-[18px]">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                dialogReturn.current = r.key
+                clearTransfer(index)
+                close()
+              }}
+              aria-label={`Undo transfer for ${name}`}
+              disabled={busy}
+              className={FOOT_GHOST}
+            >
+              <Undo2 aria-hidden className="size-4 text-slate-400" />
+              Undo transfer
+            </Button>
+            <span className="flex-1" />
+            <Button onClick={close} disabled={busy} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <RowSummary
+          row={r}
+          account={importAccount?.name ?? null}
+          tile={
+            <TxTile color={hueColor('teal')}>
+              <ArrowLeftRight strokeWidth={1.8} />
+            </TxTile>
+          }
+        />
+        <fieldset disabled={busy} className="m-0 mt-[18px] flex min-w-0 flex-col gap-4 border-0 p-0">
+          {/* The other account: fixed by a chosen recorded transfer; named, never chosen, when it is private to another login. */}
+          {returning ? null : privateSide ? (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <span className={FIELD_LABEL}>{r.isCredit ? 'From' : 'To'}</span>
+              <span className="flex h-10 items-center gap-2 rounded-[9px] px-3 text-sm font-semibold text-slate-500 shadow-[inset_0_0_0_1px_var(--dlg-edge)] max-[699.98px]:h-11 max-[699.98px]:text-base">
+                <Lock aria-hidden strokeWidth={1.8} className="size-4 text-slate-400" />
+                {match.counterpartyAccountName || 'Private account'}
+              </span>
+            </div>
+          ) : (
+            <SelectField label={r.isCredit ? 'From' : 'To'} locked={!!r.matchTransferId}>
+              <select
+                aria-label={`Transfer account for ${name}`}
+                value={r.transferAccountId}
+                disabled={!r.include || !!r.matchTransferId}
+                onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
               >
-                {(Object.keys(FORMATS) as Format[]).map((key) => (
-                  <option key={key} value={key}>
-                    {FORMATS[key].label}
-                  </option>
-                ))}
-              </Select>
-              <p className="text-xs text-slate-500">{FORMATS[format].hint}</p>
-            </div>
-
-            <div className="grid gap-1.5">
-              <label htmlFor="import-file" className="text-sm font-medium text-slate-700">
-                Statement file
-              </label>
-              <input
-                // Remount on format change so the browser clears the previously-chosen filename —
-                // otherwise the input still shows a file that setFile(null) has already dropped,
-                // leaving the submit button dead with no explanation.
-                key={format}
-                id="import-file"
-                type="file"
-                accept={FORMATS[format].accept}
-                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="text-sm text-slate-700 file:mr-3 file:rounded-lg file:border-0 file:bg-brand-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-700"
-              />
-            </div>
-
-            <div className="grid gap-1.5">
-              <label htmlFor="import-account" className="text-sm font-medium text-slate-700">
-                Add to account <span className="font-normal text-slate-500">(optional)</span>
-              </label>
-              <Select id="import-account" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                <option value="">Don't link to an account</option>
-                {accounts.map((a) => (
+                <option value="">Choose account…</option>
+                {otherAccounts.map((a) => (
                   <option key={a.id} value={a.id}>
                     {a.name}
                   </option>
                 ))}
-              </Select>
-              <p className="text-xs text-slate-500">
-                Stamps each transaction onto this account so its balance reflects the import.
-              </p>
-            </div>
+              </select>
+            </SelectField>
+          )}
 
-            <div>
-              <Button type="submit" disabled={!file || busy}>
-                {busy ? 'Reading…' : 'Review transactions'}
+          {/* "Already recorded?": the few candidates as a radio group, in the server's order (nearest date first, rule 87). */}
+          {r.transferMatches.length > 0 && (
+            <fieldset aria-label={`Match recorded transfer for ${name}`} disabled={!r.include} className="m-0 flex min-w-0 flex-col gap-1.5 border-0 p-0">
+              <legend className={`${FIELD_LABEL} mb-1.5 p-0`}>Already recorded?</legend>
+              <div className="rounded-xl bg-[var(--dlg-field)] shadow-[inset_0_0_0_1px_var(--color-line)]">
+                {[{ transferId: '', label: 'No — record it as a new transfer' }, ...r.transferMatches.map((m) => ({ transferId: m.transferId, label: matchLabel(r, m) }))].map((o) => {
+                  const chosen = r.matchTransferId === o.transferId
+                  return (
+                    <label
+                      key={o.transferId || 'new'}
+                      className={`flex min-h-12 cursor-pointer items-center gap-3 px-3.5 py-2.5 text-sm not-first:border-t not-first:border-line ${chosen ? 'font-semibold text-slate-900' : 'font-medium text-slate-900'}`}
+                    >
+                      <input
+                        type="radio"
+                        name={`${rowDomId(r.reference, index)}-match`}
+                        value={o.transferId}
+                        checked={chosen}
+                        onChange={() => chooseMatch(index, o.transferId)}
+                        className="size-[18px] shrink-0 cursor-pointer appearance-none rounded-full border-[1.5px] border-[color-mix(in_srgb,var(--color-slate-400)_80%,var(--color-card))] bg-card checked:border-[5px] checked:border-brand-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring dark:checked:border-primary"
+                      />
+                      <span className="min-w-0 tabular-nums [overflow-wrap:anywhere]">{o.label}</span>
+                    </label>
+                  )
+                })}
+              </div>
+              {match?.sameReference && (
+                <div>
+                  <StatusChip tone="line">Same bank reference</StatusChip>
+                </div>
+              )}
+              {match?.recordedDate && (
+                <p className="text-[13px] text-slate-500">
+                  Recorded in the app on {formatDate(match.recordedDate)}; the bank&rsquo;s date will be used.
+                </p>
+              )}
+            </fieldset>
+          )}
+
+          {/* A fee: the candidate's (accepted by choosing it) or one typed for an unmatched debit. */}
+          {typedFee && (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              <label htmlFor={`${rowDomId(r.reference, index)}-fee`} className={FIELD_LABEL}>
+                Fee (optional)
+              </label>
+              <span className="dlg-in w-36 max-[699.98px]:w-full">
+                <span aria-hidden>{currencySymbol(r.currency)}</span>
+                <input
+                  id={`${rowDomId(r.reference, index)}-fee`}
+                  inputMode="decimal"
+                  {...selectOnFocusProps}
+                  placeholder="0.00"
+                  aria-label={`Fee for ${name}`}
+                  aria-invalid={!manualFeeValid(r) || undefined}
+                  aria-describedby={!manualFeeValid(r) ? `${domId}-fee-error` : undefined}
+                  value={r.feeInput}
+                  disabled={!r.include}
+                  onChange={(e) => updateRow(index, { feeInput: e.target.value })}
+                />
+              </span>
+              {!manualFeeValid(r) && (
+                <p id={`${domId}-fee-error`} role="alert" className="text-[13px] text-bad">
+                  {tooPrecise(r.feeInput) ? TOO_MANY_DECIMALS : 'The fee must be more than zero and less than the row’s amount.'}
+                </p>
+              )}
+            </div>
+          )}
+          {feeMinor !== null && (
+            <SelectField
+              label="Fee category"
+              hint={
+                typedFee
+                  ? `A transfer of ${formatMoney(fromAmount(r.amount) - feeMinor, r.currency)} plus a fee of ${formatMoney(feeMinor, r.currency)}.`
+                  : `Records a fee of ${formatMoney(feeMinor, r.currency)}.`
+              }
+              hintLabel="About the fee"
+            >
+              <select
+                aria-label={`Fee category for ${name}`}
+                value={r.feeBudgetItemId}
+                disabled={!r.include}
+                aria-invalid={feeLineMissing(r) || undefined}
+                aria-describedby={feeLineMissing(r) ? `${domId}-fee-line-error` : undefined}
+                onChange={(e) => updateRow(index, { feeBudgetItemId: e.target.value })}
+              >
+                <CategoryOptions groups={expenseGroups} emptyLabel="Choose a line…" currentId={r.feeBudgetItemId} />
+              </select>
+            </SelectField>
+          )}
+          {feeLineMissing(r) && (
+            <p id={`${domId}-fee-line-error`} role="alert" className="-mt-2 text-[13px] text-bad">
+              Choose the fee&rsquo;s category.
+            </p>
+          )}
+
+          {/* The status: what the choices above do, with the ok tick (a receipt with no departure waits, in orange). */}
+          {returning ? (
+            <p className="flex items-start gap-[7px] text-[13px] leading-[1.45] text-slate-500">
+              <Check aria-hidden strokeWidth={2.2} className="mt-0.5 size-[15px] shrink-0 text-ok" />
+              <span>
+                Records the transfer to {match.counterpartyAccountName} as returned: the money is back in {importAccount?.name ?? 'this account'} and
+                goes back to the jars it left from.
+              </span>
+            </p>
+          ) : r.matchTransferId ? (
+            <p className="flex items-start gap-[7px] text-[13px] leading-[1.45] text-slate-500">
+              <Check aria-hidden strokeWidth={2.2} className="mt-0.5 size-[15px] shrink-0 text-ok" />
+              <span>Confirms the other side of the recorded transfer — no second balance movement.</span>
+            </p>
+          ) : r.isCredit ? (
+            <p className="flex items-start gap-[7px] text-[13px] leading-[1.45] text-warn">
+              <TriangleAlert aria-hidden strokeWidth={2} className="mt-0.5 size-[15px] shrink-0" />
+              <span>Held for review until the departure date is known; nothing is posted to either account yet.</span>
+            </p>
+          ) : (
+            <p className="flex items-start gap-[7px] text-[13px] leading-[1.45] text-slate-500">
+              <Check aria-hidden strokeWidth={2.2} className="mt-0.5 size-[15px] shrink-0 text-ok" />
+              <span>Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.</span>
+            </p>
+          )}
+        </fieldset>
+      </Modal>
+    )
+  }
+
+  // ---- The split editor: the slices, the remainder, Add line / Clear split / Done ---------------
+  function renderSplitDialog() {
+    if (splitIndex < 0) return null
+    const r = rows[splitIndex]
+    const index = splitIndex
+    if (!r.splits) return null
+    const info = splitInfo(r)
+    const groups = groupsFor(r)
+    const hasMembers = members.length > 0
+    const close = () => setSplitOpen(null)
+    const splitColor = r.splits[0]?.budgetItemId && lines.hue[r.splits[0].budgetItemId] ? hueColor(lines.hue[r.splits[0].budgetItemId]) : NEUTRAL
+    return (
+      <Modal
+        sheet
+        title="Split"
+        onClose={close}
+        footer={
+          <div className="mt-[22px] flex items-center gap-2 max-[699.98px]:mt-[18px]">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                dialogReturn.current = r.key
+                clearSplit(index)
+              }}
+              disabled={busy}
+              className={FOOT_GHOST}
+            >
+              <X aria-hidden className="size-4 text-slate-400" />
+              Clear split
+            </Button>
+            <span className="flex-1" />
+            <Button onClick={close} disabled={!info.valid || busy} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <RowSummary
+          row={r}
+          account={importAccount?.name ?? null}
+          tile={
+            <TxTile color={splitColor}>
+              <Split strokeWidth={1.8} />
+            </TxTile>
+          }
+        />
+        <fieldset disabled={busy} className="m-0 mt-[18px] flex min-w-0 flex-col gap-3 border-0 p-0">
+          <legend className="sr-only">Split lines</legend>
+          {r.splits.map((line, li) => (
+            <div
+              key={li}
+              className={`grid items-center gap-2 ${
+                hasMembers
+                  ? 'grid-cols-[minmax(0,1fr)_112px_minmax(0,0.8fr)_36px] max-[699.98px]:grid-cols-[minmax(0,1fr)_100px_36px]'
+                  : 'grid-cols-[minmax(0,1fr)_112px_36px] max-[699.98px]:grid-cols-[minmax(0,1fr)_100px_36px]'
+              }`}
+            >
+              <span className="dlg-sel block min-w-0">
+                <select
+                  aria-label={`Split line ${li + 1} category for ${r.payee}`}
+                  value={line.budgetItemId}
+                  onChange={(e) => updateSplitLine(index, li, { budgetItemId: e.target.value })}
+                >
+                  <CategoryOptions groups={groups} />
+                </select>
+                <ChevronDown aria-hidden strokeWidth={1.8} />
+              </span>
+              <span className="dlg-in">
+                <span aria-hidden>{currencySymbol(r.currency)}</span>
+                <input
+                  inputMode="decimal"
+                  {...selectOnFocusProps}
+                  placeholder="0.00"
+                  aria-label={`Split line ${li + 1} amount for ${r.payee}`}
+                  value={line.amount}
+                  onChange={(e) => updateSplitLine(index, li, { amount: e.target.value })}
+                />
+              </span>
+              {hasMembers && (
+                <span className="dlg-sel block min-w-0 max-[699.98px]:col-span-2 max-[699.98px]:col-start-1">
+                  <select
+                    aria-label={`Split line ${li + 1} member for ${r.payee}`}
+                    value={line.memberId}
+                    onChange={(e) => updateSplitLine(index, li, { memberId: e.target.value })}
+                  >
+                    <option value="">No member</option>
+                    {members.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name}
+                      </option>
+                    ))}
+                  </select>
+                  <ChevronDown aria-hidden strokeWidth={1.8} />
+                </span>
+              )}
+              {r.splits!.length > 2 ? (
+                <button
+                  type="button"
+                  onClick={() => removeSplitLine(index, li)}
+                  aria-label={`Remove split line ${li + 1} for ${r.payee}`}
+                  title="Remove line"
+                  className={`grid size-9 place-items-center rounded-lg text-slate-500 transition hover:bg-bad-bg hover:text-bad ${hasMembers ? 'max-[699.98px]:col-start-3 max-[699.98px]:row-start-1' : ''}`}
+                >
+                  <X aria-hidden className="size-4" />
+                </button>
+              ) : (
+                <span className={hasMembers ? 'max-[699.98px]:col-start-3 max-[699.98px]:row-start-1' : ''} />
+              )}
+            </div>
+          ))}
+          <div className="flex items-center justify-between gap-3 border-t border-line pt-3">
+            <Button variant="ghost" size="sm" onClick={() => addSplitLine(index)} className="-ml-2 h-8 px-2 text-[13px] text-slate-500 hover:text-slate-900 max-[699.98px]:h-10">
+              + Add line
+            </Button>
+            <span
+              aria-label="Remaining to allocate"
+              className={`text-[13px] font-semibold tabular-nums ${info.remainingMinor === 0 && !info.tooPrecise ? 'text-ok' : 'text-bad'}`}
+            >
+              {info.tooPrecise
+                ? TOO_MANY_DECIMALS
+                : info.remainingMinor === 0
+                  ? 'Fully allocated'
+                  : info.remainingMinor < 0
+                    ? `${formatMoney(-info.remainingMinor, r.currency)} over`
+                    : `${formatMoney(info.remainingMinor, r.currency)} left`}
+            </span>
+          </div>
+        </fieldset>
+      </Modal>
+    )
+  }
+
+  // ---- A row's member (a dialog), and which jar a payment comes from (rule 79) ------------------
+  function renderMemberDialog() {
+    if (memberIndex < 0) return null
+    const r = rows[memberIndex]
+    const index = memberIndex
+    const close = () => setMemberFor(null)
+    return (
+      <Modal
+        sheet
+        title="Member"
+        onClose={close}
+        footer={
+          <div className="mt-[22px] flex justify-end gap-2 max-[699.98px]:mt-[18px]">
+            <Button onClick={close} disabled={busy} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <RowSummary
+          row={r}
+          account={importAccount?.name ?? null}
+          tile={
+            <TxTile color={r.budgetItemId && lines.hue[r.budgetItemId] ? hueColor(lines.hue[r.budgetItemId]) : NEUTRAL}>
+              <User strokeWidth={1.8} />
+            </TxTile>
+          }
+        />
+        <div className="mt-[18px]">
+          <SelectField label="Member">
+            <select
+              aria-label={`Member for ${r.payee} on ${r.date}`}
+              value={r.memberId}
+              disabled={!r.include || members.length === 0 || busy}
+              onChange={(e) => updateRow(index, { memberId: e.target.value })}
+            >
+              <option value="">No member</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
+                </option>
+              ))}
+            </select>
+          </SelectField>
+        </div>
+      </Modal>
+    )
+  }
+
+  function renderJarDialog() {
+    if (jarIndex < 0) return null
+    const r = rows[jarIndex]
+    const index = jarIndex
+    const close = () => setJarFor(null)
+    return (
+      <Modal
+        sheet
+        title="From jar"
+        onClose={close}
+        hint={`Which jar in ${importAccount?.name ?? 'this account'} does this come from? Leave it unallocated to take the money from no jar.`}
+        hintLabel="About paying from a jar"
+        footer={
+          <div className="mt-[22px] flex justify-end gap-2 max-[699.98px]:mt-[18px]">
+            <Button onClick={close} disabled={busy} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        <RowSummary
+          row={r}
+          account={importAccount?.name ?? null}
+          tile={
+            <TxTile color={hueColor('teal')}>
+              <JarNavIcon strokeWidth={1.8} />
+            </TxTile>
+          }
+        />
+        <fieldset disabled={busy} className="m-0 mt-[18px] min-w-0 border-0 p-0">
+          <PaidFromJarSelect
+            look="dialog"
+            jars={importJars}
+            accountName={importAccount?.name ?? ''}
+            currency={importCurrency}
+            value={r.paidFromJarId}
+            onChange={(jarId) => updateRow(index, { paidFromJarId: jarId })}
+            id={`${rowDomId(r.reference, index)}-paid-from`}
+            compact
+          />
+        </fieldset>
+      </Modal>
+    )
+  }
+
+  // ---- The list bar's bulk actions: a member for the included rows, a line for the included expenses ----
+  function renderBulkDialog() {
+    if (!bulkOpen) return null
+    const member = bulkOpen === 'member'
+    const close = () => setBulkOpen(null)
+    const apply = () => {
+      if (member) applyMemberToIncluded()
+      else applyCategoryToIncluded()
+      close()
+    }
+    const nothing = member ? members.length === 0 : expenseGroups.length === 0
+    return (
+      <Modal
+        sheet
+        title={member ? 'Member for included rows' : 'Category for included expenses'}
+        onClose={close}
+        hint={
+          member
+            ? 'Sets whose spending every ticked row is. Split rows and transfers keep their own answers.'
+            : 'Puts every ticked expense on this line. Money in, split rows and transfers keep their own lines.'
+        }
+        hintLabel={member ? 'About the bulk member' : 'About the bulk category'}
+        footer={
+          <div className="mt-[22px] flex justify-end gap-2 max-[699.98px]:mt-[18px]">
+            <Button variant="ghost" onClick={close} className={FOOT_GHOST}>
+              Cancel
+            </Button>
+            <Button onClick={apply} disabled={busy || nothing} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+              {member ? 'Apply to included' : 'Apply to expenses'}
+            </Button>
+          </div>
+        }
+      >
+        <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
+          {member ? (
+            <SelectField label="Member">
+              <select aria-label="Bulk member" value={bulkMember} onChange={(e) => setBulkMember(e.target.value)}>
+                <option value="">No member</option>
+                {members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </SelectField>
+          ) : (
+            <SelectField label="Category">
+              <select aria-label="Bulk category" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)}>
+                <CategoryOptions groups={expenseGroups} />
+              </select>
+            </SelectField>
+          )}
+        </fieldset>
+      </Modal>
+    )
+  }
+
+  // ---- The Bank CSV column mapping: the first rows as read, the four main choices, the rest behind "More options" ----
+  function renderColumnsDialog() {
+    if (!columnsOpen || !layout || !mapping) return null
+    const dateLabel = dateFormatLabel(mapping.dateFormat)
+    const numeric = layout.columns.map((_, ci) => layout.sampleRows.length > 0 && layout.sampleRows.every((row) => /^\s*-?[\d.,\s]+\s*$/.test(row[ci] ?? '')))
+    const columnOptions = layout.columns.map((name, i) => (
+      <option key={i} value={i}>
+        {name}
+      </option>
+    ))
+    return (
+      <Modal
+        sheet
+        title="Columns"
+        onClose={closeColumns}
+        hint={MAP_HINT}
+        hintLabel="About the column mapping"
+        footer={
+          <div className="mt-[22px] flex flex-col gap-3 max-[699.98px]:mt-[18px]">
+            {mappingDirty && !busy && (
+              <p aria-live="polite" className="text-[13px] font-medium text-warn">
+                You’ve changed the column mapping. Re-scan to apply it before importing.
+              </p>
+            )}
+            {rescanError && (
+              <p role="alert" className="text-[13px] font-medium text-bad">
+                {rescanError}
+              </p>
+            )}
+            <div className="flex items-center justify-end gap-2">
+              <Button variant="ghost" onClick={closeColumns} disabled={busy} className={FOOT_GHOST}>
+                Cancel
+              </Button>
+              <Button onClick={() => void reScanCsv()} disabled={busy} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+                {busy ? 'Re-scanning…' : mappingDirty ? 'Apply changes & re-scan' : 'Re-scan'}
               </Button>
             </div>
-          </form>
-        </Card>
+          </div>
+        }
+      >
+        {/* The first few rows exactly as parsed, so the user can see which column is which. */}
+        {/* Wider than a phone's sheet, the box scrolls sideways: a keyboard reaches it too (its name is the table's). */}
+        {layout.sampleRows.length > 0 && (
+          <div
+            tabIndex={0}
+            role="region"
+            aria-labelledby="import-sample-caption"
+            className="overflow-x-auto rounded-xl bg-[var(--dlg-field)] px-3.5 py-1 shadow-[inset_0_0_0_1px_var(--color-line)] max-[699.98px]:px-3"
+          >
+            <table className="w-full border-collapse text-[13px] tabular-nums">
+              <caption id="import-sample-caption" className="sr-only">
+                Sample of the uploaded file
+              </caption>
+              <thead>
+                <tr>
+                  {layout.columns.map((name, i) => (
+                    <th
+                      key={i}
+                      scope="col"
+                      className={`py-2 pr-3 pb-[7px] text-xs font-[650] tracking-[0.05em] whitespace-nowrap text-slate-500 uppercase last:pr-0 ${numeric[i] ? 'text-right' : 'text-left'}`}
+                    >
+                      {name}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {layout.sampleRows.map((row, ri) => (
+                  <tr key={ri}>
+                    {layout.columns.map((_, ci) => (
+                      <td key={ci} className={`border-t border-line py-2 pr-3 whitespace-nowrap text-slate-500 last:pr-0 ${numeric[ci] ? 'text-right' : 'text-left'}`}>
+                        {row[ci] ?? ''}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        {/* The readout of the date format applied, for assistive tech (the Date format field shows it). */}
+        {dateLabel && <p className="sr-only">We read your dates as {dateLabel}.</p>}
+
+        <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
+          <legend className="sr-only">Column mapping</legend>
+          <div className="mt-[18px] grid grid-cols-2 gap-x-4 gap-y-3.5 max-[699.98px]:mt-4 max-[699.98px]:gap-3">
+            <SelectField label="Date column">
+              <select aria-label="Date column" value={mapping.dateColumn} onChange={(e) => setMapping((m) => (m ? { ...m, dateColumn: Number(e.target.value) } : m))}>
+                {columnOptions}
+              </select>
+            </SelectField>
+            <SelectField label="Date format">
+              <select
+                aria-label="Date format"
+                value={mapping.dateFormat ?? ''}
+                onChange={(e) => setMapping((m) => (m ? { ...m, dateFormat: e.target.value === '' ? null : e.target.value } : m))}
+              >
+                {DATE_FORMAT_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+            </SelectField>
+            <SelectField label="Description column">
+              <select
+                aria-label="Description column"
+                value={mapping.descriptionColumn}
+                onChange={(e) => setMapping((m) => (m ? { ...m, descriptionColumn: Number(e.target.value) } : m))}
+              >
+                {columnOptions}
+              </select>
+            </SelectField>
+            <SelectField label="Amount column" hint="Signed: money out is negative." hintLabel="About the amount column">
+              <select aria-label="Amount column" value={mapping.amountColumn} onChange={(e) => setMapping((m) => (m ? { ...m, amountColumn: Number(e.target.value) } : m))}>
+                {columnOptions}
+              </select>
+            </SelectField>
+          </div>
+          {/* The four that are almost never changed, behind one quiet row (closed). */}
+          <details className="group/more mt-4 border-t border-line max-[699.98px]:mt-3.5">
+            <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-lg text-sm font-semibold text-slate-500 transition hover:text-slate-900 [&::-webkit-details-marker]:hidden">
+              More options
+              <ChevronDown aria-hidden strokeWidth={2} className="size-4 transition group-open/more:rotate-180" />
+            </summary>
+            <div className="mt-1 grid grid-cols-2 gap-x-4 gap-y-3.5 max-[699.98px]:gap-3">
+              <SelectField label="Currency column">
+                <select
+                  aria-label="Currency column"
+                  value={mapping.currencyColumn ?? ''}
+                  onChange={(e) => setMapping((m) => (m ? { ...m, currencyColumn: e.target.value === '' ? null : Number(e.target.value) } : m))}
+                >
+                  <option value="">Use {fallbackCurrency} for every row</option>
+                  {columnOptions}
+                </select>
+              </SelectField>
+              <SelectField label="Number format">
+                <select
+                  aria-label="Number format"
+                  value={mapping.decimalStyle}
+                  onChange={(e) => setMapping((m) => (m ? { ...m, decimalStyle: Number(e.target.value) as CsvDecimalStyle } : m))}
+                >
+                  <option value={0}>Auto-detect</option>
+                  <option value={1}>1,234.56</option>
+                  <option value={2}>1.234,56</option>
+                </select>
+              </SelectField>
+              <SelectField label="Column separator">
+                <select aria-label="Column separator" value={mapping.delimiter} onChange={(e) => setMapping((m) => (m ? { ...m, delimiter: e.target.value } : m))}>
+                  <option value=",">Comma ,</option>
+                  <option value=";">Semicolon ;</option>
+                  <option value={'\t'}>Tab</option>
+                  <option value="|">Pipe |</option>
+                </select>
+              </SelectField>
+              <label className="dlg-check flex h-10 cursor-pointer items-center gap-2.5 self-end text-sm font-medium text-slate-900 max-[699.98px]:h-11">
+                <input type="checkbox" checked={mapping.hasHeader} onChange={(e) => setMapping((m) => (m ? { ...m, hasHeader: e.target.checked } : m))} />
+                First row is a header
+              </label>
+            </div>
+          </details>
+        </fieldset>
+      </Modal>
+    )
+  }
+
+  // ---- The done card's figures --------------------------------------------------------------
+  function renderDone() {
+    // One review can take several commits when rows were held (rule 74); the summary
+    // adds up what each of them posted.
+    const total = results.reduce(
+      (t, r) => ({
+        imported: t.imported + r.imported,
+        skipped: t.skipped + r.skippedDuplicates,
+        transfers: t.transfers + r.transfers,
+        matched: t.matched + (r.matchedTransfers ?? 0),
+        pendingReview: t.pendingReview + (r.pendingReviewTransfers ?? 0),
+        returned: t.returned + (r.returned ?? 0),
+        awaitingAmount: t.awaitingAmount + (r.awaitingAmount ?? 0),
+      }),
+      { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0, returned: 0, awaitingAmount: 0 },
+    )
+    // Money in/out are the actual sums of what was imported (the accepted rows are still
+    // in state), not transaction counts. A row the server skipped as already imported
+    // moved no money, so it is left out; a row in another currency is summed in that
+    // currency and shown apart, and the count of those still waiting for their amount in
+    // the budget currency is shown below. Transfers are internal moves, so they stay a count.
+    const importedRows = committedRows.filter((r) => !r.skipped)
+    const moneyIn = moneyByCurrency(importedRows, (r) => !r.isTransfer && r.isCredit)
+    const moneyOut = moneyByCurrency(importedRows, (r) => !r.isTransfer && !r.isCredit)
+    const money = (groups: { currency: string; minor: number }[]) =>
+      groups.length === 0 ? formatMoney(0, budgetCurrency) : groups.map((g) => formatMoney(g.minor, g.currency)).join(' + ')
+    const n = total.awaitingAmount
+    return (
+      <section
+        aria-labelledby="import-result-heading"
+        className={`${DASH_CARD} grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-[22px] [grid-template-areas:'hd_btn'_'st_st'] max-[699.98px]:grid-cols-1 max-[699.98px]:gap-[18px] max-[699.98px]:[grid-template-areas:'hd'_'st'_'btn']`}
+      >
+        <div className="flex items-center gap-3.5 [grid-area:hd]">
+          <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-cat-emerald)_14%,var(--color-card))] text-[var(--color-cat-emerald)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--color-cat-emerald)_6%,transparent)]">
+            <Check aria-hidden strokeWidth={2.2} className="size-[22px]" />
+          </span>
+          <div className="min-w-0">
+            <h2 ref={stepHeading} tabIndex={-1} id="import-result-heading" className="text-lg font-bold tracking-[-0.015em] text-slate-900">
+              Import complete
+            </h2>
+            {/* The one-line summary, for assistive tech and the journeys (the stats say it on screen). */}
+            <p className="sr-only">
+              {total.imported} transaction{total.imported === 1 ? '' : 's'} added
+              {total.skipped > 0 && `, ${total.skipped} skipped`}.
+            </p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-5 gap-4 border-t border-line pt-[18px] [grid-area:st] max-[699.98px]:grid-cols-3 max-[699.98px]:gap-x-3 max-[699.98px]:gap-y-4 max-[699.98px]:pt-4">
+          <Stat label="Imported" value={total.imported} />
+          {total.skipped > 0 && <Stat label="Skipped" value={total.skipped} />}
+          <Stat label="Money in" value={money(moneyIn)} tone="ok" />
+          <Stat label="Money out" value={money(moneyOut)} />
+          <Stat label="Transfers" value={total.transfers} />
+          {total.matched > 0 && <Stat label="Matched" value={total.matched} />}
+          {total.pendingReview > 0 && <Stat label="Pending review" value={total.pendingReview} />}
+          {total.returned > 0 && <Stat label="Returned" value={total.returned} />}
+          {heldEverCount > 0 && <Stat label="Held" value={heldEverCount} />}
+          {n > 0 && (
+            <Stat
+              label={`Waiting for ${budgetCurrency} amount`}
+              value={n}
+              hintLabel="About the rows waiting for an amount"
+              hint={`${n} ${n === 1 ? 'row is' : 'rows are'} in another currency and ${n === 1 ? 'is' : 'are'} not counted anywhere until ${n === 1 ? 'its' : 'their'} amount in ${budgetCurrency} is entered on Transactions.`}
+            />
+          )}
+        </dl>
+        <div className="flex justify-end [grid-area:btn]">
+          <Button onClick={reset} className={`${PRIMARY_BUTTON} h-10! px-[18px]! max-[699.98px]:h-11! max-[699.98px]:w-full`}>
+            <ImportIcon className="size-4" />
+            Import another file
+          </Button>
+        </div>
+      </section>
+    )
+  }
+
+  const heldCount = heldResult?.held?.length ?? 0
+  const heldRest = heldResult
+    ? `The rest went in: ${heldResult.imported} transaction${heldResult.imported === 1 ? '' : 's'} imported${
+        heldResult.skippedDuplicates > 0 ? `, ${heldResult.skippedDuplicates} skipped` : ''
+      }${heldResult.transfers > 0 ? `, ${heldResult.transfers} transfer${heldResult.transfers === 1 ? '' : 's'}` : ''}.`
+    : ''
+  const formatHint = `${FORMATS[format].hint} ${DUPES}`
+  const detected = format === 'generic' && preview?.detectedFormat ? DETECTED_FORMAT_LABELS[preview.detectedFormat] : undefined
+  const FileIcon = format === 'camt' ? FileCode : FileSpreadsheet
+
+  return (
+    <AppShell active="import" title="Import transactions" actions={desktop ? importButton : undefined}>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+
+      {!canWrite && (
+        <section aria-label="Import" className={`${DASH_CARD} text-sm text-slate-500`}>
+          Importing statements is available to admins and the household owner. You can still add transactions by hand on the{' '}
+          <Link to="/transactions" className="font-semibold text-brand-700 hover:underline dark:text-brand-200">
+            Transactions
+          </Link>{' '}
+          page.
+        </section>
+      )}
+
+      {/* Step 1: one calm card in the wide column: the drop zone is the file chooser, the format sits inside it. */}
+      {canWrite && phase === 'upload' && (
+        <div className="@container">
+          <div className="grid grid-cols-1 items-start gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+            <section aria-labelledby="import-form-heading" className={DASH_CARD}>
+              <h2 ref={stepHeading} tabIndex={-1} id="import-form-heading" className="sr-only">
+                Upload a statement
+              </h2>
+              <form onSubmit={onPreview} className="dlg-scope">
+                <div
+                  data-drop-zone=""
+                  className="relative flex min-h-[236px] flex-col items-center justify-center gap-1 rounded-[14px] border-[1.5px] border-dashed border-[color-mix(in_srgb,var(--color-slate-400)_50%,transparent)] bg-[color-mix(in_srgb,var(--color-brand-600)_3%,var(--color-surface-2))] px-6 pt-7 pb-6 text-center transition focus-within:border-ring has-[input:focus-visible]:outline-2 has-[input:focus-visible]:outline-offset-2 has-[input:focus-visible]:outline-ring hover:border-[color-mix(in_srgb,var(--color-brand-600)_60%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-brand-600)_6%,var(--color-surface-2))] max-[699.98px]:min-h-0 max-[699.98px]:px-3.5 max-[699.98px]:pt-[26px] max-[699.98px]:pb-5 dark:bg-[color-mix(in_srgb,var(--color-brand-600)_5%,var(--color-card))]"
+                >
+                  {/* The input covers the zone: a click opens the chooser and a dropped file lands in it. */}
+                  <input
+                    // Remount on format change so the browser clears the previously-chosen filename —
+                    // otherwise the input still shows a file that setFile(null) has already dropped,
+                    // leaving the submit button dead with no explanation.
+                    key={format}
+                    id="import-file"
+                    type="file"
+                    // Named by its visible words too (2.5.3), so "click Choose a file" finds it.
+                    aria-label={`Statement file: ${file ? 'choose a different file' : 'choose a file or drop it here'}`}
+                    accept={FORMATS[format].accept}
+                    disabled={busy}
+                    onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                    className="absolute inset-0 z-0 size-full cursor-pointer rounded-[inherit] opacity-0 focus-visible:outline-none disabled:cursor-default"
+                  />
+                  <span
+                    aria-hidden
+                    className="pointer-events-none mb-3 grid size-14 place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-cat-emerald)_14%,var(--color-card))] text-[var(--color-cat-emerald)] shadow-[0_0_0_7px_color-mix(in_srgb,var(--color-cat-emerald)_6%,transparent)] max-[699.98px]:mb-2.5 max-[699.98px]:size-[52px]"
+                  >
+                    {file ? <FileIcon strokeWidth={2} className="size-6" /> : <ImportIcon className="size-6" />}
+                  </span>
+                  <b aria-hidden className="pointer-events-none max-w-full truncate text-base font-[650] tracking-[-0.01em] text-slate-900">
+                    {file ? file.name : 'Choose a file'}
+                  </b>
+                  <span aria-hidden className={`pointer-events-none text-sm text-slate-500 ${file ? '' : 'max-[699.98px]:hidden'}`}>
+                    {file ? 'Choose a different file' : 'or drop it here'}
+                  </span>
+                  {/* The format: a small pill select on the zone's axis, its label to the left and its help (i) to the right. */}
+                  <div className="relative z-10 mt-[18px] flex justify-center">
+                    <span className="relative inline-flex items-center max-[699.98px]:flex max-[699.98px]:w-full max-[699.98px]:flex-wrap max-[699.98px]:items-center max-[699.98px]:justify-center max-[699.98px]:gap-x-0.5 max-[699.98px]:gap-y-1.5">
+                      <label
+                        htmlFor="import-format"
+                        className="absolute top-1/2 right-[calc(100%+10px)] -translate-y-1/2 cursor-pointer text-[13px] font-semibold whitespace-nowrap text-slate-500 max-[699.98px]:static max-[699.98px]:translate-y-0"
+                      >
+                        File format
+                      </label>
+                      <span className="dlg-sel flex max-[699.98px]:order-3 max-[699.98px]:flex max-[699.98px]:basis-full max-[699.98px]:justify-center [&_select]:h-9 [&_select]:w-auto [&_select]:rounded-full [&_select]:bg-card [&_select]:pr-8 [&_select]:pl-3.5 [&_select]:text-[13px] [&_select]:font-semibold [&_select]:shadow-[inset_0_0_0_1px_var(--dlg-edge),var(--shadow-frame)] max-[699.98px]:[&_select]:h-10 max-[699.98px]:[&_select]:pr-[34px] max-[699.98px]:[&_select]:pl-4 max-[699.98px]:[&_select]:text-base [&_svg]:right-[11px] [&_svg]:size-3.5 [&_svg]:-mt-[7px]">
+                        <select
+                          id="import-format"
+                          value={format}
+                          disabled={busy}
+                          onChange={(e) => {
+                            setFormat(e.target.value as Format)
+                            setFile(null)
+                          }}
+                        >
+                          {(Object.keys(FORMATS) as Format[]).map((key) => (
+                            <option key={key} value={key}>
+                              {FORMATS[key].label}
+                            </option>
+                          ))}
+                        </select>
+                        <ChevronDown aria-hidden strokeWidth={1.8} />
+                      </span>
+                      {/* No translate on this span: a `translate` would make it the containing block of the (i)'s fixed popover. */}
+                      <span className="absolute inset-y-0 left-[calc(100%+4px)] flex items-center max-[699.98px]:static">
+                        <InfoHint fixed label="About file formats" buttonClassName={ROW_HINT} align="center">
+                          {formatHint}
+                        </InfoHint>
+                      </span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* The account and the button share one row under the zone. */}
+                <div className="mt-[22px] flex items-end gap-4 max-[699.98px]:mt-[18px] max-[699.98px]:flex-col max-[699.98px]:items-stretch max-[699.98px]:gap-[18px]">
+                  <div className="flex min-w-0 flex-1 flex-col gap-[7px]">
+                    <span className={FIELD_LABEL}>
+                      <label htmlFor="import-account">Add to account</label>
+                      <InfoHint fixed label="About the account" buttonClassName={LINE_HINT}>
+                        {ACCOUNT_HINT}
+                      </InfoHint>
+                    </span>
+                    <span className="dlg-sel block [&_select]:h-11 [&_select]:bg-surface-2 [&_select]:font-medium max-[699.98px]:[&_select]:text-base dark:[&_select]:bg-background">
+                      <select id="import-account" value={accountId} disabled={busy} onChange={(e) => setAccountId(e.target.value)}>
+                        <option value="">Don't link to an account</option>
+                        {accounts.map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {a.name}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown aria-hidden strokeWidth={1.8} />
+                    </span>
+                  </div>
+                  <Button type="submit" disabled={!file || busy} className={`${PRIMARY_BUTTON} h-11! px-5! max-[699.98px]:w-full`}>
+                    {busy ? 'Reading…' : 'Review transactions'}
+                  </Button>
+                </div>
+              </form>
+            </section>
+          </div>
+        </div>
       )}
 
       {/* Everything in the file was already imported — a success, not an empty grid to puzzle over. */}
       {canWrite && phase === 'review' && preview && rows.length === 0 && (
-        <Card as="section" aria-labelledby="import-caughtup-heading" className="p-6">
-          <h2 id="import-caughtup-heading" className="text-lg font-semibold text-slate-900">
-            You’re all caught up
-          </h2>
-          <p className="mt-1 text-sm text-slate-500">
-            Every transaction in this file is already in AllotJar
-            {preview.skippedDuplicates > 0
-              ? ` — all ${preview.skippedDuplicates} were skipped as duplicates.`
-              : '.'}{' '}
-            Nothing new to import.
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Button onClick={reset}>Import another file</Button>
-            <Link
-              to="/transactions"
-              className="inline-flex items-center text-sm font-medium text-brand-700 hover:underline dark:text-brand-200"
+        <div className="@container">
+          <div className="grid grid-cols-1 items-start gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
+            <section
+              aria-labelledby="import-caughtup-heading"
+              className={`${DASH_CARD} grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-[18px] max-[699.98px]:grid-cols-1`}
             >
-              View transactions →
-            </Link>
+              <div className="flex items-center gap-3.5">
+                <span className="grid size-11 shrink-0 place-items-center rounded-full bg-[color-mix(in_srgb,var(--color-cat-emerald)_14%,var(--color-card))] text-[var(--color-cat-emerald)] shadow-[0_0_0_6px_color-mix(in_srgb,var(--color-cat-emerald)_6%,transparent)]">
+                  <Check aria-hidden strokeWidth={2.2} className="size-[22px]" />
+                </span>
+                <div className="min-w-0">
+                  <h2 ref={stepHeading} tabIndex={-1} id="import-caughtup-heading" className="text-lg font-bold tracking-[-0.015em] text-slate-900">
+                    You’re all caught up
+                  </h2>
+                  <p className="mt-0.5 text-[13px] text-slate-500">
+                    Every transaction in this file is already in AllotJar
+                    {preview.skippedDuplicates > 0 ? ` — all ${preview.skippedDuplicates} were skipped as duplicates.` : '.'} Nothing new to import.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center justify-end gap-4 max-[699.98px]:flex-col-reverse max-[699.98px]:items-stretch max-[699.98px]:gap-3">
+                <Link
+                  to="/transactions"
+                  className="inline-flex h-10 items-center justify-center gap-1 rounded-[10px] px-2 text-sm font-semibold text-brand-700 hover:underline max-[699.98px]:h-11 dark:text-brand-200"
+                >
+                  View transactions →
+                </Link>
+                <Button onClick={reset} className={`${PRIMARY_BUTTON} h-10! px-[18px]! max-[699.98px]:h-11! max-[699.98px]:w-full`}>
+                  <ImportIcon className="size-4" />
+                  Import another file
+                </Button>
+              </div>
+            </section>
           </div>
-        </Card>
+        </div>
       )}
 
-      {canWrite && phase === 'review' && preview && rows.length > 0 && (
+      {reviewing && (
         <>
+          {/* The file strip: what was read and where it goes. */}
+          <section
+            aria-label="Statement file"
+            className={`${DASH_CARD} flex items-center gap-3.5 px-4 py-4 pl-6 max-[699.98px]:gap-3 max-[699.98px]:py-3 max-[699.98px]:pr-2 max-[699.98px]:pl-4`}
+          >
+            <span
+              aria-hidden
+              className="grid size-10 shrink-0 place-items-center rounded-[11px] bg-[color-mix(in_srgb,var(--color-cat-indigo)_13%,var(--color-card))] text-[var(--color-cat-indigo)] max-[699.98px]:size-9 max-[699.98px]:rounded-[10px]"
+            >
+              <FileIcon strokeWidth={1.8} className="size-5" />
+            </span>
+            <div className="flex min-w-0 flex-1 flex-col">
+              <b className="truncate text-sm font-semibold text-slate-900">{file?.name}</b>
+              <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500">
+                <span className="shrink-0">{FORMAT_SHORT[format]}</span>
+                {detected && (
+                  <InfoHint fixed label="About the format" buttonClassName={ROW_HINT}>
+                    We recognised this file as {detected} and read it with the dedicated importer, so payees and duplicate detection stay consistent.
+                  </InfoHint>
+                )}
+                <span aria-hidden className="text-slate-400">
+                  ·
+                </span>
+                {importAccount ? (
+                  <>
+                    <span className="flex min-w-0 items-center gap-1.5">
+                      <AccountTypeGlyph type={importAccount.type} className="size-3.5 shrink-0 text-slate-400" />
+                      <span aria-hidden className="truncate">
+                        {importAccount.name}
+                      </span>
+                      <span className="sr-only">Importing into {importAccount.name}.</span>
+                    </span>
+                    {importBacksJars && (
+                      <InfoHint fixed label={`About ${importAccount.name}`} buttonClassName={ROW_HINT}>
+                        {importAccount.name} holds jars: say which jars incoming money goes into and which jar a payment comes from. Leave them as they
+                        are to keep the money unallocated.
+                      </InfoHint>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <span className="truncate">No account</span>
+                    {!heldMode && rows.some((r) => r.likelyTransfer) && (
+                      <InfoHint fixed label="About the account" buttonClassName={`${LINE_HINT} text-warn`}>
+                        {NO_ACCOUNT_HINT}
+                      </InfoHint>
+                    )}
+                  </>
+                )}
+              </span>
+            </div>
+            {/* The Bank CSV column mapping. Hidden once rows are held: a re-scan would bring back the rows already imported. */}
+            {!heldMode && format === 'generic' && layout && mapping && (
+              <Button variant="secondary" onClick={() => setColumnsOpen(true)} disabled={busy} className={OUTLINE_SM}>
+                <Columns3 aria-hidden strokeWidth={1.8} className="size-4 text-slate-500" />
+                <span className="max-[699.98px]:sr-only">Columns</span>
+              </Button>
+            )}
+            <button
+              type="button"
+              onClick={reset}
+              disabled={busy}
+              aria-label="Choose a different file"
+              className="grid size-10 shrink-0 place-items-center rounded-full text-slate-500 transition hover:bg-surface-2 hover:text-slate-900 disabled:opacity-50 dark:hover:bg-foreground/7"
+            >
+              <X aria-hidden strokeWidth={1.8} className="size-5" />
+            </button>
+          </section>
+
           {/* Rule 74: the last commit held these rows because the account would go below zero on
               their date. Nothing is posted "anyway" — the user records the missing money (or
               changes the row) and commits again, or unticks a row to discard it. */}
           {heldResult && (
             <div
-              role="status"
-              className="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200"
+              data-strip="held"
+              className="flex min-h-11 items-center gap-2.5 rounded-[10px] bg-bad-bg py-1.5 pr-1.5 pl-3.5 text-sm font-semibold text-bad shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-bad)_16%,transparent)] max-[699.98px]:pl-3 max-[699.98px]:text-[13px]"
             >
-              <p className="font-semibold">
-                {heldResult.held?.length ?? 0} row{(heldResult.held?.length ?? 0) === 1 ? ' was' : 's were'} held because the
-                account would go below zero on {(heldResult.held?.length ?? 0) === 1 ? 'its' : 'their'} date.
-              </p>
-              <p className="mt-1">Record the missing money first and commit again, or untick a row to discard it.</p>
-              <p className="mt-1 text-xs">
-                The rest went in: {heldResult.imported} transaction{heldResult.imported === 1 ? '' : 's'} imported
-                {heldResult.skippedDuplicates > 0 && `, ${heldResult.skippedDuplicates} skipped`}
-                {heldResult.transfers > 0 && `, ${heldResult.transfers} transfer${heldResult.transfers === 1 ? '' : 's'}`}.
-              </p>
-            </div>
-          )}
-          {!heldMode && (
-            <p className="text-sm text-slate-600">
-              <span className="font-semibold text-slate-800">{preview.newCount}</span> new transaction
-              {preview.newCount === 1 ? '' : 's'} to review
-              {preview.skippedDuplicates > 0 &&
-                ` — ${preview.skippedDuplicates} already imported (skipped)`}
-              {flaggedNotes.length > 0 && ` — ${flaggedNotes.join(' and ')} (tick to include)`}
-              . Categorise them (split a row, or mark a transfer), untick any you don't want, then import.
-            </p>
-          )}
-          {!heldMode && possibleDuplicateCount > 0 && (
-            <p className="-mt-3 text-xs text-slate-500">
-              A row is flagged as a possible duplicate when an existing transaction has the same amount and a
-              similar payee within a few days — tick it to import anyway (e.g. two genuine identical purchases).
-            </p>
-          )}
-          {format === 'generic' && preview.detectedFormat && DETECTED_FORMAT_LABELS[preview.detectedFormat] && (
-            <p className="-mt-3 text-xs text-slate-500">
-              We recognised this file as {DETECTED_FORMAT_LABELS[preview.detectedFormat]} and read it with the
-              dedicated importer, so payees and duplicate detection stay consistent.
-            </p>
-          )}
-          {importAccount && (
-            <p className="-mt-3 text-xs text-slate-500">
-              Importing into <span className="font-medium text-slate-700">{importAccount.name}</span>
-              {importBacksJars && (
-                <>
-                  , which holds jars — say which jars incoming money goes into and which jar a payment comes from
-                  (leave them as they are to keep the money unallocated)
-                </>
-              )}
-              .
-            </p>
-          )}
-          {!heldMode && !accountId && rows.some((r) => r.likelyTransfer) && (
-            <p className="-mt-3 text-xs text-amber-700 dark:text-amber-400">
-              Some rows look like transfers between your accounts. Re-import with an account selected (on the
-              previous step) to record them as transfers.
-            </p>
-          )}
-
-          {/* Generic-CSV column mapping — confirm/correct what we guessed, then re-scan. Hidden once
-              rows are held: a re-scan would bring back the rows already imported. */}
-          {!heldMode && format === 'generic' && layout && mapping && (
-            <Card as="section" aria-labelledby="csv-mapping-heading" className="grid gap-4 p-5">
-              <div>
-                <h2 id="csv-mapping-heading" className="text-sm font-bold text-slate-800">
-                  Column mapping
-                </h2>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  We guessed how to read your file. If the preview below looks off, fix a column and re-scan.
-                  {mapping.dateFormat && (
-                    <>
-                      {' '}We read your dates as{' '}
-                      <span className="font-semibold text-slate-700">{dateFormatLabel(mapping.dateFormat)}</span>
-                      {' '}— change the date format below if that’s wrong.
-                    </>
-                  )}
-                </p>
-              </div>
-
-              {/* The first few rows exactly as parsed, so the user can see which column is which.
-                  No dark: overrides — the slate scale is remapped for dark mode in index.css, so
-                  plain slate classes flip automatically (raising the number in a dark: variant would
-                  invert to a light, low-contrast colour — see the review table below). */}
-              {layout.sampleRows.length > 0 && (
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full text-left text-xs">
-                    <caption className="sr-only">Sample of the uploaded file</caption>
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500">
-                        {layout.columns.map((name, i) => (
-                          <th key={i} scope="col" className="whitespace-nowrap px-3 py-1.5 font-medium">
-                            {name}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {layout.sampleRows.map((row, ri) => (
-                        <tr key={ri}>
-                          {layout.columns.map((_, ci) => (
-                            <td key={ci} className="whitespace-nowrap px-3 py-1.5 tabular-nums text-slate-600">
-                              {row[ci] ?? ''}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                <label className="grid gap-1 text-xs font-medium text-slate-500">
-                  Date column
-                  <Select
-                    aria-label="Date column"
-                    value={mapping.dateColumn}
-                    onChange={(e) => setMapping((m) => (m ? { ...m, dateColumn: Number(e.target.value) } : m))}
-                  >
-                    {layout.columns.map((name, i) => (
-                      <option key={i} value={i}>
-                        {name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <label className="grid gap-1 text-xs font-medium text-slate-500">
-                  Amount column (signed)
-                  <Select
-                    aria-label="Amount column"
-                    value={mapping.amountColumn}
-                    onChange={(e) => setMapping((m) => (m ? { ...m, amountColumn: Number(e.target.value) } : m))}
-                  >
-                    {layout.columns.map((name, i) => (
-                      <option key={i} value={i}>
-                        {name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <label className="grid gap-1 text-xs font-medium text-slate-500">
-                  Description column
-                  <Select
-                    aria-label="Description column"
-                    value={mapping.descriptionColumn}
-                    onChange={(e) => setMapping((m) => (m ? { ...m, descriptionColumn: Number(e.target.value) } : m))}
-                  >
-                    {layout.columns.map((name, i) => (
-                      <option key={i} value={i}>
-                        {name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <label className="grid gap-1 text-xs font-medium text-slate-500">
-                  Currency column
-                  <Select
-                    aria-label="Currency column"
-                    value={mapping.currencyColumn ?? ''}
-                    onChange={(e) =>
-                      setMapping((m) =>
-                        m ? { ...m, currencyColumn: e.target.value === '' ? null : Number(e.target.value) } : m,
-                      )
-                    }
-                  >
-                    <option value="">Use {fallbackCurrency} for every row</option>
-                    {layout.columns.map((name, i) => (
-                      <option key={i} value={i}>
-                        {name}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <label className="grid gap-1 text-xs font-medium text-slate-500">
-                  Date format
-                  <Select
-                    aria-label="Date format"
-                    value={mapping.dateFormat ?? ''}
-                    onChange={(e) =>
-                      setMapping((m) => (m ? { ...m, dateFormat: e.target.value === '' ? null : e.target.value } : m))
-                    }
-                  >
-                    {DATE_FORMAT_OPTIONS.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </Select>
-                </label>
-                <label className="grid gap-1 text-xs font-medium text-slate-500">
-                  Number format
-                  <Select
-                    aria-label="Number format"
-                    value={mapping.decimalStyle}
-                    onChange={(e) =>
-                      setMapping((m) => (m ? { ...m, decimalStyle: Number(e.target.value) as CsvDecimalStyle } : m))
-                    }
-                  >
-                    <option value={0}>Auto-detect</option>
-                    <option value={1}>1,234.56</option>
-                    <option value={2}>1.234,56</option>
-                  </Select>
-                </label>
-              </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                  <input
-                    type="checkbox"
-                    checked={mapping.hasHeader}
-                    onChange={(e) => setMapping((m) => (m ? { ...m, hasHeader: e.target.checked } : m))}
-                    className="h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
-                  />
-                  First row is a header
-                </label>
-                <label className="flex items-center gap-2 text-xs font-medium text-slate-600">
-                  Column separator
-                  <Select
-                    aria-label="Column separator"
-                    value={mapping.delimiter}
-                    onChange={(e) => setMapping((m) => (m ? { ...m, delimiter: e.target.value } : m))}
-                    className="w-32"
-                  >
-                    <option value=",">Comma ,</option>
-                    <option value=";">Semicolon ;</option>
-                    <option value={'\t'}>Tab</option>
-                    <option value="|">Pipe |</option>
-                  </Select>
-                </label>
-                <Button
-                  type="button"
-                  variant={mappingDirty ? 'primary' : 'secondary'}
-                  size="sm"
-                  onClick={reScanCsv}
-                  disabled={busy}
-                >
-                  {busy ? 'Re-scanning…' : mappingDirty ? 'Apply changes & re-scan' : 'Re-scan with this mapping'}
-                </Button>
-                {mappingDirty && !busy && (
-                  <span className="text-xs font-medium text-amber-700 dark:text-amber-400">
-                    Re-scan to apply your changes before importing.
+              <TriangleAlert aria-hidden strokeWidth={2} className="size-4 shrink-0" />
+              <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                <span role="status" className="min-w-0">
+                  {heldCount} row{heldCount === 1 ? ' was' : 's were'} held because the account would go below zero on {heldCount === 1 ? 'its' : 'their'}{' '}
+                  date.
+                  {/* The (i)'s two sentences, announced with the count (today's banner read all three). */}
+                  <span className="sr-only">
+                    {' '}
+                    {HELD_HINT} {heldRest}
                   </span>
-                )}
-              </div>
-            </Card>
+                </span>
+                <InfoHint fixed label="About the held rows" buttonClassName={LINE_HINT}>
+                  <span className="mb-1.5 block">{HELD_HINT}</span>
+                  <span className="block">{heldRest}</span>
+                </InfoHint>
+              </span>
+            </div>
           )}
 
-          {/* Bulk actions over the currently-included rows. */}
-          <Card className="flex flex-wrap items-end gap-4 p-4">
-            <div className="grid gap-1 text-xs font-medium text-slate-500">
-              Member
-              <div className="flex items-center gap-2">
-                <Select aria-label="Bulk member" value={bulkMember} onChange={(e) => setBulkMember(e.target.value)} className="w-40" disabled={busy}>
-                  <option value="">No member</option>
-                  {members.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </Select>
-                <Button variant="secondary" size="sm" onClick={applyMemberToIncluded} disabled={busy || members.length === 0}>
-                  Apply to included
-                </Button>
-              </div>
-            </div>
-            <div className="grid gap-1 text-xs font-medium text-slate-500">
-              Category (expenses)
-              <div className="flex items-center gap-2">
-                <Select aria-label="Bulk category" value={bulkCategory} onChange={(e) => setBulkCategory(e.target.value)} className="w-48" disabled={busy}>
-                  <CategoryOptions groups={expenseGroups} />
-                </Select>
-                <Button variant="secondary" size="sm" onClick={applyCategoryToIncluded} disabled={busy || expenseGroups.length === 0}>
-                  Apply to expenses
-                </Button>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="overflow-x-auto">
+          {/* One list card in the Transactions row style: the bar, then the rows. */}
+          <section
+            aria-label="Transactions to import"
+            className={`dash-palette ${DASH_CARD} pt-3.5 pb-2.5 max-[699.98px]:px-4 max-[699.98px]:pt-2.5 max-[699.98px]:pb-1.5`}
+          >
+            <h2 ref={stepHeading} tabIndex={-1} className="sr-only">
+              {heldMode ? 'Held rows' : `${preview.newCount} new transaction${preview.newCount === 1 ? '' : 's'} to review`}
+            </h2>
             {/* The rows are what Import sends: they hold still while it is out, so an answer can't be
                 given to a row that is already on its way (and lost when the server takes it). */}
             <fieldset disabled={busy} className="m-0 min-w-0 border-0 p-0">
-            <table className="w-full text-sm">
-              <caption className="sr-only">Transactions to import</caption>
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th scope="col" className="px-3 py-2 font-medium">
-                    <input
-                      type="checkbox"
-                      aria-label="Include all rows"
-                      checked={allIncluded}
-                      onChange={(e) => setAllIncluded(e.target.checked)}
-                      className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                    />
-                  </th>
-                  <th scope="col" className="px-3 py-2 font-medium">Date</th>
-                  <th scope="col" className="px-3 py-2 font-medium">Payee</th>
-                  <th scope="col" className="px-3 py-2 text-right font-medium">Amount</th>
-                  <th scope="col" className="px-3 py-2 font-medium">Category</th>
-                  <th scope="col" className="px-3 py-2 font-medium">Member</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((r, index) => {
-                  const groups = buildItemOptions(month, r.isCredit ? TransactionType.Income : TransactionType.Expense)
-                  const nameById = new Map(groups.flatMap((g) => g.items).map((i) => [i.id, i.name]))
-                  const info = splitInfo(r)
-                  const open = splitOpen === r.key
-                  const domId = rowDomId(r.reference, index)
-                  // The jar prompts (rules 78/79) apply only to a ticked row into/out of a jar-backed account.
-                  const showAllocation = importBacksJars && r.include && r.isCredit && !isReturnRow(r)
-                  const showPaidFrom = importBacksJars && r.include && paidFromApplies(r, jarLineIds)
-                  return (
-                    <Fragment key={r.key}>
-                      {/* A flagged-but-unticked row needs its badge readable (an opacity-dimmed
-                          row drops the amber text below AA contrast), so it gets an attention
-                          tint instead of the excluded-row fade. */}
-                      <tr
-                        className={
-                          r.include
-                            ? 'hover:bg-slate-50'
-                            : r.possibleDuplicate || r.reusedReference
-                              ? 'bg-amber-50/70 dark:bg-amber-500/10'
-                              : 'opacity-50'
-                        }
-                      >
-                        <td className="px-3 py-2">
-                          <input
-                            type="checkbox"
-                            aria-label={`Include ${r.payee} on ${r.date}`}
-                            checked={r.include}
-                            onChange={(e) => updateRow(index, { include: e.target.checked })}
-                            className="rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-                          />
-                        </td>
-                        <td className="whitespace-nowrap px-3 py-2 tabular-nums text-slate-500">{formatDate(r.date)}</td>
-                        <td className="px-3 py-2 font-medium text-slate-700">
-                          {r.payee}
-                          {r.heldMessage !== null && (
-                            <Badge tone="rose" className="ml-1.5 align-middle">
-                              Held
-                            </Badge>
-                          )}
-                          {r.heldMessage !== null && (
-                            <span className="block max-w-md text-xs font-normal text-rose-700 dark:text-rose-300">{r.heldMessage}</span>
-                          )}
-                          {r.possibleDuplicate && (
-                            <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
-                              Possibly already imported
-                            </span>
-                          )}
-                          {r.reusedReference && (
-                            <span className="block max-w-md text-xs font-normal text-amber-700 dark:text-amber-400">
-                              An entry with this bank reference was already imported: {formatDate(r.reusedReference.date)}{' '}
-                              {r.reusedReference.isCredit ? '+' : '−'}
-                              {formatMoney(fromAmount(r.reusedReference.amount), r.currency)}. Tick it only if this is a
-                              different payment.
-                            </span>
-                          )}
-                          {r.likelyTransfer && !r.isTransfer && (
-                            <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
-                              Looks like a transfer
-                            </span>
-                          )}
-                          {!r.likelyTransfer && !r.isTransfer && r.transferMatches.some((m) => m.kind === 'Return') && (
-                            <span className="block text-xs font-normal text-amber-700 dark:text-amber-400">
-                              Looks like a transfer coming back
-                            </span>
-                          )}
-                        </td>
-                        <td
-                          className={`whitespace-nowrap px-3 py-2 text-right font-semibold tabular-nums ${
-                            r.isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-700'
-                          }`}
-                        >
-                          {r.isCredit ? '+' : '−'}
-                          {formatMoney(fromAmount(r.amount), r.currency)}
-                        </td>
-                        <td className="px-3 py-2">
-                          <div className="flex flex-col gap-1.5">
-                            {r.isTransfer ? (() => {
-                              const match = chosenMatch(r)
-                              const returning = match?.kind === 'Return'
-                              const feeMinor = rowFeeMinor(r)
-                              const typedFee = !r.isCredit && !match
-                              return (
-                              <div className="flex flex-col gap-1">
-                                <div className="flex items-center gap-2">
-                                  <Badge tone="brand">Transfer</Badge>
-                                  {returning ? (
-                                    <span className="text-xs text-slate-500">coming back</span>
-                                  ) : match && match.counterpartyAccountId === null ? (
-                                    // The other side is private to another login: named, never chosen.
-                                    <span className="text-xs text-slate-500">
-                                      {r.isCredit ? 'from' : 'to'}{' '}
-                                      <span className="font-medium text-slate-700">
-                                        {match.counterpartyAccountName || 'Private account'}
-                                      </span>
-                                    </span>
-                                  ) : (
-                                    <>
-                                      <span className="text-xs text-slate-500">{r.isCredit ? 'from' : 'to'}</span>
-                                      <Select
-                                        aria-label={`Transfer account for ${r.payee} on ${r.date}`}
-                                        value={r.transferAccountId}
-                                        disabled={!r.include || !!r.matchTransferId}
-                                        onChange={(e) => updateRow(index, { transferAccountId: e.target.value })}
-                                        className="w-44"
-                                      >
-                                        <option value="">Choose account…</option>
-                                        {otherAccounts.map((a) => (
-                                          <option key={a.id} value={a.id}>
-                                            {a.name}
-                                          </option>
-                                        ))}
-                                      </Select>
-                                    </>
-                                  )}
-                                  <button
-                                    type="button"
-                                    onClick={() => clearTransfer(index)}
-                                    aria-label={`Cancel transfer for ${r.payee} on ${r.date}`}
-                                    className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                                  >
-                                    Undo
-                                  </button>
-                                </div>
-                                {r.transferMatches.length > 0 && (
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-slate-500">Already recorded?</span>
-                                    <Select
-                                      aria-label={`Match recorded transfer for ${r.payee} on ${r.date}`}
-                                      value={r.matchTransferId}
-                                      disabled={!r.include}
-                                      onChange={(e) => chooseMatch(index, e.target.value)}
-                                      className="w-72"
-                                    >
-                                      <option value="">No — record it as a new transfer</option>
-                                      {/* In the server's order: nearest date first (rule 87). */}
-                                      {r.transferMatches.map((m) => (
-                                        <option key={m.transferId} value={m.transferId}>
-                                          {matchLabel(r, m)}
-                                        </option>
-                                      ))}
-                                    </Select>
-                                    {match?.sameReference && <Badge tone="teal">Same bank reference</Badge>}
-                                  </div>
-                                )}
-                                {match?.recordedDate && (
-                                  <span className="text-xs text-slate-500">
-                                    Recorded in the app on {formatDate(match.recordedDate)}; the bank&rsquo;s date will be used.
-                                  </span>
-                                )}
-                                {/* A fee: the candidate's (accepted by choosing it) or one typed for an unmatched debit. */}
-                                {typedFee && (
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs text-slate-500">Fee (optional)</span>
-                                    <Input
-                                      type="text"
-                                      inputMode="decimal"
-                                      {...selectOnFocusProps}
-                                      placeholder="0.00"
-                                      aria-label={`Fee for ${r.payee} on ${r.date}`}
-                                      value={r.feeInput}
-                                      disabled={!r.include}
-                                      onChange={(e) => updateRow(index, { feeInput: e.target.value })}
-                                      className="w-24 text-right tabular-nums"
-                                    />
-                                  </div>
-                                )}
-                                {typedFee && !manualFeeValid(r) && (
-                                  <span className="text-xs text-rose-600 dark:text-rose-400">
-                                    {tooPrecise(r.feeInput)
-                                      ? TOO_MANY_DECIMALS
-                                      : 'The fee must be more than zero and less than the row’s amount.'}
-                                  </span>
-                                )}
-                                {feeMinor !== null && (
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <span className="text-xs text-slate-500">
-                                      {typedFee
-                                        ? `A transfer of ${formatMoney(fromAmount(r.amount) - feeMinor, r.currency)} plus a fee of ${formatMoney(feeMinor, r.currency)}. Fee category:`
-                                        : `Records a fee of ${formatMoney(feeMinor, r.currency)}. Fee category:`}
-                                    </span>
-                                    <Select
-                                      aria-label={`Fee category for ${r.payee} on ${r.date}`}
-                                      value={r.feeBudgetItemId}
-                                      disabled={!r.include}
-                                      onChange={(e) => updateRow(index, { feeBudgetItemId: e.target.value })}
-                                      className="w-48"
-                                    >
-                                      <CategoryOptions groups={expenseGroups} emptyLabel="Choose a line…" currentId={r.feeBudgetItemId} />
-                                    </Select>
-                                  </div>
-                                )}
-                                {feeLineMissing(r) && (
-                                  <span className="text-xs text-rose-600 dark:text-rose-400">Choose the fee&rsquo;s category.</span>
-                                )}
-                                {returning ? (
-                                  <span className="text-xs text-slate-500">
-                                    Records the transfer to {match.counterpartyAccountName} as returned: the money is back in{' '}
-                                    {importAccount?.name ?? 'this account'} and goes back to the jars it left from.
-                                  </span>
-                                ) : r.matchTransferId ? (
-                                  <span className="text-xs text-slate-500">
-                                    Confirms the other side of the recorded transfer — no second balance movement.
-                                  </span>
-                                ) : r.isCredit ? (
-                                  <span className="text-xs text-amber-700 dark:text-amber-400">
-                                    Held for review until the departure date is known; nothing is posted to either account yet.
-                                  </span>
-                                ) : (
-                                  <span className="text-xs text-slate-500">
-                                    Recorded as departed on {formatDate(r.date)}; in transit until the receipt is confirmed.
-                                  </span>
-                                )}
-                              </div>
-                              )
-                            })() : r.splits ? (
-                              <div className="flex flex-col gap-0.5">
-                                <div className="flex items-center gap-2">
-                                  <Badge tone={info.valid ? 'violet' : 'amber'}>Split · {r.splits.length}</Badge>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSplitOpen(open ? null : r.key)}
-                                    aria-label={`Edit split for ${r.payee} on ${r.date}`}
-                                    className="text-xs font-medium text-brand-700 hover:underline dark:text-brand-200"
-                                  >
-                                    {open ? 'Close' : 'Edit'}
-                                  </button>
-                                </div>
-                                {!open && (
-                                  <span className="max-w-[14rem] truncate text-xs text-slate-500">
-                                    {r.splits.map((s) => nameById.get(s.budgetItemId) ?? 'Unassigned').join(' · ')}
-                                  </span>
-                                )}
-                              </div>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <Select
-                                  aria-label={`Category for ${r.payee} on ${r.date}`}
-                                  value={r.budgetItemId}
-                                  disabled={!r.include}
-                                  onChange={(e) => updateRow(index, { budgetItemId: e.target.value })}
-                                  className="w-48"
-                                >
-                                  <CategoryOptions groups={groups} />
-                                </Select>
-                                <button
-                                  type="button"
-                                  onClick={() => startSplit(index, r.key)}
-                                  disabled={!r.include}
-                                  aria-label={`Split ${r.payee} on ${r.date}`}
-                                  className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
-                                >
-                                  Split
-                                </button>
-                                {canTransfer && (
-                                  <button
-                                    type="button"
-                                    onClick={() => startTransfer(index)}
-                                    disabled={!r.include}
-                                    aria-label={`Mark ${r.payee} on ${r.date} as a transfer`}
-                                    className="text-xs font-medium text-brand-700 hover:underline disabled:opacity-40 dark:text-brand-200"
-                                  >
-                                    Transfer
-                                  </button>
-                                )}
-                              </div>
-                            )}
-                            {/* Rule 79: which jar this payment comes from (unallocated unless chosen). */}
-                            {showPaidFrom && (
-                              <PaidFromJarSelect
-                                jars={importJars}
-                                accountName={importAccount?.name ?? ''}
-                                currency={importCurrency}
-                                value={r.paidFromJarId}
-                                onChange={(jarId) => updateRow(index, { paidFromJarId: jarId })}
-                                id={`${domId}-paid-from`}
-                                compact
-                              />
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2">
-                          {r.isTransfer ? (
-                            <span className="text-xs text-slate-500">—</span>
-                          ) : r.splits ? (
-                            <span className="text-xs text-slate-500">Per line</span>
-                          ) : (
-                            <Select
-                              aria-label={`Member for ${r.payee} on ${r.date}`}
-                              value={r.memberId}
-                              disabled={!r.include || members.length === 0}
-                              onChange={(e) => updateRow(index, { memberId: e.target.value })}
-                              className="w-36"
-                            >
-                              <option value="">No member</option>
-                              {members.map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                            </Select>
-                          )}
-                        </td>
-                      </tr>
-
-                      {open && r.splits && (() => {
-                        const total = fromAmount(r.amount)
-                        const allocatedMinor = total - info.remainingMinor
-                        const pct = total <= 0 ? 0 : Math.max(0, Math.min(100, (allocatedMinor / total) * 100))
-                        const over = info.remainingMinor < 0
-                        const hasMembers = members.length > 0
-                        const cols = hasMembers
-                          ? 'grid grid-cols-[minmax(0,1fr)_7rem_8rem_1.75rem] items-center gap-2'
-                          : 'grid grid-cols-[minmax(0,1fr)_7rem_1.75rem] items-center gap-2'
-                        return (
-                          <tr>
-                            <td colSpan={6} className="p-0">
-                              <div className="m-2 rounded-xl border border-violet-200/70 bg-violet-50/60 p-4 dark:border-violet-500/20 dark:bg-violet-500/10">
-                                {/* Header: what we're splitting + allocation progress. */}
-                                <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                                  <h3 className="text-sm font-semibold text-slate-800">
-                                    Splitting “{r.payee}”
-                                    <span className="ml-2 font-normal text-slate-500">
-                                      {formatMoney(total, r.currency)}
-                                    </span>
-                                  </h3>
-                                  <div className="flex items-center gap-2.5">
-                                    <div
-                                      className="h-1.5 w-28 overflow-hidden rounded-full bg-violet-200/70 dark:bg-violet-500/20"
-                                      aria-hidden
-                                    >
-                                      <div
-                                        className={`h-full rounded-full transition-all ${
-                                          over ? 'bg-rose-500' : info.remainingMinor === 0 ? 'bg-emerald-500' : 'bg-violet-500'
-                                        }`}
-                                        style={{ width: `${pct}%` }}
-                                      />
-                                    </div>
-                                    <span
-                                      aria-label="Remaining to allocate"
-                                      className={`text-xs font-semibold tabular-nums ${
-                                        info.remainingMinor === 0 && !info.tooPrecise
-                                          ? 'text-emerald-600 dark:text-emerald-400'
-                                          : 'text-rose-600 dark:text-rose-400'
-                                      }`}
-                                    >
-                                      {info.tooPrecise
-                                        ? TOO_MANY_DECIMALS
-                                        : info.remainingMinor === 0
-                                          ? 'Fully allocated'
-                                          : over
-                                            ? `${formatMoney(-info.remainingMinor, r.currency)} over`
-                                            : `${formatMoney(info.remainingMinor, r.currency)} left`}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Column labels. */}
-                                <div className={`${cols} px-0.5 pb-1.5 text-[11px] font-medium uppercase tracking-wide text-slate-500`}>
-                                  <span>Category</span>
-                                  <span className="text-right">Amount</span>
-                                  {hasMembers && <span>Member</span>}
-                                  <span className="sr-only">Remove line</span>
-                                </div>
-
-                                <div className="space-y-2">
-                                  {r.splits.map((line, li) => (
-                                    <div key={li} className={cols}>
-                                      <Select
-                                        aria-label={`Split line ${li + 1} category for ${r.payee}`}
-                                        value={line.budgetItemId}
-                                        onChange={(e) => updateSplitLine(index, li, { budgetItemId: e.target.value })}
-                                        className="w-full"
-                                      >
-                                        <CategoryOptions groups={groups} />
-                                      </Select>
-                                      <Input
-                                        type="text"
-                                        inputMode="decimal"
-                                        {...selectOnFocusProps}
-                                        placeholder="0,00"
-                                        aria-label={`Split line ${li + 1} amount for ${r.payee}`}
-                                        value={line.amount}
-                                        onChange={(e) => updateSplitLine(index, li, { amount: e.target.value })}
-                                        className="w-full text-right tabular-nums"
-                                      />
-                                      {hasMembers && (
-                                        <Select
-                                          aria-label={`Split line ${li + 1} member for ${r.payee}`}
-                                          value={line.memberId}
-                                          onChange={(e) => updateSplitLine(index, li, { memberId: e.target.value })}
-                                          className="w-full"
-                                        >
-                                          <option value="">No member</option>
-                                          {members.map((m) => (
-                                            <option key={m.id} value={m.id}>
-                                              {m.name}
-                                            </option>
-                                          ))}
-                                        </Select>
-                                      )}
-                                      {r.splits!.length > 2 ? (
-                                        <button
-                                          type="button"
-                                          onClick={() => removeSplitLine(index, li)}
-                                          aria-label={`Remove split line ${li + 1} for ${r.payee}`}
-                                          className="flex h-8 w-7 items-center justify-center rounded-md text-slate-400 transition hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
-                                        >
-                                          ✕
-                                        </button>
-                                      ) : (
-                                        <span />
-                                      )}
-                                    </div>
-                                  ))}
-                                </div>
-
-                                <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-violet-200/60 pt-3 dark:border-violet-500/20">
-                                  <Button variant="secondary" size="sm" onClick={() => addSplitLine(index)}>
-                                    + Add line
-                                  </Button>
-                                  <button
-                                    type="button"
-                                    onClick={() => clearSplit(index)}
-                                    className="text-xs font-medium text-slate-500 hover:text-slate-700 hover:underline"
-                                  >
-                                    Clear split
-                                  </button>
-                                  <div className="flex-1" />
-                                  <Button size="sm" onClick={() => setSplitOpen(null)} disabled={!info.valid}>
-                                    Done
-                                  </Button>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )
-                      })()}
-
-                      {/* Rule 78: money reaching a jar-backed account asks which jars it goes into.
-                          Every field starts empty (unallocated). A credit transfer whose departure
-                          is unknown stores the answer now; it applies once the departure is confirmed. */}
-                      {showAllocation && (
-                        <tr>
-                          <td colSpan={6} className="p-0">
-                            <div className="mx-2 mb-2">
-                              <JarAllocationFields
-                                jars={importJars}
-                                accountName={importAccount?.name ?? ''}
-                                currency={importCurrency}
-                                amount={r.amount}
-                                value={r.jarAllocation}
-                                onChange={(value) => updateRow(index, { jarAllocation: value })}
-                                idPrefix={domId}
-                                compact
-                              />
-                              {jarAllocationTooPrecise(r) && (
-                                <p role="alert" className="mt-1 text-xs text-rose-600 dark:text-rose-400">
-                                  {TOO_MANY_DECIMALS}
-                                </p>
-                              )}
-                              {r.isTransfer && !r.matchTransferId && (
-                                <p className="mt-1 text-xs text-slate-500">
-                                  These jar amounts apply once the transfer&rsquo;s departure is confirmed.
-                                </p>
-                              )}
-                            </div>
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-              </tbody>
-            </table>
+              <div className="flex min-h-12 items-center gap-3 border-b border-line pb-2.5 max-[699.98px]:min-h-[52px] max-[699.98px]:gap-2.5">
+                <label className={CHECK_WRAP}>
+                  <input ref={allBox} type="checkbox" aria-label="Include all rows" checked={allIncluded} onChange={(e) => setAllIncluded(e.target.checked)} />
+                </label>
+                {(preview.skippedDuplicates > 0 || flaggedNotes.length > 0) && !heldMode && (
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <StatusChip tone="line" className={GIVES_WAY}>
+                      <Check aria-hidden strokeWidth={2.2} />
+                      <span className="min-w-0 truncate">
+                        {preview.skippedDuplicates > 0
+                          ? `${preview.skippedDuplicates} already imported`
+                          : `${possibleDuplicateCount + reusedReferenceCount} unticked`}
+                      </span>
+                    </StatusChip>
+                    <InfoHint fixed label="About skipped rows" buttonClassName={ROW_HINT}>
+                      <span className="block">{SUMMARY_HINT}</span>
+                      {flaggedNotes.length > 0 && <span className="mt-1.5 block">{flaggedNotes.join(' and ')} (tick to include).</span>}
+                    </InfoHint>
+                  </div>
+                )}
+                <span className="flex-1" />
+                <RowMenu
+                  label="Bulk actions"
+                  actions={[
+                    {
+                      key: 'bulk-member',
+                      label: 'Member for included rows',
+                      icon: <Users aria-hidden />,
+                      disabled: members.length === 0,
+                      after: 'dialog',
+                      onSelect: () => setBulkOpen('member'),
+                    },
+                    {
+                      key: 'bulk-category',
+                      label: 'Category for included expenses',
+                      icon: <ReceiptText aria-hidden />,
+                      disabled: expenseGroups.length === 0,
+                      after: 'dialog',
+                      onSelect: () => setBulkOpen('category'),
+                    },
+                  ]}
+                />
+              </div>
+              <ul>{rows.map((r, index) => renderRow(r, index))}</ul>
             </fieldset>
-          </Card>
+            {/* Each unfinished row names its own reason; the rules sit behind the (i). */}
+            {reviewIncomplete && (
+              <p aria-live="polite" className="flex items-center gap-1 border-t border-line pt-2.5 text-[13px] font-medium text-bad">
+                Finish the highlighted rows first.
+                <InfoHint fixed label="What the highlighted rows need" buttonClassName={`${LINE_HINT} text-bad`}>
+                  {INCOMPLETE_HINT}
+                </InfoHint>
+              </p>
+            )}
+          </section>
 
-          {reviewIncomplete && (
-            <p className="text-sm text-rose-600 dark:text-rose-400">
-              Finish the highlighted rows first — splits must add up, transfers need an account, a fee needs a category,
-              and jar amounts can&rsquo;t exceed what arrived.
-            </p>
-          )}
-          {mappingDirty && (
-            <p className="text-sm text-amber-700 dark:text-amber-400">
-              You’ve changed the column mapping. Re-scan to apply it — otherwise the import would use the
-              previous reading of your file.
-            </p>
+          {/* The page action on a phone: pinned above the tab bar (a real statement has 50+ rows). */}
+          {!desktop && (
+            <>
+              <div aria-hidden className="h-10" />
+              <div
+                data-import-dock=""
+                data-dock=""
+                className="fixed inset-x-0 bottom-[var(--tabbar-h)] z-[19] border-t border-slate-200 bg-[color-mix(in_srgb,var(--color-card)_94%,transparent)] px-4 py-2.5 backdrop-blur-[12px]"
+              >
+                {importButton}
+              </div>
+            </>
           )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={() => onCommit()} disabled={busy || (includedCount === 0 && !heldMode) || reviewIncomplete || mappingDirty}>
-              {busy
-                ? 'Importing…'
-                : heldMode
-                  ? includedCount === 0
-                    ? 'Finish without the held rows'
-                    : 'Commit held rows'
-                  : `Import ${includedCount} transaction${includedCount === 1 ? '' : 's'}`}
-            </Button>
-            <Button variant="ghost" onClick={reset} disabled={busy}>
-              Choose a different file
-            </Button>
-          </div>
+          {renderColumnsDialog()}
+          {renderTransferDialog()}
+          {renderSplitDialog()}
+          {renderMemberDialog()}
+          {renderJarDialog()}
+          {renderBulkDialog()}
 
           {/* Cross-month confirm: categorised rows dated outside the loaded budget month get
               budgeted to this month's lines — a deliberate choice, confirmed once per batch. */}
           {crossMonthAsk !== null && (
-            <Modal title="Budget to a different month?" onClose={() => setCrossMonthAsk(null)}>
+            <Modal
+              sheet
+              title="Budget to a different month?"
+              onClose={() => setCrossMonthAsk(null)}
+              footer={
+                <div className="mt-[22px] flex justify-end gap-2 max-[699.98px]:mt-[18px]">
+                  <Button variant="ghost" onClick={() => setCrossMonthAsk(null)} className={FOOT_GHOST}>
+                    Go back
+                  </Button>
+                  <Button onClick={() => onCommit(true, !!crossMonthAsk.message)} disabled={busy} className={`${PRIMARY_BUTTON} ${FOOT_BTN}`}>
+                    Import anyway
+                  </Button>
+                </div>
+              }
+            >
               {crossMonthAsk.message ? (
-                <p className="text-sm text-slate-600">
-                  {crossMonthAsk.message} Importing will count it toward that line{'’'}s month rather than the month it was
-                  spent.
+                <p className="text-sm text-slate-500">
+                  {crossMonthAsk.message} Importing will count it toward that line{'’'}s month rather than the month it was spent.
                 </p>
               ) : (
-                <p className="text-sm text-slate-600">
+                <p className="text-sm text-slate-500">
                   {crossMonthAsk.count} transaction{crossMonthAsk.count === 1 ? ' is' : 's are'} dated outside{' '}
-                  {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'} but
-                  assigned to its budget lines. Importing will count {crossMonthAsk.count === 1 ? 'it' : 'them'} toward{' '}
+                  {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'} but assigned to its budget lines.
+                  Importing will count {crossMonthAsk.count === 1 ? 'it' : 'them'} toward{' '}
                   {month ? monthYear(`${month.year}-${String(month.month).padStart(2, '0')}-01`) : 'this month'}
                   {'’'}s budget rather than the month {crossMonthAsk.count === 1 ? 'it was' : 'they were'} spent.
                 </p>
               )}
-              <div className="mt-5 flex justify-end gap-2">
-                <Button variant="secondary" size="sm" onClick={() => setCrossMonthAsk(null)}>
-                  Go back
-                </Button>
-                <Button size="sm" onClick={() => onCommit(true, !!crossMonthAsk.message)} disabled={busy}>
-                  Import anyway
-                </Button>
-              </div>
             </Modal>
           )}
         </>
       )}
 
       {canWrite && phase === 'done' && results.length > 0 && (
-        <Card as="section" aria-labelledby="import-result-heading" className="p-6">
-          {(() => {
-            // One review can take several commits when rows were held (rule 74); the summary
-            // adds up what each of them posted.
-            const total = results.reduce(
-              (t, r) => ({
-                imported: t.imported + r.imported,
-                skipped: t.skipped + r.skippedDuplicates,
-                transfers: t.transfers + r.transfers,
-                matched: t.matched + (r.matchedTransfers ?? 0),
-                pendingReview: t.pendingReview + (r.pendingReviewTransfers ?? 0),
-                returned: t.returned + (r.returned ?? 0),
-                awaitingAmount: t.awaitingAmount + (r.awaitingAmount ?? 0),
-              }),
-              { imported: 0, skipped: 0, transfers: 0, matched: 0, pendingReview: 0, returned: 0, awaitingAmount: 0 },
-            )
-            // Money in/out are the actual sums of what was imported (the accepted rows are still
-            // in state), not transaction counts. A row the server skipped as already imported
-            // moved no money, so it is left out; a row in another currency is summed in that
-            // currency and shown apart, and the count of those still waiting for their amount in
-            // the budget currency is shown below. Transfers are internal moves, so they stay a count.
-            const importedRows = committedRows.filter((r) => !r.skipped)
-            const moneyIn = moneyByCurrency(importedRows, (r) => !r.isTransfer && r.isCredit)
-            const moneyOut = moneyByCurrency(importedRows, (r) => !r.isTransfer && !r.isCredit)
-            const money = (groups: { currency: string; minor: number }[]) =>
-              groups.length === 0
-                ? formatMoney(0, budgetCurrency)
-                : groups.map((g) => formatMoney(g.minor, g.currency)).join(' + ')
-            return (
-              <>
-                <h2 id="import-result-heading" className="text-lg font-semibold text-slate-900">
-                  Import complete
-                </h2>
-                <p className="mt-1 text-sm text-slate-500">
-                  {total.imported} transaction{total.imported === 1 ? '' : 's'} added
-                  {total.skipped > 0 && `, ${total.skipped} skipped`}.
-                </p>
-                <dl className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">
-                  <Stat label="Imported" value={total.imported} />
-                  <Stat label="Skipped" value={total.skipped} />
-                  <Stat label="Money in" value={money(moneyIn)} />
-                  <Stat label="Money out" value={money(moneyOut)} />
-                  <Stat label="Transfers" value={total.transfers} />
-                  {total.matched > 0 && <Stat label="Matched" value={total.matched} />}
-                  {total.pendingReview > 0 && <Stat label="Pending review" value={total.pendingReview} />}
-                  {total.returned > 0 && <Stat label="Returned" value={total.returned} />}
-                  {heldEverCount > 0 && <Stat label="Held" value={heldEverCount} />}
-                  {total.awaitingAmount > 0 && <Stat label={`Waiting for ${budgetCurrency} amount`} value={total.awaitingAmount} />}
-                </dl>
-                {total.awaitingAmount > 0 && (
-                  <p className="mt-3 text-xs text-amber-700 dark:text-amber-400">
-                    {total.awaitingAmount} {total.awaitingAmount === 1 ? 'row is' : 'rows are'} in another currency and{' '}
-                    {total.awaitingAmount === 1 ? 'is' : 'are'} not counted anywhere until{' '}
-                    {total.awaitingAmount === 1 ? 'its' : 'their'} amount in {budgetCurrency} is entered on Transactions.
-                  </p>
-                )}
-              </>
-            )
-          })()}
-          <div className="mt-6">
-            <Button onClick={reset}>Import another file</Button>
-          </div>
-        </Card>
+        <div className="@container">
+          <div className="grid grid-cols-1 items-start gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">{renderDone()}</div>
+        </div>
       )}
     </AppShell>
-  )
-}
-
-function Stat({ label, value }: { label: string; value: ReactNode }) {
-  return (
-    <div className="rounded-xl bg-slate-50 px-4 py-3">
-      <dt className="text-xs font-medium text-slate-500">{label}</dt>
-      <dd className="mt-0.5 break-words text-2xl font-bold tabular-nums text-slate-900">{value}</dd>
-    </div>
   )
 }

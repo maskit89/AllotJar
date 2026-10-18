@@ -39,6 +39,15 @@ export interface JarAllocationFieldsProps {
    * several of these names each one apart (e.g. by whose share it is).
    */
   hintLabel?: string
+  /**
+   * Dialog look, opt-in (the Import review's jar fields under a row, restyle PR 14): the jar rows
+   * in two columns from 700px wide, so a short panel holds several jars with each field beside its
+   * name, the names at 14px and, on a phone, a 96px field so the longest name still fits. Left out,
+   * one column.
+   */
+  columns?: 1 | 2
+  /** Dialog look: the empty field's placeholder (e.g. "0.00"); left out, the field shows only the sign. */
+  placeholder?: string
 }
 
 /**
@@ -48,7 +57,7 @@ export interface JarAllocationFieldsProps {
  */
 export function JarAllocationFields({
   jars, accountName, currency, amount, value, onChange, idPrefix, compact = false, emptyNote, look = 'default', title = 'Into jars', hint,
-  hintLabel = 'About putting it into jars',
+  hintLabel = 'About putting it into jars', columns = 1, placeholder,
 }: JarAllocationFieldsProps) {
   const total = useMemo(() => jarAllocationsTotal(value), [value])
   const remainder = amount === null || total === null ? null : Math.round((amount - total) * 100) / 100
@@ -76,6 +85,8 @@ export function JarAllocationFields({
             </span>
           </InfoHint>
         </div>
+        {/* Two columns (opt-in): the second row of jars starts the dividers, as the first row has none. */}
+        <div className={columns === 2 ? 'min-[700px]:grid min-[700px]:grid-cols-2 min-[700px]:gap-x-10 min-[700px]:[&>label:nth-child(2)]:border-t-0' : ''}>
         {jars.map((jar) => {
           const id = `${idPrefix}-jar-${jar.jarId}`
           const held = jar.balance === null ? null : fromAmount(jar.balance)
@@ -83,7 +94,9 @@ export function JarAllocationFields({
             <label
               key={jar.jarId}
               htmlFor={id}
-              className="grid min-h-14 cursor-pointer grid-cols-[22px_minmax(0,1fr)_112px] items-center gap-3 py-1.5 not-first-of-type:border-t not-first-of-type:border-line max-[699.98px]:gap-2.5"
+              className={`grid min-h-14 cursor-pointer grid-cols-[22px_minmax(0,1fr)_112px] items-center gap-3 py-1.5 not-first-of-type:border-t not-first-of-type:border-line max-[699.98px]:gap-2.5 ${
+                columns === 2 ? 'text-sm max-[699.98px]:grid-cols-[22px_minmax(0,1fr)_96px]' : ''
+              }`}
             >
               {/* An empty jar: the ledger has no target or colour to fill it with. */}
               <GlassJar pct={0} hue="teal" width={22} className="-mt-0.5" />
@@ -108,6 +121,7 @@ export function JarAllocationFields({
                   id={id}
                   inputMode="decimal"
                   aria-label={`Amount for ${jar.name}`}
+                  placeholder={placeholder}
                   value={value[jar.jarId] ?? ''}
                   onChange={(e) => onChange({ ...value, [jar.jarId]: e.target.value })}
                   {...selectOnFocusProps}
@@ -116,6 +130,7 @@ export function JarAllocationFields({
             </label>
           )
         })}
+        </div>
         <p
           className={`mt-0.5 flex items-center justify-between gap-3 border-t border-line pt-3 text-[13px] ${over ? 'text-bad' : 'text-slate-500'}`}
           aria-live="polite"

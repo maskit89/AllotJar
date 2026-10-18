@@ -23,6 +23,12 @@ const TYPE_LOOK: Record<number, { Icon: LucideIcon; color: string }> = {
   [AccountType.Other]: { Icon: Banknote, color: hueColor('teal') },
 }
 
+/** The account type's icon alone, decorative (opt-in: the Import page's file strip, restyle PR 14, names the account in words beside it). */
+export function AccountTypeGlyph({ type, className }: { type: number; className?: string }) {
+  const { Icon } = TYPE_LOOK[type] ?? TYPE_LOOK[AccountType.Other]
+  return <Icon aria-hidden strokeWidth={1.8} className={className} />
+}
+
 /**
  * The account's type as its icon on a tinted tile (named by the type for assistive tech): 44px on
  * a card, 36px in a phone's row (and `small`, beside the editor's name). `detail` (an account's own

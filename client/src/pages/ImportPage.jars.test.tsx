@@ -29,6 +29,7 @@ import { mockGet, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
 import { account, committed as sharedCommitted } from '../test/fixtures/import'
+import { chooseMatch, done, openHint, openJars, pickCategory, rowAction, rowItems, rowOf } from '../test/importReview'
 
 // HSBC Current holds 550; Joint Savings is empty.
 const accounts: AccountDto[] = [account({ currentBalance: 550 }), account({ id: 'acc2', name: 'Joint Savings', type: 1, displayOrder: 1 })]
@@ -92,14 +93,14 @@ const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
 async function goToReview(user: ReturnType<typeof userEvent.setup>, accountId = 'acc1') {
   if (accountId) await user.selectOptions(await screen.findByLabelText(/Add to account/), accountId)
-  await user.upload(await screen.findByLabelText('Statement file'), csv())
+  await user.upload(await screen.findByLabelText(/^Statement file/), csv())
   await user.click(screen.getByRole('button', { name: 'Review transactions' }))
   await screen.findByText('AUTOMARKET')
 }
 
-/** The review row holding this include checkbox (the jar select sits in its category cell). */
-function rowOf(includeLabel: string): HTMLElement {
-  return screen.getByLabelText(includeLabel).closest('tr') as HTMLElement
+/** Whether the row's ⋯ menu offers "From jar…" (rule 79 asks nothing of a row it does not apply to). */
+async function asksFromJar(user: ReturnType<typeof userEvent.setup>, row: string): Promise<boolean> {
+  return (await rowItems(user, row)).some((i) => i.name === 'From jar…')
 }
 
 type SentItem = { reference: string; payee: string; jarAllocations?: unknown; paidFromJarId?: string | null }
@@ -125,22 +126,33 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     renderPage()
     await goToReview(user)
 
-    // The credit gets the "put into jars" fields (active jars only), all empty = unallocated.
-    const fields = within(screen.getByRole('group', { name: 'Put into jars in HSBC Current' }))
+    // The credit gets the "put into jars" fields (active jars only) under its amount, closed until
+    // its "Into jars" is opened; all empty = unallocated.
+    const salaryRow = rowOf('Include SALARY on 2026-06-01')
+    expect(within(salaryRow).getByRole('button', { name: 'Into jars' })).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('group', { name: 'Put into jars in HSBC Current' })).not.toBeInTheDocument()
+    const fields = within(await openJars(user, 'Include SALARY on 2026-06-01'))
     expect(fields.getByLabelText('Amount for Holiday')).toHaveValue('')
     expect(fields.getByLabelText('Amount for Car')).toHaveValue('')
     expect(fields.queryByLabelText('Amount for Old boiler')).not.toBeInTheDocument()
     await user.type(fields.getByLabelText('Amount for Holiday'), '500')
     expect(fields.getByText(/Stays unallocated/)).toBeInTheDocument()
+    // The toggle now reads the jar total.
+    expect(within(salaryRow).getByRole('button', { name: '€500 into jars' })).toHaveAttribute('aria-expanded', 'true')
 
-    // AUTOMARKET sits on Groceries (not a jar line): "From jar" defaults to unallocated.
-    const fromJar = within(rowOf('Include AUTOMARKET on 2026-06-17')).getByLabelText('From jar') as HTMLSelectElement
+    // AUTOMARKET sits on Groceries (not a jar line): "From jar…" (its ⋯) defaults to unallocated.
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'From jar for AUTOMARKET on 2026-06-17')
+    expect(screen.getByRole('dialog', { name: 'From jar' })).toBeInTheDocument()
+    const fromJar = screen.getByRole('combobox', { name: 'From jar' }) as HTMLSelectElement
     expect(fromJar.value).toBe('')
     expect([...fromJar.querySelectorAll('option')].map((o) => o.value)).toEqual(['', 'j1', 'j2'])
     await user.selectOptions(fromJar, 'j2')
+    await done(user)
+    // The row shows the jar chosen.
+    expect(within(rowOf('Include AUTOMARKET on 2026-06-17')).getByText('From Car')).toBeInTheDocument()
     // Debits with no line ask nothing.
-    expect(within(rowOf('Include WOLT on 2026-06-15')).queryByLabelText('From jar')).not.toBeInTheDocument()
-    expect(within(rowOf('Include HOLIDAY FUND on 2026-06-10')).queryByLabelText('From jar')).not.toBeInTheDocument()
+    expect(await asksFromJar(user, 'WOLT on 2026-06-15')).toBe(false)
+    expect(await asksFromJar(user, 'HOLIDAY FUND on 2026-06-10')).toBe(false)
 
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
 
@@ -177,10 +189,12 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     renderPage()
     await goToReview(user)
 
-    expect(screen.getByRole('group', { name: 'Put into jars in HSBC Current' })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Mark SALARY on 2026-06-01 as a transfer' }))
-    await user.selectOptions(screen.getByLabelText('Match recorded transfer for SALARY on 2026-06-01'), 'tr-back')
+    expect(await openJars(user, 'Include SALARY on 2026-06-01')).toBeInTheDocument()
+    await rowAction(user, 'SALARY on 2026-06-01', 'Mark SALARY on 2026-06-01 as a transfer')
+    await chooseMatch(user, 'SALARY on 2026-06-01', /Returned: transfer to Joint Savings/)
+    await done(user)
     expect(screen.queryByRole('group', { name: 'Put into jars in HSBC Current' })).not.toBeInTheDocument()
+    expect(within(rowOf('Include SALARY on 2026-06-01')).queryByRole('button', { name: /into jars/i })).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -197,28 +211,33 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     await goToReview(user)
 
     // HOLIDAY FUND put on the Holiday jar line: the line already names the jar.
-    const holiday = rowOf('Include HOLIDAY FUND on 2026-06-10')
-    await user.selectOptions(within(holiday).getByLabelText('Category for HOLIDAY FUND on 2026-06-10'), 'bi3')
-    expect(within(holiday).queryByLabelText('From jar')).not.toBeInTheDocument()
+    await pickCategory(user, 'HOLIDAY FUND on 2026-06-10', 'bi3')
+    expect(await asksFromJar(user, 'HOLIDAY FUND on 2026-06-10')).toBe(false)
     // …and back on Soap it asks again.
-    await user.selectOptions(within(holiday).getByLabelText('Category for HOLIDAY FUND on 2026-06-10'), 'bi2')
-    expect(within(holiday).getByLabelText('From jar')).toBeInTheDocument()
+    await pickCategory(user, 'HOLIDAY FUND on 2026-06-10', 'bi2')
+    expect(await asksFromJar(user, 'HOLIDAY FUND on 2026-06-10')).toBe(true)
 
     // A split: jar line + jar line asks nothing; any non-jar slice asks once.
-    await user.click(screen.getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Split AUTOMARKET on 2026-06-17')
     await user.selectOptions(screen.getByLabelText('Split line 1 category for AUTOMARKET'), 'bi3')
     await user.type(screen.getByLabelText('Split line 1 amount for AUTOMARKET'), '20')
     await user.selectOptions(screen.getByLabelText('Split line 2 category for AUTOMARKET'), 'bi3')
     await user.type(screen.getByLabelText('Split line 2 amount for AUTOMARKET'), '15')
-    expect(within(rowOf('Include AUTOMARKET on 2026-06-17')).queryByLabelText('From jar')).not.toBeInTheDocument()
+    await done(user)
+    expect(await asksFromJar(user, 'AUTOMARKET on 2026-06-17')).toBe(false)
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Edit split for AUTOMARKET on 2026-06-17')
     await user.selectOptions(screen.getByLabelText('Split line 2 category for AUTOMARKET'), 'bi1')
-    expect(within(rowOf('Include AUTOMARKET on 2026-06-17')).getAllByLabelText('From jar')).toHaveLength(1)
+    await done(user)
+    expect((await rowItems(user, 'AUTOMARKET on 2026-06-17')).filter((i) => i.name === 'From jar…')).toHaveLength(1)
 
     // A debit marked as a transfer to another account asks which jar the money leaves.
-    await user.click(screen.getByRole('button', { name: 'Mark WOLT on 2026-06-15 as a transfer' }))
-    const wolt = rowOf('Include WOLT on 2026-06-15')
-    await user.selectOptions(within(wolt).getByLabelText('Transfer account for WOLT on 2026-06-15'), 'acc2')
-    await user.selectOptions(within(wolt).getByLabelText('From jar'), 'j1')
+    await rowAction(user, 'WOLT on 2026-06-15', 'Mark WOLT on 2026-06-15 as a transfer')
+    await user.selectOptions(screen.getByLabelText('Transfer account for WOLT on 2026-06-15'), 'acc2')
+    await done(user)
+    await rowAction(user, 'WOLT on 2026-06-15', 'From jar for WOLT on 2026-06-15')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'From jar' }), 'j1')
+    await done(user)
+    expect(within(rowOf('Include WOLT on 2026-06-15')).getByText('From Holiday')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -232,11 +251,13 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     renderPage()
     await goToReview(user)
 
-    await user.click(screen.getByRole('button', { name: 'Mark SALARY on 2026-06-01 as a transfer' }))
+    await rowAction(user, 'SALARY on 2026-06-01', 'Mark SALARY on 2026-06-01 as a transfer')
     await user.selectOptions(screen.getByLabelText('Transfer account for SALARY on 2026-06-01'), 'acc2')
-    const fields = within(screen.getByRole('group', { name: 'Put into jars in HSBC Current' }))
+    await done(user)
+    const fields = within(await openJars(user, 'Include SALARY on 2026-06-01'))
     await user.type(fields.getByLabelText('Amount for Car'), '1000')
-    expect(screen.getByText(/These jar amounts apply once the transfer’s departure is confirmed/)).toBeInTheDocument()
+    // The fields' (i) says when the amounts apply.
+    expect(await openHint(user, 'About putting it into jars')).toHaveTextContent(/These jar amounts apply once the transfer’s departure is confirmed/)
 
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -251,11 +272,13 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     renderPage()
     await goToReview(user)
 
-    const fields = within(screen.getByRole('group', { name: 'Put into jars in HSBC Current' }))
+    const fields = within(await openJars(user, 'Include SALARY on 2026-06-01'))
     await user.type(fields.getByLabelText('Amount for Holiday'), '3000')
     expect(fields.getByText(/The jar amounts exceed/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Import 4 transactions' })).toBeDisabled()
-    expect(screen.getByText(/jar amounts can’t exceed what arrived/)).toBeInTheDocument()
+    // The foot note stays short; the rule it enforces sits behind its (i).
+    expect(screen.getByText(/Finish the highlighted rows first/)).toBeInTheDocument()
+    expect(await openHint(user, 'What the highlighted rows need')).toHaveTextContent(/jar amounts can’t exceed what arrived/)
     expect(mockCommit).not.toHaveBeenCalled()
   })
 
@@ -264,7 +287,8 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     renderPage()
     await goToReview(user, 'acc2')
     expect(screen.queryByRole('group', { name: /Put into jars/ })).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('From jar')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /into jars/i })).not.toBeInTheDocument()
+    expect(await asksFromJar(user, 'AUTOMARKET on 2026-06-17')).toBe(false)
 
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -285,18 +309,25 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
 
-    // Not done: the review stays open for just the held row, with the reason and what went in.
+    // Not done: the review stays open for just the held row, with the reason and what went in
+    // (the strip says what happened; what to do and what went in sit behind its (i)).
     expect(screen.queryByText('Import complete')).not.toBeInTheDocument()
     const banner = screen.getByRole('status')
     expect(banner).toHaveTextContent('1 row was held because the account would go below zero on its date.')
-    expect(banner).toHaveTextContent('Record the missing money first and commit again, or untick a row to discard it.')
-    expect(banner).toHaveTextContent('3 transactions imported, 1 skipped')
+    // The (i)'s two sentences are announced with the count too (the old banner read all three).
+    expect(banner).toHaveTextContent('Record the missing money first and commit again, or untick a row to discard it. The rest went in: 3 transactions imported, 1 skipped.')
+    const about = await openHint(user, 'About the held rows')
+    expect(about).toHaveTextContent('Record the missing money first and commit again, or untick a row to discard it.')
+    expect(about).toHaveTextContent('The rest went in: 3 transactions imported, 1 skipped.')
     expect(screen.getByText('WOLT')).toBeInTheDocument()
     expect(screen.getByText('Held')).toBeInTheDocument()
-    expect(screen.getByText(reason)).toBeInTheDocument()
+    expect(await openHint(user, 'Why WOLT was held')).toHaveTextContent(reason)
     expect(screen.queryByText('AUTOMARKET')).not.toBeInTheDocument()
     expect(screen.queryByText('SALARY')).not.toBeInTheDocument()
     expect(screen.queryByText(/new transactions to review/)).not.toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Held rows' })).toBeInTheDocument()
+    // No Columns, no bulk (i) summary: a re-scan would bring back the rows already imported.
+    expect(screen.queryByRole('button', { name: 'Columns' })).not.toBeInTheDocument()
 
     // The re-commit sends only the held row (its review choices intact).
     mockCommit.mockResolvedValueOnce(committed({ totalEntries: 1, imported: 1, debits: 1 }))
@@ -322,7 +353,8 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     await goToReview(user)
 
     await user.click(screen.getByRole('button', { name: 'Import 4 transactions' }))
-    await screen.findByText('Would be -50.00 EUR.')
+    await screen.findByRole('status')
+    expect(await openHint(user, 'Why WOLT was held')).toHaveTextContent('Would be -50.00 EUR.')
 
     await user.click(screen.getByLabelText('Include WOLT on 2026-06-15')) // untick = discard
     await user.click(screen.getByRole('button', { name: 'Finish without the held rows' }))

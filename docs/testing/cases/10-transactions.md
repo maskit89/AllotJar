@@ -846,22 +846,22 @@
 - **Expected:** No **+ Add transaction** button, no row hover actions (✎/⑂/✕), no assign picker — an assigned line renders as static text and an unassigned row shows plain **"Unassigned"** (no dashed +Assign). The AppShell shows the read-only banner. Any command attempt is 403 server-side.
 - **Automated:** Yes (RoleGating.test.tsx ReadOnly: entry/edit/assign hidden, assigned line static, read-only banner; AuthorizationBehaviourTests ReadOnly blocked from commands)
 
-### TX-087 - Limited role: full entry, but no Import link
+### TX-087 - Limited role: full entry, but no Import nav item
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Login with **Limited** access; `camtImport` flag on.
 - **Steps:**
-  1. Open `/transactions` and inspect the toolbar.
-- **Expected:** **+ Add transaction** and all row actions are available (all six transaction commands are `[AllowLimited]`), but the **Import** link is hidden (`canWrite` = Admin+). Transfers are allowed for Limited.
-- **Automated:** Yes (RoleGating.test.tsx Limited: tx entry available, admin-only account/import management hidden)
+  1. Open `/transactions` and inspect the toolbar and the navigation.
+- **Expected:** **+ Add transaction** and all row actions are available (all six transaction commands are `[AllowLimited]`), but the **Import** nav item is hidden (`canWrite` = Admin+; the Transactions page itself has no Import link). Transfers are allowed for Limited.
+- **Automated:** Partial (client/src/components/AppShell.test.tsx: Import hidden from a login that may not change the budget)
 
-### TX-088 - Import link visibility follows the camtImport flag + canWrite
+### TX-088 - Import nav item visibility follows the camtImport flag + canWrite
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Owner; toggle `features.camtImport`.
 - **Steps:**
   1. Load the page with the flag on, then off.
-- **Expected:** Flag on + Admin+ → the **Import** link (icon + "Import") renders and routes to `/import`. Flag off → the link is hidden. The rest of the page (account select, transfer mode) is **not** gated by `accounts`/`camtImport` — it depends only on account count.
+- **Expected:** Flag on + Admin+ → the **Import** nav item (icon + "Import", `client/src/components/navItems.ts`) renders and routes to `/import`. Flag off → the item is hidden. The rest of the page (account select, transfer mode) is **not** gated by `accounts`/`camtImport` — it depends only on account count.
 - **Automated:** No
 
 ### TX-089 - Duplicate manual transactions are both accepted (no BankReference dedup)

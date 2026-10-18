@@ -306,10 +306,10 @@
 - **Preconditions:** time-owner (Admin+), `features.camtImport` on; a generic CSV whose dates are all ≤ the 12th (e.g. `03/07/2026`, `05/06/2026`) so both dd/MM and MM/dd parse every row.
 - **Steps:**
   1. `/import` → File format "Bank CSV (auto-detect)" → upload → **Review transactions**.
-  2. Read the "We read your dates as **{label}**" readout and the sample rows' interpreted dates.
+  2. Click **Columns** in the file strip: read the **Date format** select (and its sr-only "We read your dates as **{label}**." readout) and the rows' interpreted dates.
 - **Expected:**
-  - `ResolveDateFormat` picks the single format parsing the most rows, tie-broken by preference order (ISO first, then **dd/MM before MM/dd**), so `03/07/2026` is read as **3 July 2026**, not 7 March; the label echoes "DD/MM/YYYY" and pins it into the mapping for re-scans.
-  - Every row uses that one format; the applied format is echoed as `ResolvedDateFormat`. Overriding "Date format" to MM/DD/YYYY and re-scanning re-reads the whole file as month-first.
+  - `ResolveDateFormat` picks the single format parsing the most rows, tie-broken by preference order (ISO first, then **dd/MM before MM/dd**), so `03/07/2026` is read as **3 July 2026**, not 7 March; the Date format select shows "DD/MM/YYYY" and the format is pinned into the mapping for re-scans.
+  - Every row uses that one format; the applied format is echoed as `ResolvedDateFormat`. Overriding "Date format" to MM/DD/YYYY and "Apply changes & re-scan" re-reads the whole file as month-first.
   - A file that only parses cleanly under MM/dd resolves to MM/dd; PR #154's accepted trade-off is that such rows re-appear once after the format lock changed how they were previously read.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Imports/GenericCsvImporterTests.cs — one date format locked for the whole file; explicit date format wins over scan; client ImportPage.test.tsx — "We read your dates as …" readout)
 
@@ -333,7 +333,7 @@
 - **Steps:**
   1. Upload the CSV and open Review.
 - **Expected:**
-  - The 2 Jan 2027 row is flagged **"Possibly already imported"** (default unticked, amber tint): the ±4-day window is a date-difference in days (`2026-12-31` → `2027-01-02` = 2 days), so it spans the year boundary; amount must match exactly, currency equal, direction compatible, payee normalized-equal-or-contains.
+  - The 2 Jan 2027 row is flagged **"Possible duplicate"** (default unticked): the ±4-day window is a date-difference in days (`2026-12-31` → `2027-01-02` = 2 days), so it spans the year boundary; amount must match exactly, currency equal, direction compatible, payee normalized-equal-or-contains.
   - A distinct `BankReference` (different date signature) means it is NOT an exact dedup skip — only a soft hint the user can tick to import anyway.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/ImportPreviewCommitTests.cs — possible-duplicate date-window boundary [Theory], requires matching direction+currency)
 
@@ -356,7 +356,7 @@
   1. Upload as "HSBC transaction history (CSV)" and review the interpreted date.
 - **Expected:**
   - The entry's `BookingDate` = the **purchase date 2026-12-30** (fallback to posting date only when Details lack one) — so a late-December purchase posted in January books into December, not January.
-  - The `BankReference` signature includes both `{postingDate:yyyy-MM-dd}|{purchaseDate:yyyy-MM-dd}` with 4-digit years; `formatDate` in the review table shows the full year for straddling rows.
+  - The `BankReference` signature includes both `{postingDate:yyyy-MM-dd}|{purchaseDate:yyyy-MM-dd}` with 4-digit years; the review list's `shortDate` shows the full year for a row outside the current year.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Imports/HsbcCsvStatementParserTests.cs — purchase date, not posting date; references stable across releases)
 
 ---

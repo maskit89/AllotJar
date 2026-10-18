@@ -24,6 +24,8 @@ import { mockGet, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
 import { accounts, committed, csvPreview, members, month, preview, previewWithTransfer } from '../test/fixtures/import'
+import { menuItems } from '../test/rowMenu'
+import { categoryChip, rowAction, rowItems, rowOf } from '../test/importReview'
 
 // One credit + one debit, both EUR, non-transfer — for the amount colour/direction case.
 function previewCreditAndDebit(): ImportPreviewResult {
@@ -41,7 +43,7 @@ const renderPage = () => renderWithProviders(<ImportPage />)
 const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
 async function goToReview(user: ReturnType<typeof userEvent.setup>) {
-  await user.upload(await screen.findByLabelText('Statement file'), csv())
+  await user.upload(await screen.findByLabelText(/^Statement file/), csv())
   await user.click(screen.getByRole('button', { name: 'Review transactions' }))
   await screen.findByText('AUTOMARKET')
 }
@@ -103,22 +105,27 @@ describe('ImportPage (catalog supplemental)', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('SALARY')
 
-    // Amount is the 4th cell (checkbox, Date, Payee, Amount, Category, Member).
-    const creditAmt = screen.getByLabelText('Include SALARY on 2026-06-25').closest('tr')!.querySelectorAll('td')[3]
+    // The amount sits at the row's right (data-import-amount), in the Transactions list's colours.
+    const creditAmt = rowOf('Include SALARY on 2026-06-25').querySelector('[data-import-amount]')!
     expect(creditAmt).toHaveTextContent('+€250.00')
     expect(creditAmt.textContent?.trim().startsWith('+')).toBe(true)
-    expect(creditAmt).toHaveClass('text-emerald-600')
+    expect(creditAmt).toHaveClass('text-ok')
 
-    const debitAmt = screen.getByLabelText('Include AUTOMARKET on 2026-06-17').closest('tr')!.querySelectorAll('td')[3]
+    const debitAmt = rowOf('Include AUTOMARKET on 2026-06-17').querySelector('[data-import-amount]')!
     expect(debitAmt).toHaveTextContent('€35.00')
     // The sign is the true minus glyph U+2212, not a hyphen, and the cell is slate (not emerald).
     expect(debitAmt.textContent?.trim().charCodeAt(0)).toBe(0x2212)
-    expect(debitAmt).toHaveClass('text-slate-700')
-    expect(debitAmt).not.toHaveClass('text-emerald-600')
+    expect(debitAmt).toHaveClass('text-slate-900')
+    expect(debitAmt).not.toHaveClass('text-ok')
+
+    // An unticked row steps back to the muted colour.
+    await user.click(screen.getByLabelText('Include SALARY on 2026-06-25'))
+    expect(creditAmt).toHaveClass('text-slate-500')
+    expect(creditAmt).not.toHaveClass('text-ok')
   })
 
   // IMP-023 (+ the clean-state re-scan label of IMP-066/IMP-020) — the "First row is a header" toggle
@@ -128,12 +135,15 @@ describe('ImportPage (catalog supplemental)', () => {
     mockPreview.mockResolvedValue(csvPreview())
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
-    // Clean mapping: the re-scan button is the secondary "Re-scan with this mapping" (no dirty warning).
-    expect(screen.getByRole('button', { name: 'Re-scan with this mapping' })).toBeInTheDocument()
+    // Clean mapping: the Columns dialog's re-scan button is the plain "Re-scan" (no dirty warning).
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    expect(screen.getByRole('button', { name: 'Re-scan' })).toBeInTheDocument()
+    expect(screen.queryByText(/changed the column mapping/)).not.toBeInTheDocument()
+    await user.click(screen.getByText('More options'))
     const headerToggle = screen.getByLabelText('First row is a header')
     expect(headerToggle).toBeChecked() // detected layout had hasHeader: true
 
@@ -143,6 +153,7 @@ describe('ImportPage (catalog supplemental)', () => {
       () => expect(screen.getByRole('button', { name: 'Apply changes & re-scan' })).toBeInTheDocument(),
       { timeout: 5000 },
     )
+    expect(screen.getByText(/changed the column mapping/)).toBeInTheDocument()
 
     mockPreview.mockClear()
     mockPreview.mockResolvedValue(csvPreview())
@@ -163,26 +174,33 @@ describe('ImportPage (catalog supplemental)', () => {
 
     // An import account is required for the per-row transfer control to appear.
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
 
-    // Mark it a transfer → the transfer account select + Undo appear, the Category select is gone.
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+    // Mark it a transfer → the Transfer dialog (the account select + Undo); the category chip is gone.
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
     expect(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).toBeInTheDocument()
-    expect(screen.queryByLabelText('Category for E-BANKING PAYMENT on 2026-06-16')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^(Assign|Reassign) E-BANKING PAYMENT on 2026-06-16$/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Looks like a transfer')).not.toBeInTheDocument()
 
-    // Undo → back to a plain categorised row: Category returns, the transfer picker is gone, and the
-    // "looks like a transfer" hint + the mark-as-transfer control are offered again.
-    await user.click(screen.getByRole('button', { name: 'Cancel transfer for E-BANKING PAYMENT on 2026-06-16' }))
-    expect(await screen.findByLabelText('Category for E-BANKING PAYMENT on 2026-06-16')).toBeInTheDocument()
+    // Undo (the dialog's foot) → back to a plain categorised row: the chip returns, the transfer
+    // picker is gone, and the "looks like a transfer" hint + "Mark as transfer" are offered again.
+    await user.click(screen.getByRole('button', { name: 'Undo transfer for E-BANKING PAYMENT on 2026-06-16' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Transfer' })).not.toBeInTheDocument())
+    expect(categoryChip('E-BANKING PAYMENT on 2026-06-16')).toBeInTheDocument()
     expect(
       screen.queryByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16'),
     ).not.toBeInTheDocument()
     expect(screen.getByText('Looks like a transfer')).toBeInTheDocument()
-    expect(
-      screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }),
-    ).toBeInTheDocument()
+    expect((await rowItems(user, 'E-BANKING PAYMENT on 2026-06-16')).map((i) => i.name)).toContain('Mark as transfer')
+
+    // Marked again, the row's ⋯ offers Edit transfer and Undo transfer instead; Undo from there too.
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await user.click(screen.getByRole('button', { name: 'Done' }))
+    expect((await rowItems(user, 'E-BANKING PAYMENT on 2026-06-16')).map((i) => i.name)).toEqual(['Edit transfer', 'Undo transfer'])
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Undo transfer for E-BANKING PAYMENT on 2026-06-16')
+    expect(categoryChip('E-BANKING PAYMENT on 2026-06-16')).toBeInTheDocument()
   })
 
   // IMP-083 — both restart controls fully reset to the upload phase: "Choose a different file" from
@@ -194,20 +212,20 @@ describe('ImportPage (catalog supplemental)', () => {
 
     // "Choose a different file" (review) → back to a blank upload form.
     await user.click(screen.getByRole('button', { name: 'Choose a different file' }))
-    expect(await screen.findByLabelText('Statement file')).toBeInTheDocument()
+    expect(await screen.findByLabelText(/^Statement file/)).toBeInTheDocument()
     // File state cleared → submit disabled again, and no review grid remains.
     expect(screen.getByRole('button', { name: 'Review transactions' })).toBeDisabled()
     expect(screen.queryByLabelText('Include AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
 
     // Import to reach the done screen, then "Import another file" → upload phase again.
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await screen.findByText('Import complete')
 
     await user.click(screen.getByRole('button', { name: 'Import another file' }))
-    expect(await screen.findByLabelText('Statement file')).toBeInTheDocument()
+    expect(await screen.findByLabelText(/^Statement file/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Review transactions' })).toBeDisabled()
     expect(screen.queryByText('Import complete')).not.toBeInTheDocument()
   })
@@ -232,19 +250,26 @@ describe('ImportPage (catalog supplemental)', () => {
     expect(screen.queryByRole('option', { name: 'HSBC Current' })).not.toBeInTheDocument()
 
     // The upload → review flow still works despite the missing reference data.
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
 
-    // Month defaulted to null → category selects offer only "Unassigned".
+    // Month defaulted to null → the category select (behind the row's chip) offers only "Unassigned".
+    await user.click(categoryChip('AUTOMARKET on 2026-06-17'))
     const categorySelect = screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')
     const categoryOptions = within(categorySelect).getAllByRole('option')
     expect(categoryOptions).toHaveLength(1)
     expect(categoryOptions[0]).toHaveTextContent('Unassigned')
+    await user.keyboard('{Escape}')
+    expect(screen.queryByLabelText('Category for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
 
-    // No expense lines / no members → both bulk actions are disabled.
-    expect(screen.getByRole('button', { name: 'Apply to expenses' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Apply to included' })).toBeDisabled()
+    // No expense lines / no members → both bulk actions are disabled, and the row offers no Member.
+    expect(await menuItems(user, 'Bulk actions')).toEqual([
+      { name: 'Member for included rows', disabled: true },
+      { name: 'Category for included expenses', disabled: true },
+    ])
+    await user.keyboard('{Escape}')
+    expect((await rowItems(user, 'AUTOMARKET on 2026-06-17')).find((i) => i.name === 'Member')?.disabled).toBe(true)
 
     // Swallowed failures never surface an error banner.
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()

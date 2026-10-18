@@ -22,13 +22,15 @@ import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
 import { accounts, committed, csvPreview, members, month, preview, previewWithTransfer } from '../test/fixtures/import'
 import { HouseholdRole } from '../types'
+import { chooseFromMenu } from '../test/rowMenu'
+import { categoryChip, closeHint, openHint, rowAction, rowItems } from '../test/importReview'
 
 const renderPage = () => renderWithProviders(<ImportPage />)
 
 const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
 async function goToReview(user: ReturnType<typeof userEvent.setup>) {
-  await user.upload(await screen.findByLabelText('Statement file'), csv())
+  await user.upload(await screen.findByLabelText(/^Statement file/), csv())
   await user.click(screen.getByRole('button', { name: 'Review transactions' }))
   await screen.findByText('AUTOMARKET')
 }
@@ -63,7 +65,7 @@ describe('ImportPage (catalog)', () => {
     ).toBeInTheDocument()
     // Every import phase is suppressed: no format select, no file input, no submit.
     expect(screen.queryByLabelText('File format')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Statement file')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText(/^Statement file/)).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Review transactions' })).not.toBeInTheDocument()
   })
 
@@ -83,15 +85,19 @@ describe('ImportPage (catalog)', () => {
       'CAMT.053 statement (XML)',
     ])
 
-    // Default (generic) helper text.
-    expect(screen.getByText(/Most banks/)).toBeInTheDocument()
+    // The helper text sits behind the (i) beside the format: the default (generic) one first.
+    expect(screen.queryByText(/Most banks/)).not.toBeInTheDocument()
+    expect(await openHint(user, 'About file formats')).toHaveTextContent(/Most banks/)
+    await closeHint(user, 'About file formats')
 
     await user.selectOptions(formatSelect, 'camt')
-    expect(screen.getByText(/An ISO 20022 SEPA bank-to-customer statement\./)).toBeInTheDocument()
-    expect(screen.queryByText(/Most banks/)).not.toBeInTheDocument()
+    const camt = await openHint(user, 'About file formats')
+    expect(camt).toHaveTextContent(/An ISO 20022 SEPA bank-to-customer statement\./)
+    expect(camt).not.toHaveTextContent(/Most banks/)
+    await closeHint(user, 'About file formats')
 
     await user.selectOptions(formatSelect, 'hsbc')
-    expect(screen.getByText(/The Date, Details, Amount export from HSBC/)).toBeInTheDocument()
+    expect(await openHint(user, 'About file formats')).toHaveTextContent(/The Date, Details, Amount export from HSBC/)
   })
 
   // IMP-009 — the submit is disabled until a file is chosen, then enables.
@@ -99,10 +105,10 @@ describe('ImportPage (catalog)', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await screen.findByLabelText('Statement file')
+    await screen.findByLabelText(/^Statement file/)
     expect(screen.getByRole('button', { name: 'Review transactions' })).toBeDisabled()
 
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     expect(screen.getByRole('button', { name: 'Review transactions' })).toBeEnabled()
   })
 
@@ -111,7 +117,7 @@ describe('ImportPage (catalog)', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     expect(screen.getByRole('button', { name: 'Review transactions' })).toBeEnabled()
 
     // The file input remounts on format change and `file` state is reset — no ghost filename,
@@ -126,19 +132,24 @@ describe('ImportPage (catalog)', () => {
     const user = userEvent.setup()
     renderPage()
 
-    // Upload-phase help text on the account picker.
+    // Upload-phase help text on the account picker, behind its (i).
     await screen.findByLabelText(/Add to account/)
-    expect(
-      screen.getByText('Stamps each transaction onto this account so its balance reflects the import.'),
-    ).toBeInTheDocument()
+    expect(await openHint(user, 'About the account')).toHaveTextContent(
+      /Stamps each transaction onto this account so its balance reflects the import\./,
+    )
+    await closeHint(user, 'About the account')
 
     await user.selectOptions(screen.getByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
 
+    // The file strip names the account (and says so in full for assistive tech).
+    const strip = screen.getByRole('region', { name: 'Statement file' })
+    expect(strip).toHaveTextContent('tx.csv')
+    expect(strip).toHaveTextContent('HSBC Current')
     const notice = screen.getByText(/Importing into/)
-    expect(notice).toHaveTextContent('HSBC Current')
+    expect(notice).toHaveTextContent('Importing into HSBC Current.')
   })
 
   // IMP-021 — the currency column's first option is "Use <home currency> for every row", and choosing
@@ -148,10 +159,12 @@ describe('ImportPage (catalog)', () => {
     mockPreview.mockResolvedValue(csvPreview())
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    await user.click(screen.getByText('More options'))
     const currencySelect = screen.getByLabelText('Currency column') as HTMLSelectElement
     // The first option uses the user's home currency (EUR here).
     expect(within(currencySelect).getAllByRole('option')[0]).toHaveTextContent('Use EUR for every row')
@@ -174,10 +187,12 @@ describe('ImportPage (catalog)', () => {
     mockPreview.mockResolvedValue(csvPreview())
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    await user.click(screen.getByText('More options'))
     const delimiter = screen.getByLabelText('Column separator') as HTMLSelectElement
     expect(within(delimiter).getAllByRole('option').map((o) => o.textContent)).toEqual([
       'Comma ,',
@@ -207,13 +222,18 @@ describe('ImportPage (catalog)', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
 
-    // Bulk-apply the Soap expense line to every included expense.
+    // Bulk-apply the Soap expense line to every included expense (the list bar's ⋯, then a dialog).
+    await chooseFromMenu(user, 'Bulk actions', 'Category for included expenses')
+    expect(screen.getByRole('dialog', { name: 'Category for included expenses' })).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('Bulk category'), 'bi2')
     await user.click(screen.getByRole('button', { name: 'Apply to expenses' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(categoryChip('AUTOMARKET on 2026-06-17')).toHaveTextContent('Soap')
+    expect(categoryChip('SALARY on 2026-06-25')).toHaveTextContent('Assign')
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1), { timeout: 5000 })
@@ -232,7 +252,7 @@ describe('ImportPage (catalog)', () => {
     await goToReview(user)
 
     // AUTOMARKET is €35; splitting it 20 + 20 over-allocates by €5.
-    await user.click(screen.getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Split AUTOMARKET on 2026-06-17')
     await user.type(screen.getByLabelText('Split line 1 amount for AUTOMARKET'), '20')
     await user.type(screen.getByLabelText('Split line 2 amount for AUTOMARKET'), '20')
 
@@ -240,6 +260,7 @@ describe('ImportPage (catalog)', () => {
       () => expect(screen.getByLabelText('Remaining to allocate')).toHaveTextContent('€5.00 over'),
       { timeout: 5000 },
     )
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
     expect(mockCommit).not.toHaveBeenCalled()
   })
@@ -251,7 +272,7 @@ describe('ImportPage (catalog)', () => {
     renderPage()
     await goToReview(user)
 
-    await user.click(screen.getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Split AUTOMARKET on 2026-06-17')
 
     // Starts with exactly two lines and no per-line remove control.
     expect(screen.getByLabelText('Split line 1 category for AUTOMARKET')).toBeInTheDocument()
@@ -271,9 +292,15 @@ describe('ImportPage (catalog)', () => {
     )
     expect(screen.queryByLabelText('Remove split line 1 for AUTOMARKET')).not.toBeInTheDocument()
 
-    // Clearing the split reverts the row to a plain single-category select.
+    // Clearing the split closes the dialog and reverts the row to a plain category chip.
     await user.click(screen.getByRole('button', { name: 'Clear split' }))
-    expect(await screen.findByLabelText('Category for AUTOMARKET on 2026-06-17')).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Split' })).not.toBeInTheDocument())
+    expect(categoryChip('AUTOMARKET on 2026-06-17')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Edit split for AUTOMARKET on 2026-06-17' })).not.toBeInTheDocument()
+    // The ⋯ offers Split again, not Edit split.
+    const items = (await rowItems(user, 'AUTOMARKET on 2026-06-17')).map((i) => i.name)
+    expect(items).toContain('Split')
+    expect(items).not.toContain('Edit split')
   })
 
   // IMP-052 — with no import account chosen, likely-transfer rows offer no Transfer control and an
@@ -284,18 +311,18 @@ describe('ImportPage (catalog)', () => {
     renderPage()
 
     // Deliberately do NOT select an account before uploading.
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
 
-    // The row is still hinted as a transfer, but the mark-as-transfer button never renders.
+    // The row is still hinted as a transfer, but its ⋯ never offers "Mark as transfer"; the file
+    // strip says "No account" with an (i) that explains.
     expect(screen.getByText('Looks like a transfer')).toBeInTheDocument()
-    expect(
-      screen.queryByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }),
-    ).not.toBeInTheDocument()
-    expect(
-      screen.getByText(/Some rows look like transfers between your accounts\./),
-    ).toBeInTheDocument()
+    expect((await rowItems(user, 'E-BANKING PAYMENT on 2026-06-16')).map((i) => i.name)).not.toContain('Mark as transfer')
+    expect(screen.getByRole('region', { name: 'Statement file' })).toHaveTextContent('No account')
+    expect(await openHint(user, 'About the account')).toHaveTextContent(
+      /Some rows look like transfers between your accounts\. Re-import with an account selected to record them as transfers\./,
+    )
   })
 
   // IMP-068 — a mixed-currency import sums each currency separately on the success screen.
@@ -310,7 +337,7 @@ describe('ImportPage (catalog)', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))

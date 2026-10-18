@@ -46,7 +46,8 @@ export function InfoHint({
   /**
    * Opt-in: the popover is placed against the screen (position: fixed) from the icon's box, so a
    * scrolling container around it (a sheet dialog's middle) never cuts it off; it opens above the
-   * icon when there isn't room for it below (on a page, above a phone's tab bar), and follows the
+   * icon when there isn't room for it below (on a page, above a phone's tab bar and any bar pinned
+   * over it, `[data-dock]`), and follows the
    * icon while anything scrolls. Left out, the popover hangs below the icon in the page's flow.
    */
   fixed?: boolean
@@ -103,8 +104,11 @@ export function InfoHint({
       let top = margin
       let bottom = vh - margin
       if (!wrap.closest('[role="dialog"]')) {
-        const bar = document.querySelector('[data-tabbar]')?.getBoundingClientRect()
-        if (bar && bar.height > 0) bottom = Math.min(bottom, bar.top - margin)
+        // A phone's tab bar, and a bar a page pins above it (`[data-dock]`): the popover clears both.
+        for (const bar of document.querySelectorAll('[data-tabbar], [data-dock]')) {
+          const box = bar.getBoundingClientRect()
+          if (box.height > 0) bottom = Math.min(bottom, box.top - margin)
+        }
         const head = document.querySelector('main header')?.getBoundingClientRect()
         if (head && head.height > 0) top = Math.max(top, head.bottom)
       }
