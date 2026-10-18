@@ -63,7 +63,7 @@ AllotJar's big banner tracks that goal live as you type.
 - Your data is private to your login. (You can deliberately share a household with other people — see [People & sharing](#8-people--sharing).)
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
 - Forgot your password? Use the **Forgot password?** link on the sign-in card — we'll email you a reset link (valid for 2 hours). Setting a new password signs you out everywhere else and signs you straight in on the device you used.
-- Prefer not to manage a password? Use **Continue with Google** on the sign-in card — it both signs you in and, the first time, creates your account (you'll just confirm the Terms). If you already have a password account with the same Google email, signing in with Google links to it, so either method works from then on. A Google-only account has no password; to add one later, use **Forgot password** with that email from the Account page.
+- Prefer not to manage a password? Use **Continue with Google** on the sign-in card — it both signs you in and, the first time, creates your account (you'll just confirm the Terms). If you already have a password account with the same Google email, signing in with Google links to it, so either method works from then on. A Google-only account has no password; to add one later, use **Set a password** on the Password row of **Account settings** (it takes you to **Forgot password**, which emails you a link to set one).
 
 ### The layout: sidebar, top bar and your account menu
 
@@ -394,11 +394,19 @@ When a person's savings account holds jars, Allocate also asks **how much of tha
 
 ## 10. Your account & settings
 
-Open the menu under your name and choose **Account settings** to manage:
+Open the menu under your name and choose **Account settings**. On a wide screen it has two columns; on a phone the same cards stack.
 
-- **Display name** — how you appear in the app and to others in a shared household.
-- **Currency** — your budget's currency, which you can change only until your budget has its first account, month or transaction (then it shows as fixed). **Number format** — how amounts are shown and entered.
-- **Change password** — set a new password for your login.
+**You** (the left card): your name, your access level in the household you're viewing (its **(i)** says what it allows) and your email, then **Preferences**. Everything in this card is saved together with **Save**.
+
+- **Display name** — press the pencil beside your name to edit **First name** and **Last name** in place; **Save** keeps them, the ✕ (or Escape) puts your name back as it was. It's how you appear in the app and to others in a shared household.
+- **Currency** — your budget's currency, which you can change only until your budget has its first account, month or transaction. Then it shows as fixed, with a lock, and its **(i)** says why. **Number format** — how amounts are shown and entered.
+
+**Household**: who shares the budget, by face and name; the row opens the **People** page to manage them. Budgeting alone, it reads **Just you**, with **Share this budget** to add someone (its **(i)** explains sharing). If you've only joined someone else's household, **Your own budget** lets you **Start** a budget of your own (the shared one stays as it is), and **Leave household** sits behind the card's **⋯**: it asks first and says if you have private accounts there, which nobody can see once you leave.
+
+**Sign-in**:
+
+- **Password** — **Change** opens a dialog to set a new password: your current one, then the new one twice (at least 8 characters). The other devices you're signed in on are signed out; this one stays signed in. A Google-only login has no password yet: **Set a password** takes you to **Forgot password**, which emails you a link to set one.
+- **Google** — shown when your login is connected to Google. **Disconnect** is behind its **⋯**; it stays unavailable while Google is your only way to sign in, until you set a password.
 
 If you belong to more than one household, you can also **switch households** from the same menu (see [Multiple households](#multiple-households)).
 

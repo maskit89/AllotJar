@@ -33,11 +33,22 @@ export interface RowAction {
   after?: 'focus' | 'dialog'
   /** Starts a new section (a divider above it): the destructive actions. */
   separatorBefore?: boolean
+  /**
+   * Opt-in (the Account settings page's Disconnect, restyle PR 12): a short line under the item,
+   * e.g. why it is disabled. It describes the item (`aria-describedby`). A disabled item is
+   * skipped by the ⋯ menu's arrow keys, so there its note describes the menu too; in a phone's
+   * sheet the item stays focusable (`aria-disabled`) so the note is heard. Left out, the item is
+   * as before.
+   */
+  note?: ReactNode
 }
 
 /** A row of the menu, as in the mock-ups and the account menu: 38px, a 16px icon column. */
 const ITEM =
   "h-[38px] gap-2.5 rounded-lg px-2.5 text-sm font-medium text-popover-foreground focus:bg-surface-2 focus:text-popover-foreground dark:focus:bg-foreground/7 [&_svg:not([class*='size-'])]:size-4 [&_svg:not([class*='text-'])]:text-muted-foreground"
+
+/** An item's note (RowAction.note): 13px muted text under its label. */
+const ITEM_NOTE = 'w-[228px] max-w-full pr-2.5 pb-1.5 pl-9 text-[13px] leading-[1.4] text-slate-500'
 
 /** A destructive action reads in the status red (as in the mock-up), which stays AA on the popover in both themes. */
 const DANGER = 'text-bad! focus:text-bad! [&_svg]:text-bad!'
@@ -84,7 +95,13 @@ export function RowMenu({
   // An action that waits for the menu to close (see RowAction.after).
   const pending = useRef<RowAction | null>(null)
   const noteId = useId()
+  // An item's own note (RowAction.note) gets an id from the menu's.
+  const itemNoteId = (a: RowAction) => `${noteId}-${a.key}`
   if (actions.length === 0) return null
+  // What describes the menu: its note, and the note of each disabled item (the keyboard can't reach it).
+  const menuDescribedBy =
+    [note ? noteId : null, ...actions.filter((a) => a.note && a.disabled).map(itemNoteId)].filter(Boolean).join(' ') ||
+    undefined
   return (
     <DropdownMenu modal={false}>
       {customTrigger ? (
@@ -103,7 +120,7 @@ export function RowMenu({
         className="min-w-[196px] rounded-xl p-1.5 shadow-[var(--shadow-frame-lg)]"
         // A menu with its own name is named by it, not by its trigger (Radix's default).
         {...(menuLabel ? { 'aria-label': menuLabel, 'aria-labelledby': undefined } : {})}
-        aria-describedby={note ? noteId : undefined}
+        aria-describedby={menuDescribedBy}
         onCloseAutoFocus={(e) => {
           const action = pending.current
           pending.current = null
@@ -126,6 +143,7 @@ export function RowMenu({
               variant={a.danger ? 'destructive' : 'default'}
               disabled={a.disabled}
               aria-label={a.ariaLabel}
+              aria-describedby={a.note ? itemNoteId(a) : undefined}
               onSelect={() => {
                 if (a.after) pending.current = a
                 else a.onSelect()
@@ -134,6 +152,12 @@ export function RowMenu({
               {a.icon}
               {a.label}
             </DropdownMenuItem>
+            {a.note && (
+              // Under the item's label (past its 16px icon), at the mock-ups' 228px measure.
+              <p id={itemNoteId(a)} className={ITEM_NOTE}>
+                {a.note}
+              </p>
+            )}
           </Fragment>
         ))}
       </DropdownMenuContent>
@@ -143,7 +167,9 @@ export function RowMenu({
 
 /** A row of the sheet, as in the phone More sheet: 52px, a 20px icon, the label at 16px. */
 const SHEET_ROW =
-  "relative flex min-h-[52px] w-full items-center gap-3.5 text-left text-base font-semibold text-slate-900 disabled:opacity-50 not-first:before:absolute not-first:before:top-0 not-first:before:-right-4 not-first:before:left-[46px] not-first:before:border-t not-first:before:border-slate-200 not-first:before:content-[''] [&_svg]:mx-1.5 [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:text-slate-500"
+  "relative flex min-h-[52px] w-full items-center gap-3.5 text-left text-base font-semibold text-slate-900 disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50 not-first:before:absolute not-first:before:top-0 not-first:before:-right-4 not-first:before:left-[46px] not-first:before:border-t not-first:before:border-slate-200 not-first:before:content-[''] [&_svg]:mx-1.5 [&_svg]:size-5 [&_svg]:shrink-0 [&_svg]:text-slate-500"
+/** An item's note in the sheet (RowAction.note): under its label, past the 20px icon. */
+const SHEET_NOTE = '-mt-2 pb-3 pl-[46px] text-[13px] leading-[1.4] text-slate-500'
 const SHEET_GROUP =
   'flex flex-col rounded-[14px] border border-slate-200/70 bg-card px-4 shadow-[var(--shadow-frame)] dark:bg-surface-2 dark:shadow-none'
 
@@ -178,6 +204,7 @@ export function ActionSheet({
 }) {
   const trigger = useRef<HTMLElement | null>(null)
   const pending = useRef<RowAction | null>(null)
+  const noteId = useId()
 
   // Split into sections at each divider.
   const sections: RowAction[][] = []
@@ -224,25 +251,35 @@ export function ActionSheet({
         {sections.map((section, i) => (
           <div key={i} className={SHEET_GROUP}>
             {section.map((a) => (
-              <button
-                key={a.key}
-                type="button"
-                disabled={a.disabled}
-                aria-label={a.ariaLabel}
-                onClick={() => {
-                  if (a.after) {
-                    pending.current = a
-                    onOpenChange(false)
-                  } else {
-                    onOpenChange(false)
-                    a.onSelect()
-                  }
-                }}
-                className={`${SHEET_ROW} ${a.danger ? DANGER : ''}`}
-              >
-                {a.icon}
-                {a.label}
-              </button>
+              <Fragment key={a.key}>
+                <button
+                  type="button"
+                  // A disabled item with a note (RowAction.note) stays focusable, so its note is heard.
+                  disabled={a.disabled && !a.note}
+                  aria-disabled={a.disabled && a.note ? true : undefined}
+                  aria-label={a.ariaLabel}
+                  aria-describedby={a.note ? `${noteId}-${a.key}` : undefined}
+                  onClick={() => {
+                    if (a.disabled) return
+                    if (a.after) {
+                      pending.current = a
+                      onOpenChange(false)
+                    } else {
+                      onOpenChange(false)
+                      a.onSelect()
+                    }
+                  }}
+                  className={`${SHEET_ROW} ${a.danger ? DANGER : ''}`}
+                >
+                  {a.icon}
+                  {a.label}
+                </button>
+                {a.note && (
+                  <p id={`${noteId}-${a.key}`} className={SHEET_NOTE}>
+                    {a.note}
+                  </p>
+                )}
+              </Fragment>
             ))}
           </div>
         ))}

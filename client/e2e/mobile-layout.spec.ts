@@ -259,6 +259,11 @@ test.describe('signed-out pages on a phone', () => {
     const line = page.getByRole('banner').getByText(/^Give every \w+ a job\.$/)
     const sw = page.getByRole('group', { name: 'Sign in or create an account' })
     await sw.waitFor()
+    // Where the switch sits depends on how the line wraps, and that depends on the web font: on a
+    // slow runner Hanken Grotesk can arrive between the two measurements, and the fallback face
+    // wraps the line onto two lines. Settle the font before measuring.
+    await page.waitForLoadState('networkidle')
+    await page.evaluate(() => document.fonts.ready)
     const lineY = (await line.boundingBox())!.y
     const swY = (await sw.boundingBox())!.y
 
