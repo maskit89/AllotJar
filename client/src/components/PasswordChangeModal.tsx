@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import axios from 'axios'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
@@ -25,6 +25,8 @@ export function PasswordChangeModal() {
   const [busy, setBusy] = useState(false)
   const [resent, setResent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The primary stays focusable while busy (aria-disabled), so a second press or Enter must be ignored here.
+  const inFlight = useRef(false)
 
   if (!mustChangePassword) return null
   // Like the consent prompt, never cover the legal pages it may sit in front of, nor the page the
@@ -32,6 +34,8 @@ export function PasswordChangeModal() {
   if (pathname === '/terms' || pathname === '/privacy' || pathname === '/reset-password') return null
 
   async function resend() {
+    if (inFlight.current) return
+    inFlight.current = true
     setError(null)
     setResent(false)
     setBusy(true)
@@ -43,6 +47,7 @@ export function PasswordChangeModal() {
       const data = axios.isAxiosError(err) ? (err.response?.data as { error?: string } | undefined) : undefined
       setError(data?.error ?? "We couldn't send the email just now. Try again later.")
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }

@@ -97,4 +97,20 @@ describe('PasswordChangeModal', () => {
     await user.hover(screen.getByRole('button', { name: 'Why you are asked' }))
     expect(await screen.findByRole('tooltip')).toHaveTextContent(/valid for 2 hours/)
   })
+
+  it('sends one email when the button is pressed twice while it is sending', async () => {
+    mockGet.mockResolvedValue(me(true))
+    let finish: (v: unknown) => void = () => {}
+    mockPost.mockReturnValue(new Promise((resolve) => (finish = resolve)))
+    const user = userEvent.setup()
+    renderModal()
+
+    const send = await screen.findByRole('button', { name: 'Email me the link' })
+    await waitFor(() => expect(send).toHaveFocus())
+    await user.keyboard('{Enter}')
+    await user.keyboard('{Enter}')
+    await user.click(screen.getByRole('button', { name: 'Sending…' }))
+    expect(mockPost.mock.calls.filter(([url]) => url === '/auth/password-link')).toHaveLength(1)
+    finish({ data: {} })
+  })
 })

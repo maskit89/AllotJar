@@ -79,4 +79,19 @@ describe('SharingReviewBanner', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/accounts/sharing-review', { privateAccountIds: ['a1'] }))
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Review sharing' })).not.toBeInTheDocument())
   })
+
+  it('saves once when Save is pressed twice while it is saving', { timeout: 15000 }, async () => {
+    let finish: (v: unknown) => void = () => {}
+    mockPost.mockReturnValue(new Promise((resolve) => (finish = resolve)))
+    const user = userEvent.setup()
+    renderBanner(true)
+
+    await user.click(await screen.findByRole('button', { name: 'Review sharing' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', { name: 'Who sees your accounts' }))
+    await user.click(dialog.getByRole('button', { name: 'Save' }))
+    await user.click(dialog.getByRole('button', { name: 'Save' }))
+    await user.keyboard('{Enter}')
+    expect(mockPost.mock.calls.filter(([url]) => url === '/accounts/sharing-review')).toHaveLength(1)
+    finish({ data: { pending: false, accounts: [] } })
+  })
 })

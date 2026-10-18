@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { serverErrors } from '../lib/serverErrors'
@@ -24,6 +24,8 @@ export function SharingReviewBanner() {
   const [privateIds, setPrivateIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Save stays focusable while saving (aria-disabled), so a second press or Enter must be ignored here.
+  const inFlight = useRef(false)
 
   if (!isAuthenticated || !sharingReviewPending) return null
 
@@ -40,6 +42,8 @@ export function SharingReviewBanner() {
   }
 
   async function save() {
+    if (inFlight.current) return
+    inFlight.current = true
     setSaving(true)
     setError(null)
     try {
@@ -49,6 +53,7 @@ export function SharingReviewBanner() {
     } catch (err) {
       setError(serverErrors(err) ?? 'Could not save your choices.')
     } finally {
+      inFlight.current = false
       setSaving(false)
     }
   }

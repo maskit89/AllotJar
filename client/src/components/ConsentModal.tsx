@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { Modal } from './Modal'
@@ -23,12 +23,16 @@ export function ConsentModal() {
   const { pathname } = useLocation()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState(false)
+  // The primary stays focusable while busy (aria-disabled), so a second press or Enter must be ignored here.
+  const inFlight = useRef(false)
 
   if (!needsConsent) return null
   // The prompt links to the legal pages — never cover the very text being consented to.
   if (pathname === '/terms' || pathname === '/privacy') return null
 
   async function onAgree() {
+    if (inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     setError(false)
     try {
@@ -36,6 +40,7 @@ export function ConsentModal() {
     } catch {
       setError(true)
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }

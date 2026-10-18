@@ -75,4 +75,21 @@ describe('ConsentModal', () => {
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/auth/me'))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
+
+  it('sends one request when "I agree" is pressed twice while it is saving', async () => {
+    mockGet.mockResolvedValue(me(true))
+    let finish: (v: unknown) => void = () => {}
+    mockPost.mockReturnValue(new Promise((resolve) => (finish = resolve)))
+    const user = userEvent.setup()
+    renderModal()
+
+    await screen.findByRole('dialog', { name: 'Accept the terms' })
+    await waitFor(() => expect(screen.getByRole('button', { name: 'I agree' })).toHaveFocus())
+    await user.keyboard('{Enter}')
+    // Busy: the button keeps focus (aria-disabled) but a second Enter or click sends nothing.
+    await user.keyboard('{Enter}')
+    await user.click(screen.getByRole('button', { name: 'Please wait…' }))
+    expect(mockPost.mock.calls.filter(([url]) => url === '/auth/consent')).toHaveLength(1)
+    finish({ data: {} })
+  })
 })
