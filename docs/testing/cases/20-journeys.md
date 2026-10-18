@@ -153,26 +153,26 @@
 - **Type:** Happy
 - **Preconditions:** A registered user (empty account, so no prior references) with at least two accounts ("Everyday", "Savings") and a current month that has expense + savings lines to categorise into. An HSBC transaction-history CSV (Date, Details, Amount) and a non-HSBC generic bank CSV are on hand.
 - **Steps:**
-  1. From `/transactions` click the **"Import"** link → `/import` ("Import transactions").
-  2. Choose **"File format"** = "Bank CSV (auto-detect)", pick the HSBC file, set **"Add to account (optional)"** = "Everyday", submit **"Review transactions"**.
-  3. Read the summary strip and any sniff notice.
-  4. Categorise a debit row via its **"Category"** select; **Split** another row across two expense lines (Split editor, amounts must total, **"Done"**); mark an internal-looking row as a **Transfer** to "Savings".
-  5. Untick a **"Possibly already imported"** row (should already be unticked). Use **"Apply to expenses"** bulk category on the remaining debits.
+  1. Open **Import** from the navigation (the sidebar; More on a phone) → `/import` ("Import transactions").
+  2. Choose **"File format"** = "Bank CSV (auto-detect)", drop the HSBC file on the zone, set **"Add to account"** = "Everyday", submit **"Review transactions"**.
+  3. Read the file strip (format · account) and, if present, its (i) **About the format** (the sniff notice).
+  4. Categorise a debit row via its **Assign** chip (the chip opens the "Category for …" select); **Split** another row from its ⋯ across two expense lines (the Split dialog, amounts must total, **"Done"**); mark an internal-looking row as a transfer from its ⋯ (**Mark as transfer** → the Transfer dialog → **To** "Savings" → **Done**).
+  5. Untick a **"Possible duplicate"** row (should already be unticked). Use the list bar's ⋯ **Bulk actions** → **"Category for included expenses"** → **"Apply to expenses"** on the remaining debits.
   6. Click **"Import {n} transactions"**.
   7. Read the **"Import complete"** tiles.
   8. Re-upload the **identical** HSBC file and **"Review transactions"** again.
-  9. Now upload the **generic** CSV (non-HSBC shape) with auto-detect; on the review screen open the **"Column mapping"** card, change the **"Description column"** to a wrong column, then re-scan.
+  9. Now upload the **generic** CSV (non-HSBC shape) with auto-detect; on the review screen click **"Columns"** in the file strip, change the **"Description column"** to a wrong column, then re-scan.
   10. Fix the mapping back, **"Apply changes & re-scan"**, then commit.
   11. Cross-check `/transactions` and `/accounts` balances.
 - **Expected:**
-  - CP2-CP3: because the generic upload is sniffed as HSBC, it is parsed by the HSBC parser (clean payees, `hsbc:` references) and shows the sniff notice "We recognised this file as an HSBC transaction history export…"; NO column-mapping card appears (mapping only for true generic CSV).
-  - CP4: the debit's category assign is remembered; the split badge shows "Split · 2" (violet when valid); the transfer row requires a counterparty account (transfers need an import account selected) and shows "Transfer"; the split slice kinds must match the row direction.
-  - CP5-CP6: possible-duplicates are default-unticked + amber-tinted (not opacity-faded); commit persists chosen categories/members and split slices; idempotent by `BankReference`.
+  - CP2-CP3: because the generic upload is sniffed as HSBC, it is parsed by the HSBC parser (clean payees, `hsbc:` references) and shows the sniff notice "We recognised this file as an HSBC transaction history export…" behind the strip's (i); NO **Columns** button appears (the mapping dialog only for true generic CSV).
+  - CP4: the debit's chip reads its line; the split chip reads the slices ("Groceries €20 · Soap €15"; bad-toned until valid); the transfer row requires a counterparty account (transfers need an import account selected) and shows the "Transfer" chip + "to Savings"; the split slice kinds must match the row direction.
+  - CP5-CP6: possible-duplicates are default-unticked with the "Possible duplicate" chip; commit persists chosen categories/members and split slices; idempotent by `BankReference`.
   - CP7: the success tiles show **real money sums** ("Money in"/"Money out"), not counts (PR #160), plus a Transfers count.
   - CP8: the re-import yields **"You're all caught up"** (0 new rows, all skipped as duplicates) — unique (OwnerId, BankReference) dedup against real SQL; no commit button.
-  - CP9-CP10: editing a mapping field marks the mapping **dirty** → Import disabled + "You've changed the column mapping. Re-scan to apply it…"; re-scan re-enables it; per-row edits carry across a re-scan only for rows whose reference is unchanged.
+  - CP9-CP10: editing a field of the Columns dialog marks the mapping **dirty** → Import disabled + the dialog's "You've changed the column mapping. Re-scan to apply it before importing."; "Apply changes & re-scan" closes the dialog and re-enables it; per-row edits carry across a re-scan only for rows whose reference is unchanged.
   - CP11: imported transactions appear in the register; the "Everyday" balance reflects imported debits/credits and the marked transfer moved money Everyday→Savings; actuals on the categorised lines are tx-derived on the dashboard.
-- **Automated:** Partial (`client/e2e-journey/import.spec.ts` covers the generic-upload→auto-map→commit→success-sums round-trip, identical-file re-import "all caught up", and dirty-mapping block; the split/transfer/HSBC-sniff legs are unautomated at journey level)
+- **Automated:** Partial (`client/e2e-journey/import.spec.ts` covers the generic-upload→auto-map→commit→success-sums round-trip and the identical-file re-import "all caught up"; `import-lifecycle.spec.ts` the Columns dialog's dirty-mapping block, the category chip and the re-scan carry-over; `import-transfer-legs.spec.ts` the Transfer dialog; the split/HSBC-sniff legs are unautomated at journey level)
 
 ---
 

@@ -19,13 +19,15 @@ import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
 import { accounts, committed, csvPreview, members, month, preview, previewWithTransfer } from '../test/fixtures/import'
 import { formatDate } from '../lib/dates'
+import { chooseFromMenu } from '../test/rowMenu'
+import { categoryChip, chooseMatch, closeHint, done, matchGroup, matchOptions, openHint, pickCategory, rowAction } from '../test/importReview'
 
 const renderPage = () => renderWithProviders(<ImportPage />)
 
 const csv = () => new File(['x'], 'tx.csv', { type: 'text/csv' })
 
 async function goToReview(user: ReturnType<typeof userEvent.setup>) {
-  await user.upload(await screen.findByLabelText('Statement file'), csv())
+  await user.upload(await screen.findByLabelText(/^Statement file/), csv())
   await user.click(screen.getByRole('button', { name: 'Review transactions' }))
   await screen.findByText('AUTOMARKET')
 }
@@ -58,7 +60,7 @@ describe('ImportPage', () => {
     renderPage()
 
     // Default format is the generic bank CSV; upload and go to review.
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     // "TESCO" now appears in both the sample-rows table and the review row, so key off the
     // review row's unique include checkbox.
@@ -72,8 +74,10 @@ describe('ImportPage', () => {
       { defaultCurrency: 'EUR', accountId: null },
     )
 
-    // The mapping panel is shown, prefilled from the detected layout (amount = column index 2).
-    expect(screen.getByRole('heading', { name: 'Column mapping' })).toBeInTheDocument()
+    // The mapping sits behind the file strip's "Columns" (a dialog), prefilled from the detected
+    // layout (amount = column index 2).
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    expect(screen.getByRole('dialog', { name: 'Columns' })).toBeInTheDocument()
     expect((screen.getByLabelText('Amount column') as HTMLSelectElement).value).toBe('2')
 
     // Editing a column marks the mapping dirty: the re-scan button becomes the primary
@@ -88,6 +92,8 @@ describe('ImportPage', () => {
     expect(wire).toBe('GenericCsv')
     expect(opts.mapping.descriptionColumn).toBe(3)
     expect(opts.defaultCurrency).toBe('EUR')
+    // A successful re-scan closes the dialog.
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Columns' })).not.toBeInTheDocument())
   })
 
   it('generic CSV: rows without a currency are read in the chosen import account’s currency', { timeout: 15000 }, async () => {
@@ -103,11 +109,13 @@ describe('ImportPage', () => {
     renderPage()
 
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
     expect(mockPreview).toHaveBeenCalledWith(expect.any(File), 'GenericCsv', { defaultCurrency: 'GBP', accountId: 'acc1' })
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    await user.click(screen.getByText('More options'))
     const currencySelect = screen.getByLabelText('Currency column') as HTMLSelectElement
     expect(within(currencySelect).getAllByRole('option')[0]).toHaveTextContent('Use GBP for every row')
   })
@@ -119,8 +127,12 @@ describe('ImportPage', () => {
 
     // The duplicate count from the preview is surfaced.
     expect(screen.getByText(/already imported/)).toBeInTheDocument()
-    // AUTOMARKET's category defaulted to the suggested "Groceries" line.
+    // AUTOMARKET's category defaulted to the suggested "Groceries" line (its chip reads it; the
+    // chip opens the select, which holds the line's id).
+    expect(categoryChip('AUTOMARKET on 2026-06-17')).toHaveTextContent('Groceries')
+    await user.click(categoryChip('AUTOMARKET on 2026-06-17'))
     expect((screen.getByLabelText('Category for AUTOMARKET on 2026-06-17') as HTMLSelectElement).value).toBe('bi1')
+    await user.keyboard('{Escape}')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
@@ -159,12 +171,12 @@ describe('ImportPage', () => {
       ],
     })
     renderPage()
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('4 PILLARS')
 
     // The May row gets a June line — that's the cross-month case.
-    await user.selectOptions(screen.getByLabelText('Category for 4 PILLARS on 2026-05-27'), 'bi1')
+    await pickCategory(user, '4 PILLARS on 2026-05-27', 'bi1')
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
     // The confirm dialog appears INSTEAD of committing.
@@ -187,6 +199,7 @@ describe('ImportPage', () => {
     renderPage()
     await goToReview(user)
 
+    await chooseFromMenu(user, 'Bulk actions', 'Member for included rows')
     await user.selectOptions(screen.getByLabelText('Bulk member'), 'm1')
     await user.click(screen.getByRole('button', { name: 'Apply to included' }))
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
@@ -202,7 +215,8 @@ describe('ImportPage', () => {
     renderPage()
     await goToReview(user)
 
-    await user.click(screen.getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Split AUTOMARKET on 2026-06-17')
+    expect(screen.getByRole('dialog', { name: 'Split' })).toBeInTheDocument()
 
     // AUTOMARKET is 35 → 20 to Groceries + 15 to Soap.
     await user.selectOptions(screen.getByLabelText('Split line 1 category for AUTOMARKET'), 'bi1')
@@ -211,6 +225,9 @@ describe('ImportPage', () => {
     await user.type(screen.getByLabelText('Split line 2 amount for AUTOMARKET'), '15')
 
     expect(screen.getByLabelText('Remaining to allocate')).toHaveTextContent('Fully allocated')
+    await done(user)
+    // The row's category cell reads the slices.
+    expect(screen.getByRole('button', { name: 'Edit split for AUTOMARKET on 2026-06-17' })).toHaveTextContent('Groceries €20 · Soap €15')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
@@ -228,8 +245,13 @@ describe('ImportPage', () => {
     renderPage()
     await goToReview(user)
 
-    await user.click(screen.getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Split AUTOMARKET on 2026-06-17')
     await user.type(screen.getByLabelText('Split line 1 amount for AUTOMARKET'), '20') // 20 of 35 → 15 left
+    expect(screen.getByLabelText('Remaining to allocate')).toHaveTextContent('€15.00 left')
+    // Done is held back while the split does not add up; Escape leaves the split as it is.
+    expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled()
+    await user.keyboard('{Escape}')
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Split' })).not.toBeInTheDocument())
 
     expect(screen.getByText(/Finish the highlighted rows first/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
@@ -242,13 +264,17 @@ describe('ImportPage', () => {
     renderPage()
 
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
 
     expect(screen.getByText('Looks like a transfer')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    expect(screen.getByRole('dialog', { name: 'Transfer' })).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16'), 'acc2')
+    await done(user)
+    // The row's category cell names the other side.
+    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toHaveTextContent('from Joint Savings')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
@@ -280,20 +306,21 @@ describe('ImportPage', () => {
     renderPage()
 
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
 
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
     // Without a chosen match a credit is a receipt with an unknown departure.
     expect(screen.getByText(/Held for review until the departure date is known/)).toBeInTheDocument()
-    const match = screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16')
-    expect(match.querySelectorAll('option')).toHaveLength(2) // "record as new" + the one candidate
+    const match = matchGroup('E-BANKING PAYMENT on 2026-06-16')
+    expect(matchOptions('E-BANKING PAYMENT on 2026-06-16')).toHaveLength(2) // "record as new" + the one candidate
     expect(match).toHaveTextContent('From Pot')
 
-    await user.selectOptions(match, 'tr-1')
+    await chooseMatch(user, 'E-BANKING PAYMENT on 2026-06-16', /From Pot/)
     expect(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).toHaveValue('acc2')
     expect(screen.getByText(/Confirms the other side of the recorded transfer/)).toBeInTheDocument()
+    await done(user)
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -331,15 +358,16 @@ describe('ImportPage', () => {
 
     const review = async () => {
       await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-      await user.upload(screen.getByLabelText('Statement file'), csv())
+      await user.upload(screen.getByLabelText(/^Statement file/), csv())
       await user.click(screen.getByRole('button', { name: 'Review transactions' }))
       await screen.findByText('E-BANKING PAYMENT')
-      await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
-      await user.selectOptions(screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16'), 'tr-1')
+      await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+      await chooseMatch(user, 'E-BANKING PAYMENT on 2026-06-16', /From Pot/)
     }
     await review()
     // The fee's line is pre-filled with the one the recorded transfer already has (May's line).
     expect(screen.getByLabelText('Fee category for E-BANKING PAYMENT on 2026-06-16')).toHaveValue('bi-may-fees')
+    await done(user)
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -354,6 +382,7 @@ describe('ImportPage', () => {
     await user.click(screen.getByRole('button', { name: 'Import another file' }))
     await review()
     await user.selectOptions(screen.getByLabelText('Fee category for E-BANKING PAYMENT on 2026-06-16'), 'bi2')
+    await done(user)
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
     expect(mockCommit).not.toHaveBeenCalled()
@@ -366,6 +395,7 @@ describe('ImportPage', () => {
     await user.click(screen.getByRole('button', { name: 'Choose a different file' }))
     await review()
     expect(screen.getByLabelText('Fee category for E-BANKING PAYMENT on 2026-06-16')).toHaveValue('bi2')
+    await done(user)
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: 'Import anyway' }))
@@ -385,6 +415,7 @@ describe('ImportPage', () => {
     mockPreview.mockResolvedValue(preview)
     await user.click(screen.getByRole('button', { name: 'Import another file' }))
     await review()
+    await done(user)
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
     expect(mockCommit).not.toHaveBeenCalled()
@@ -408,7 +439,7 @@ describe('ImportPage', () => {
 
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
     await goToReview(user)
-    await user.selectOptions(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17'), 'bi2')
+    await pickCategory(user, 'AUTOMARKET on 2026-06-17', 'bi2')
     await user.click(screen.getByRole('button', { name: /Import \d+ transactions?/ }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
     expect(await screen.findByText('Budget to a different month?')).toBeInTheDocument()
@@ -429,11 +460,11 @@ describe('ImportPage', () => {
     renderPage()
 
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
 
-    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
     expect(screen.getByText(/Recorded as departed on/)).toBeInTheDocument()
     expect(screen.queryByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
   })
@@ -444,14 +475,18 @@ describe('ImportPage', () => {
     renderPage()
 
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await done(user)
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled(),
     )
+    // The row says what is missing.
+    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toHaveTextContent('Choose account…')
+    expect(screen.getByText(/Finish the highlighted rows first/)).toBeInTheDocument()
     expect(mockCommit).not.toHaveBeenCalled()
   })
 
@@ -463,9 +498,10 @@ describe('ImportPage', () => {
     renderPage()
     await goToReview(user)
 
-    // Badged, counted in the summary, and unticked by default.
-    expect(screen.getByText('Possibly already imported')).toBeInTheDocument()
-    expect(screen.getByText(/1 possible duplicate unticked/)).toBeInTheDocument()
+    // Badged, counted behind the list bar's (i), and unticked by default.
+    expect(screen.getByText('Possible duplicate')).toBeInTheDocument()
+    expect(await openHint(user, 'About skipped rows')).toHaveTextContent(/1 possible duplicate unticked \(tick to include\)\./)
+    await closeHint(user, 'About skipped rows')
     expect(screen.getByLabelText('Include WOLT on 2026-06-15')).not.toBeChecked()
 
     await user.click(screen.getByRole('button', { name: 'Import 1 transaction' }))
@@ -498,7 +534,9 @@ describe('ImportPage', () => {
     renderPage()
     await goToReview(user)
 
-    expect(screen.getByText(/recognised this file as an HSBC transaction history export/)).toBeInTheDocument()
+    // The file strip names the format chosen; the (i) beside it says what was recognised.
+    expect(screen.getByText('Bank CSV')).toBeInTheDocument()
+    expect(await openHint(user, 'About the format')).toHaveTextContent(/recognised this file as an HSBC transaction history export/)
   })
 
   it('shows no recognised-format notice when the generic path was used', { timeout: 15000 }, async () => {
@@ -506,10 +544,11 @@ describe('ImportPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
+    expect(screen.queryByRole('button', { name: 'About the format' })).not.toBeInTheDocument()
     expect(screen.queryByText(/recognised this file as/)).not.toBeInTheDocument()
   })
 
@@ -548,7 +587,9 @@ describe('ImportPage', () => {
     expect(moneyOut).toHaveTextContent('€35.00') // WOLT's 80.90 was skipped
     expect(moneyOut).not.toHaveTextContent('115.90')
     expect(screen.getByText('Waiting for EUR amount').closest('div')!).toHaveTextContent('1')
-    expect(screen.getByText(/1 row is in another currency and is not counted anywhere until its amount in EUR is entered/)).toBeInTheDocument()
+    expect(await openHint(user, 'About the rows waiting for an amount')).toHaveTextContent(
+      /1 row is in another currency and is not counted anywhere until its amount in EUR is entered/,
+    )
   })
 
   it('blocks import until an edited mapping is re-scanned, keeping categorisation across the re-scan', { timeout: 15000 }, async () => {
@@ -556,23 +597,33 @@ describe('ImportPage', () => {
     mockPreview.mockResolvedValue(csvPreview())
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
     // Categorise TESCO, then edit the mapping — import must block and warn until a re-scan.
-    await user.selectOptions(screen.getByLabelText('Category for TESCO on 2026-06-20'), 'bi1')
+    await pickCategory(user, 'TESCO on 2026-06-20', 'bi1')
+    expect(categoryChip('TESCO on 2026-06-20')).toHaveTextContent('Groceries')
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
     await user.selectOptions(screen.getByLabelText('Description column'), '3')
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
     expect(screen.getByText(/changed the column mapping/)).toBeInTheDocument()
+
+    // Cancelling the dialog puts the mapping back as scanned: nothing to apply, Import unblocked.
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog', { name: 'Columns' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeEnabled()
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    expect(screen.getByLabelText('Description column')).toHaveValue('1')
+    await user.selectOptions(screen.getByLabelText('Description column'), '3')
+    expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
 
     // Re-scan returns the same rows (unchanged references) → the category is preserved and import unblocks.
     mockPreview.mockResolvedValue(csvPreview())
     await user.click(screen.getByRole('button', { name: 'Apply changes & re-scan' }))
 
-    await waitFor(() =>
-      expect((screen.getByLabelText('Category for TESCO on 2026-06-20') as HTMLSelectElement).value).toBe('bi1'),
-    )
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Columns' })).not.toBeInTheDocument())
+    expect(categoryChip('TESCO on 2026-06-20')).toHaveTextContent('Groceries')
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeEnabled()
   })
 
@@ -581,7 +632,7 @@ describe('ImportPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
 
     expect(await screen.findByText('You’re all caught up')).toBeInTheDocument()
@@ -599,10 +650,12 @@ describe('ImportPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    expect(screen.getByLabelText('Date format')).toHaveValue('yyyy-MM-dd')
     expect(screen.getByText(/We read your dates as/)).toHaveTextContent('YYYY-MM-DD')
   })
 
@@ -611,7 +664,7 @@ describe('ImportPage', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.upload(await screen.findByLabelText('Statement file'), csv())
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('No transactions were found')
@@ -635,7 +688,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
 
   async function reviewIntoAccount(user: ReturnType<typeof userEvent.setup>, payee: string) {
     await user.selectOptions(await screen.findByLabelText(/Add to account/), 'acc1')
-    await user.upload(screen.getByLabelText('Statement file'), csv())
+    await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText(payee)
   }
@@ -659,13 +712,15 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     await reviewIntoAccount(user, 'E-BANKING PAYMENT')
 
     expect(screen.getByText('Looks like a transfer coming back')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer' }))
-    const match = screen.getByLabelText('Match recorded transfer for E-BANKING PAYMENT on 2026-06-16')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    const match = matchGroup('E-BANKING PAYMENT on 2026-06-16')
     expect(match).toHaveTextContent(`Returned: transfer to Pot on ${formatDate('2026-06-10')}`)
-    await user.selectOptions(match, 'tr-back')
+    await chooseMatch(user, 'E-BANKING PAYMENT on 2026-06-16', /Returned: transfer to Pot/)
     // A return names no counterparty.
     expect(screen.queryByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).not.toBeInTheDocument()
     expect(screen.getByText(/Records the transfer to Pot as returned/)).toBeInTheDocument()
+    await done(user)
+    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toHaveTextContent('coming back')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -695,18 +750,17 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
-    const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
     // The server's order is kept.
-    const options = Array.from(match.querySelectorAll('option')).map((o) => o.textContent)
+    const options = matchOptions('AUTOMARKET on 2026-06-17')
     expect(options[1]).toMatch(/To Pot .* same bank reference/)
     expect(options[2]).toMatch(/with a fee of €2\.00/)
 
-    await user.selectOptions(match, 'tr-same')
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /same bank reference/)
     expect(screen.getByText('Same bank reference')).toBeInTheDocument()
     expect(screen.queryByLabelText('Fee category for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
 
-    await user.selectOptions(match, 'tr-fee')
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /with a fee of/)
     expect(screen.getByText(/Recorded in the app on .*; the bank.s date will be used/)).toBeInTheDocument()
     // The candidate names no current fee line, so the fee needs one before the import (rule 91).
     expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('')
@@ -714,6 +768,9 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
     await user.selectOptions(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17'), 'bi2')
     expect(screen.queryByText('Choose the fee’s category.')).not.toBeInTheDocument()
+    await done(user)
+    // The row shows the fee under the amount.
+    expect(screen.getByText('+ fee €2.00')).toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -729,7 +786,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
     await user.selectOptions(screen.getByLabelText('Transfer account for AUTOMARKET on 2026-06-17'), 'acc2')
     const fee = screen.getByLabelText('Fee for AUTOMARKET on 2026-06-17')
 
@@ -740,11 +797,14 @@ describe('ImportPage transfer returns, fees and reused references', () => {
 
     await user.clear(fee)
     await user.type(fee, '2')
-    expect(screen.getByText(/A transfer of €33\.00 plus a fee of €2\.00/)).toBeInTheDocument()
+    // The fee's (i) says how the row is recorded.
+    expect(await openHint(user, 'About the fee')).toHaveTextContent(/A transfer of €33\.00 plus a fee of €2\.00/)
+    await closeHint(user, 'About the fee')
     // A typed fee also needs its line before the import.
     expect(screen.getByText('Choose the fee’s category.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled()
     await user.selectOptions(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17'), 'bi1')
+    await done(user)
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -762,8 +822,13 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await goToReview(user)
 
-    expect(screen.getByText(/An entry with this bank reference was already imported: .*€12\.00\. Tick it only if this is a/)).toBeInTheDocument()
-    expect(screen.getByText(/1 reusing a known bank reference unticked/)).toBeInTheDocument()
+    expect(screen.getByText('Same reference')).toBeInTheDocument()
+    expect(await openHint(user, 'About the bank reference of WOLT')).toHaveTextContent(
+      /An entry with this bank reference was already imported: .*€12\.00\. Tick it only if this is a/,
+    )
+    await closeHint(user, 'About the bank reference of WOLT')
+    expect(await openHint(user, 'About skipped rows')).toHaveTextContent(/1 reusing a known bank reference unticked/)
+    await closeHint(user, 'About skipped rows')
     expect(screen.getByLabelText('Include WOLT on 2026-06-15')).not.toBeChecked()
 
     // Ticked back in, the derived reference goes back unchanged.
@@ -787,20 +852,21 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
-    const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17') as HTMLSelectElement
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    const match = matchGroup('AUTOMARKET on 2026-06-17')
     // Nothing is chosen for the user, even with a single candidate (rule 50).
-    expect(match.value).toBe('')
-    await user.selectOptions(match, 'tr-fee')
+    expect(within(match).getByRole('radio', { name: 'No — record it as a new transfer' })).toBeChecked()
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /with a fee of/)
     expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('bi2')
     expect(screen.queryByText('Choose the fee’s category.')).not.toBeInTheDocument()
 
     // Going back to "record it as a new transfer" drops the candidate's line with its fee.
-    await user.selectOptions(match, '')
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', '')
     await user.type(screen.getByLabelText('Fee for AUTOMARKET on 2026-06-17'), '1')
     expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('')
-    await user.selectOptions(match, 'tr-fee')
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /with a fee of/)
     expect(screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17')).toHaveValue('bi2')
+    await done(user)
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -823,11 +889,12 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
-    await user.selectOptions(screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17'), 'tr-fee')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /with a fee of/)
     const line = screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17') as HTMLSelectElement
     expect(line.value).toBe('bi-may')
     expect(line.selectedOptions[0]).toHaveTextContent('The fee’s current line')
+    await done(user)
     expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeEnabled()
   })
 
@@ -844,13 +911,15 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await user.click(screen.getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
-    const match = screen.getByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    const match = matchGroup('AUTOMARKET on 2026-06-17')
     expect(match).toHaveTextContent('To Private account')
-    await user.selectOptions(match, 'tr-priv')
+    await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /To Private account/)
     // The counterparty is named, not chosen, and the row is complete without an account.
     expect(screen.queryByLabelText('Transfer account for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
-    expect(screen.getByText('Private account')).toBeInTheDocument()
+    expect(within(screen.getByRole('dialog', { name: 'Transfer' })).getByText('Private account')).toBeInTheDocument()
+    await done(user)
+    expect(screen.getByRole('button', { name: 'Edit transfer for AUTOMARKET on 2026-06-17' })).toHaveTextContent('to Private account')
     expect(screen.queryByText(/Finish the highlighted rows first/)).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
@@ -869,11 +938,14 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     const user = userEvent.setup()
     const first = renderPage()
     await goToReview(user)
-    const summary = screen.getByText(/new transactions? to review/)
+    // The list bar's chip counts the rows skipped; its (i) says what else starts unticked.
+    expect(screen.getByRole('heading', { name: '2 new transactions to review' })).toBeInTheDocument()
+    expect(screen.getByText('1 already imported')).toBeInTheDocument()
+    const summary = await openHint(user, 'About skipped rows')
     expect(summary.textContent).not.toMatch(/;/)
-    expect(summary).toHaveTextContent(
-      /1 already imported \(skipped\) — 1 reusing a known bank reference unticked \(tick to include\)\. Categorise/,
-    )
+    expect(summary).toHaveTextContent(/A possible duplicate .* starts unticked: tick it to import it anyway\./)
+    expect(summary).toHaveTextContent(/1 reusing a known bank reference unticked \(tick to include\)\./)
+    await closeHint(user, 'About skipped rows')
     first.unmount()
 
     const both = preview()
@@ -882,8 +954,8 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     mockPreview.mockResolvedValue(both)
     renderPage()
     await goToReview(user)
-    expect(screen.getByText(/new transactions? to review/)).toHaveTextContent(
-      /— 1 possible duplicate unticked and 1 reusing a known bank reference unticked \(tick to include\)\./,
+    expect(await openHint(user, 'About skipped rows')).toHaveTextContent(
+      /1 possible duplicate unticked and 1 reusing a known bank reference unticked \(tick to include\)\./,
     )
   })
 

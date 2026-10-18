@@ -1,6 +1,6 @@
 # Bank import
 
-**ID prefix:** IMP | **Scope:** The Import screen at `/import` (`client/src/pages/ImportPage.tsx`) end to end, plus the server pipeline behind it: the upload form (File format / Statement file / Add to account); server-side format **sniffing** (`PreviewImportCommandHandler` routes a "Bank CSV (auto-detect)" upload to the `Camt053`/`HsbcCsv` adapter when their `CanParse` matches, else the `GenericCsvImporter`); the generic-CSV **column-mapping** panel (date/amount/description/currency columns, single signed-amount column, date-format + number-format + delimiter + header, sample-rows preview); **date-format pinning** + per-file lock; **mapping dirty-state** blocking a stale-parse import; **dedup** (the `csv:`/`hsbc:`/CAMT `BankReference` invariant, unique filtered index `IX_Transactions_OwnerId_BankReference`, `#occurrence` suffix for same-signature repeats, the `possibleDuplicate` content hint on re-import); **re-scan carry-over**; import into a chosen **account**; the review grid (include/exclude, categorise, bulk apply, split, transfer) as it gates the import; the **commit** + "Import complete" summary with real money sums; **all-caught-up**; parser robustness (BOM, bare CR, trailing/paren sign, 2-digit years, thousands separators, HSBC packed Details, quoted thousands, 0.00 skip); malformed/empty/oversized files; and the concurrent-commit race recovery. Covers `POST /import/preview` and `POST /import/commit`, both under `ImportController` (feature-gated by `FeatureFlags.CamtImport`); these are the only import endpoints since W07 removed the direct one-shot `POST /import/hsbc-csv` + `POST /import/camt053` (IMP-084..087 retired). Also covers the W07 identity rules on the review grid: reused bank references listed and flagged, recorded transfers offered as match/return candidates (with implied fees), and same-day rows judged on the day's closing balance, credits first (IMP-091..095). | **Out of scope:** Viewing/editing imported rows in the register, manual add, filter/search → `10-transactions.md`; the generic transfer entry form and transfers as ledger rows → `11-transfers.md`; account CRUD, per-account currency, derived balance and reconciliation the import feeds → `12-accounts-reconciliation.md`; budget-line/category creation that populates the category selects, and the learned payee→line auto-categoriser rules → `08-categories-budget-lines.md`; member add/archive, roles and the full `canWrite` matrix (only import-page gating appears here) → the households/people sibling; FX-rate resolution to base currency → `12-accounts-reconciliation.md`; responsive / dark-mode / a11y sweeps of the mapping + review panels (`client/e2e/mocks.ts` + `a11y.spec.ts` + `mobile-layout.spec.ts`) → the a11y/responsive sibling; session/refresh and cross-tab logout → the auth sibling (referenced only where behaviour is import-specific).
+**ID prefix:** IMP | **Scope:** The Import screen at `/import` (`client/src/pages/ImportPage.tsx`) end to end, plus the server pipeline behind it: the upload form (File format / Statement file / Add to account); server-side format **sniffing** (`PreviewImportCommandHandler` routes a "Bank CSV (auto-detect)" upload to the `Camt053`/`HsbcCsv` adapter when their `CanParse` matches, else the `GenericCsvImporter`); the generic-CSV **Columns dialog** (restyle PR 14: date/amount/description columns and the date format, with the currency column, number format, delimiter and header row under "More options", and the sample-rows table); **date-format pinning** + per-file lock; **mapping dirty-state** blocking a stale-parse import; **dedup** (the `csv:`/`hsbc:`/CAMT `BankReference` invariant, unique filtered index `IX_Transactions_OwnerId_BankReference`, `#occurrence` suffix for same-signature repeats, the `possibleDuplicate` content hint on re-import); **re-scan carry-over**; import into a chosen **account**; the review grid (include/exclude, categorise, bulk apply, split, transfer) as it gates the import; the **commit** + "Import complete" summary with real money sums; **all-caught-up**; parser robustness (BOM, bare CR, trailing/paren sign, 2-digit years, thousands separators, HSBC packed Details, quoted thousands, 0.00 skip); malformed/empty/oversized files; and the concurrent-commit race recovery. Covers `POST /import/preview` and `POST /import/commit`, both under `ImportController` (feature-gated by `FeatureFlags.CamtImport`); these are the only import endpoints since W07 removed the direct one-shot `POST /import/hsbc-csv` + `POST /import/camt053` (IMP-084..087 retired). Also covers the W07 identity rules on the review grid: reused bank references listed and flagged, recorded transfers offered as match/return candidates (with implied fees), and same-day rows judged on the day's closing balance, credits first (IMP-091..095). | **Out of scope:** Viewing/editing imported rows in the register, manual add, filter/search → `10-transactions.md`; the generic transfer entry form and transfers as ledger rows → `11-transfers.md`; account CRUD, per-account currency, derived balance and reconciliation the import feeds → `12-accounts-reconciliation.md`; budget-line/category creation that populates the category selects, and the learned payee→line auto-categoriser rules → `08-categories-budget-lines.md`; member add/archive, roles and the full `canWrite` matrix (only import-page gating appears here) → the households/people sibling; FX-rate resolution to base currency → `12-accounts-reconciliation.md`; responsive / dark-mode / a11y sweeps of the mapping + review panels (`client/e2e/mocks.ts` + `a11y.spec.ts` + `mobile-layout.spec.ts`) → the a11y/responsive sibling; session/refresh and cross-tab logout → the auth sibling (referenced only where behaviour is import-specific).
 
 **Test data setup:** Unless a case says otherwise, assume an authenticated **Owner** (`canWrite = true`) of a **shared EUR household "Home"** with **2 active members** — *Alex* and *Robin*. `preferredCurrency = "EUR"` and budget currency **EUR** (`/auth/me` → `budgetCurrency: "EUR"`), browser locale **en-GB**, today **2026-07-15**, so `GET /budget/current` returns **July 2026** with expense lines *Groceries* + *Soap* (category *Food*) and *Fuel* (category *Transport*), plus an income line *Salary*. Two EUR accounts exist: **"Joint"** and **"Savings"**. `Features:CamtImport = true`. The SPA always imports through **preview → commit** (`previewImport` → `POST /import/preview` multipart `file,format,mapping?,defaultCurrency?`; `commitImport` → `POST /import/commit` JSON `{accountId, items}`). Money is `decimal(18,4)` server-side, integer minor units client-side; imported actuals are always transaction-derived. Idempotency keys (never change composition): generic `csv:{32-hex SHA-256 head}#{occurrence}` over `date|signed:0.####|UPPER(rawDesc)`; HSBC `hsbc:{32-hex}#{occurrence}` over `postingDate|purchaseDate|last4|signed:0.00|UPPER(desc)`; CAMT = the raw `AcctSvcrRef`/`EndToEndId` (≤140 chars, `#occurrence` on repeats). Unique filtered index `IX_Transactions_OwnerId_BankReference WHERE BankReference IS NOT NULL`; manual (reference-less) rows are exempt. Reference fixture **3-row generic CSV** (`Date,Description,Amount,Currency`): TESCO STORES −42.50, ACME SALARY 2500.00, COFFEE HOUSE −3.80 (all EUR) → Money in €2,500.00 / Money out €46.30 — the exact file the journey test drives. Exception→HTTP mapping (`ExceptionHandlingMiddleware`): `ValidationException`→400 `{title:"Validation failed", errors}`, `NotFoundException`→404, `ForbiddenAccessException`→403, `StatementParseException`→422 (title = message), controller `BadRequest({error})`→400; the client `ErrorBanner` shows `data.title ?? data.error`. Client wiring: `client/src/pages/ImportPage.test.tsx`; full-stack round-trip: `client/e2e-journey/import.spec.ts`; parsers: `tests/AllotJar.Application.Tests/Imports/{GenericCsvImporterTests,HsbcCsvStatementParserTests,Camt053StatementParserTests}.cs`; preview/commit: `ImportPreviewCommitTests.cs`; holds and transfer legs: `ImportHoldsTests.cs`, `ImportTransferLegsTests.cs`, `TransferIdentityW07Tests.cs`; DB race/index: `tests/AllotJar.IntegrationTests/UniqueBankReferenceTests.cs`.
 
@@ -14,7 +14,7 @@
 - **Preconditions:** Owner (`canWrite = true`); accounts "Joint" + "Savings" exist.
 - **Steps:**
   1. Navigate to `/import`.
-- **Expected:** `PageHeader` "Import transactions" with subtitle "Upload a bank export, review and categorise the new transactions, then import. Re-importing the same file won't create duplicates." A "← Back to transactions" link to `/transactions`. The upload `Card` shows the **File format** select, **Statement file** input, and **Add to account (optional)** select listing "Don't link to an account", "Joint", "Savings". Submit button reads **"Review transactions"**, disabled while no file is chosen.
+- **Expected:** The shell's h1 "Import transactions" (no subtitle, no back link — restyle PR 14). One upload card: the drop zone ("Choose a file" / "or drop it here") that is the **Statement file** input (named "Statement file: choose a file or drop it here", then "Statement file: choose a different file" once one is chosen), the **File format** pill select inside it with its (i) **About file formats** (the format's hint, then "Re-importing the same file won't create duplicates."), the **Add to account** select with its (i) **About the account**, listing "Don't link to an account", "Joint", "Savings". Submit button reads **"Review transactions"**, disabled while no file is chosen.
 - **Automated:** Yes (ImportPage.test.tsx — "renders the upload form with account options")
 
 ### IMP-002 - Read-only / Limited login cannot import, is pointed at manual entry
@@ -53,7 +53,7 @@
 - **Steps:**
   1. Select "Bank CSV (auto-detect)", choose a `.csv` file.
   2. Change the format select to "CAMT.053 statement (XML)".
-- **Expected:** The file input remounts (`key={format}`) and shows **no** filename; `file` state is `null`, so "Review transactions" is disabled again — no ghost filename left over a dropped file.
+- **Expected:** The file input remounts (`key={format}`) and the drop zone reads "Choose a file" again (no filename); `file` state is `null`, so "Review transactions" is disabled again — no ghost filename left over a dropped file.
 - **Automated:** No
 
 ### IMP-006 - Import controller is gated by the CamtImport feature flag
@@ -102,7 +102,7 @@
 - **Steps:**
   1. Set **Add to account** to "Joint".
   2. Upload a CSV and go to review.
-- **Expected:** Above the grid: "Importing into **Joint**." The chosen `accountId` is later sent to `commit`, stamping `AccountId` on every non-transfer row and enabling per-row Transfer marking (IMP-050). Help text on the select: "Stamps each transaction onto this account so its balance reflects the import."
+- **Expected:** The file strip above the list names the account (its type glyph + "Joint"; the sr-only sentence "Importing into Joint." is what the journeys read). The chosen `accountId` is later sent to `commit`, stamping `AccountId` on every non-transfer row and enabling per-row Transfer marking (IMP-050). The select's (i) **About the account**: "Optional. Stamps each transaction onto this account so its balance reflects the import. Pick one to record transfers between your accounts."
 - **Automated:** Partial (ImportPage.test.tsx — transfer tests select "Add to account")
 
 ### IMP-011 - Import account cannot be changed mid-review (start over)
@@ -111,7 +111,7 @@
 - **Preconditions:** In `review` after uploading with no account linked.
 - **Steps:**
   1. Look for a control to set the account without leaving review.
-- **Expected:** None exists — the account is fixed at upload time. Clicking **"Choose a different file"** (`reset`) returns to `upload`, where the account can be re-selected. (Deferred I3: change-account-mid-review.)
+- **Expected:** None exists — the account is fixed at upload time. The file strip's ✕ (**"Choose a different file"**, `reset`) returns to `upload`, where the account can be re-selected. (Deferred I3: change-account-mid-review.)
 - **Automated:** No
 
 ### IMP-012 - Direct API upload with no file is rejected
@@ -158,8 +158,8 @@
 - **Type:** Happy
 - **Preconditions:** In review after a generic upload that sniffed as HSBC.
 - **Steps:**
-  1. Read the text above the grid.
-- **Expected:** "We recognised this file as **an HSBC transaction history export** and read it with the dedicated importer, so payees and duplicate detection stay consistent." Shown only when `format === 'generic'` and `detectedFormat ∈ {HsbcCsv, Camt053}` (`DETECTED_FORMAT_LABELS`); never when the generic path was used.
+  1. Open the file strip's (i) **About the format** (after "Bank CSV").
+- **Expected:** "We recognised this file as **an HSBC transaction history export** and read it with the dedicated importer, so payees and duplicate detection stay consistent." The (i) renders only when `format === 'generic'` and `detectedFormat ∈ {HsbcCsv, Camt053}` (`DETECTED_FORMAT_LABELS`); never when the generic path was used.
 - **Automated:** Yes (ImportPage.test.tsx — "explains when a generic upload was recognised…" and "shows no recognised-format notice…")
 
 ### IMP-017 - A confirmed column mapping stays on the generic path (never re-sniffed)
@@ -181,25 +181,25 @@
 - **Expected:** `HsbcCsvStatementParser.CanParse` requires *exactly* 3 columns with a `dd/MM/yyyy` first column, so it returns false; the file falls through to the generic mapping UI rather than being parsed with the wrong amount column.
 - **Automated:** No
 
-## Generic-CSV column mapping panel
+## Generic-CSV Columns dialog
 
 ### IMP-019 - Detected columns are pre-filled and the sample rows are shown
 - **Priority:** P0
 - **Type:** Happy
 - **Preconditions:** Generic CSV `Date,Description,Amount,Currency` uploaded.
 - **Steps:**
-  1. Inspect the **Column mapping** card in review.
-- **Expected:** Heading "Column mapping". A sample table with the file's column headers and up to 5 parsed rows. The **Date column** / **Amount column (signed)** / **Description column** / **Currency column** selects are pre-set from `GuessMapping` (header-name hints first: "amount" → the Amount column index). A "We read your dates as …" readout appears when a date format was pinned.
+  1. Click **Columns** in the file strip.
+- **Expected:** The **Columns** dialog (its (i) **About the column mapping**: "We guessed how to read your file. If the rows look off, fix a column and re-scan. Rows that are the same before and after keep the categories you already gave them."). A sample table (caption "Sample of the uploaded file") with the file's column headers and up to 5 parsed rows. The **Date column** / **Date format** / **Description column** / **Amount column** (its (i): "Signed: money out is negative.") selects are pre-set from `GuessMapping` (header-name hints first: "amount" → the Amount column index); **Currency column**, **Number format**, **Column separator** and **First row is a header** sit under **More options**. The Date format select shows the pinned format (plus the sr-only "We read your dates as …" readout). **Cancel** (or Escape) closes it and drops any unapplied change.
 - **Automated:** Yes (ImportPage.test.tsx — "generic CSV: shows the mapping panel…" asserts Amount column value "2")
 
 ### IMP-020 - Correcting a column and re-scanning refreshes the preview
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** In review with the mapping panel shown.
+- **Preconditions:** In review with the Columns dialog open.
 - **Steps:**
-  1. Change **Description column** to a different index.
+  1. In the Columns dialog, change **Description column** to a different index.
   2. Click **"Apply changes & re-scan"**.
-- **Expected:** `previewImport` is re-called with the edited `mapping` and `defaultCurrency: "EUR"` (the import account's currency, else the budget currency); the grid re-renders from the new parse. The re-scan button label is "Re-scan with this mapping" (secondary) when clean, "Apply changes & re-scan" (primary) when dirty, "Re-scanning…" while busy.
+- **Expected:** `previewImport` is re-called with the edited `mapping` and `defaultCurrency: "EUR"` (the import account's currency, else the budget currency); the dialog closes and the list re-renders from the new parse. The re-scan button label is "Re-scan" when clean, "Apply changes & re-scan" when dirty, "Re-scanning…" while busy. A failed re-scan is told inside the dialog (`role="alert"`), which stays open.
 - **Automated:** Yes (ImportPage.test.tsx — "generic CSV: shows the mapping panel and re-scans with a corrected mapping"; import.spec.ts)
 
 ### IMP-021 - Currency column: "Use {currency} for every row" maps to a null column; the fallback is the import account's currency, else the budget currency
@@ -207,7 +207,7 @@
 - **Type:** Happy
 - **Preconditions:** Generic CSV without a currency column. Variant B: a legacy **GBP** account "UK Current" chosen as **Add to account** (legacy data — new accounts can only be EUR here).
 - **Steps:**
-  1. With no import account (or "Joint"), upload, review, open the **Currency column** select.
+  1. With no import account (or "Joint"), upload, review, open Columns → **More options** → the **Currency column** select.
   2. Variant B: choose "UK Current" in **Add to account**, upload, review, open the select.
 - **Expected:** Step 1: first option "Use **EUR** for every row" (the household's `budgetCurrency`, not the login's `preferredCurrency` — W08), then each file column; the preview request carries `defaultCurrency: "EUR"`. Step 2: the option reads "Use **GBP** for every row" and the request carries `defaultCurrency: "GBP"`, so the rows match their account (a mismatch would be refused at commit). Choosing the option sets `currencyColumn = null`; the server resolves currency from `DefaultCurrency` (falling back to "EUR" if unset). A currency column is auto-selected only when ≥80% of its cells match `^[A-Za-z]{3}$`.
 - **Automated:** Yes (client/src/pages/ImportPage.test.tsx — "generic CSV: rows without a currency are read in the chosen import account’s currency"; ImportPreviewCommitTests.cs — `Preview_GenericCsv_DetectsLayout_AndStampsTheDefaultCurrency`; GenericCsvImporterTests.cs — "Parse_falls_back_to_the_default_currency…")
@@ -217,7 +217,7 @@
 - **Type:** Edge
 - **Preconditions:** A semicolon-delimited European CSV.
 - **Steps:**
-  1. If auto-detection guessed wrong, set **Column separator** to "Semicolon ;" and re-scan.
+  1. If auto-detection guessed wrong, set **Column separator** (Columns → More options) to "Semicolon ;" and re-scan.
 - **Expected:** Options Comma `,` / Semicolon `;` / Tab / Pipe `|`. Auto-detection picks the delimiter with the highest count across the first 5 lines; the override forces it. Re-scanning splits rows on the chosen delimiter.
 - **Automated:** No
 
@@ -226,7 +226,7 @@
 - **Type:** Edge
 - **Preconditions:** A headerless CSV mis-detected as having a header (or vice-versa).
 - **Steps:**
-  1. Toggle **First row is a header** and re-scan.
+  1. Toggle **First row is a header** (Columns → More options) and re-scan.
 - **Expected:** With it on, row 0 is skipped and column names come from it; with it off, row 0 is parsed as data and columns are labelled "Column 1…N". Auto-detection sets it when row 0 carries no date but a later row (within the first 10) does.
 - **Automated:** Partial (GenericCsvImporterTests.cs — "Detect_guesses_columns_from_headers_and_content")
 
@@ -236,7 +236,7 @@
 - **Preconditions:** A CSV with separate "Debit" and "Credit" columns.
 - **Steps:**
   1. Upload and inspect the mapping.
-- **Expected:** Only one **Amount column (signed)** can be chosen (negative = out, positive = in). Rows whose money sits in the *other* column read blank/zero in the mapped column and are skipped (0 or unparseable → dropped). Documents the deferred split-debit/credit limitation; the user must pre-combine columns externally.
+- **Expected:** Only one **Amount column** (signed) can be chosen (negative = out, positive = in). Rows whose money sits in the *other* column read blank/zero in the mapped column and are skipped (0 or unparseable → dropped). Documents the deferred split-debit/credit limitation; the user must pre-combine columns externally.
 - **Automated:** No
 
 ### IMP-025 - Mappings are not persisted across files or sessions
@@ -256,8 +256,8 @@
 - **Origin:** PR #159 / echo `ResolvedDateFormat`, pin into the mapping
 - **Preconditions:** Generic CSV with ISO `yyyy-MM-dd` dates, Date format left "Auto-detect".
 - **Steps:**
-  1. Upload and read the mapping readout.
-- **Expected:** The server resolves the single best-fitting format (`ResolveDateFormat`), echoes it as `ResolvedDateFormat`, and pins it into `layout.suggested.dateFormat`. The **Date format** select shows "YYYY-MM-DD" and the panel text reads "We read your dates as **YYYY-MM-DD**". Re-scans/re-imports reuse the pinned format, so ambiguous dates never flip between imports.
+  1. Upload, open Columns and read the Date format.
+- **Expected:** The server resolves the single best-fitting format (`ResolveDateFormat`), echoes it as `ResolvedDateFormat`, and pins it into `layout.suggested.dateFormat`. The Columns dialog's **Date format** select shows "YYYY-MM-DD" and its sr-only readout reads "We read your dates as **YYYY-MM-DD**.". Re-scans/re-imports reuse the pinned format, so ambiguous dates never flip between imports.
 - **Automated:** Yes (ImportPage.test.tsx — "reports the date format it read for a generic CSV")
 
 ### IMP-027 - One date format is locked for the whole file
@@ -394,7 +394,7 @@
 - **Steps:**
   1. Untick "Include WOLT on 2026-06-15".
   2. Click "Import 1 transaction".
-- **Expected:** The excluded row fades (`opacity-50`) and the Import button count drops to 1; the committed `items` array contains only the ticked row. `includedCount` drives the button label "Import {n} transaction(s)".
+- **Expected:** The excluded row's text mutes and the Import button count drops to 1; the committed `items` array contains only the ticked row. `includedCount` drives the button label "Import {n} transaction(s)".
 - **Automated:** Yes (ImportPage.test.tsx — "excludes unticked rows from the commit")
 
 ### IMP-041 - Include-all header checkbox toggles every row
@@ -411,8 +411,8 @@
 - **Type:** Happy
 - **Preconditions:** In review; members Alex/Robin exist.
 - **Steps:**
-  1. Choose "Alex" in **Bulk member** and click **"Apply to included"**.
-- **Expected:** Every included row that is *not* split and *not* a transfer gets `memberId = Alex`. Split rows (per-line members) and transfers are untouched. The button is disabled when there are no members.
+  1. Open the list bar's ⋯ **Bulk actions** → **"Member for included rows"**, choose "Alex" in **Member** and click **"Apply to included"**.
+- **Expected:** Every included row that is *not* split and *not* a transfer gets `memberId = Alex` (the member chip shows on each). Split rows (per-line members) and transfers are untouched. The menu item is disabled when there are no members; **Cancel** applies nothing.
 - **Automated:** Yes (ImportPage.test.tsx — "bulk-applies a member to the included rows")
 
 ### IMP-043 - Bulk-apply a category to included expenses only
@@ -420,8 +420,8 @@
 - **Type:** Happy
 - **Preconditions:** In review with a mix of debits and credits.
 - **Steps:**
-  1. Choose an expense line in **Bulk category** and click **"Apply to expenses"**.
-- **Expected:** Only included, non-split, non-transfer, **debit** rows (`!isCredit`) receive `budgetItemId`; credits and transfers are skipped (the bulk category is an expense-line list). Button disabled when there are no expense groups.
+  1. Open the list bar's ⋯ **Bulk actions** → **"Category for included expenses"**, choose an expense line in **Category** and click **"Apply to expenses"**.
+- **Expected:** Only included, non-split, non-transfer, **debit** rows (`!isCredit`) receive `budgetItemId`; credits and transfers are skipped (the bulk category is an expense-line list). The menu item is disabled when there are no expense groups.
 - **Automated:** No
 
 ### IMP-044 - Amount direction and colour render correctly
@@ -430,7 +430,7 @@
 - **Preconditions:** In review with one credit and one debit.
 - **Steps:**
   1. Inspect the Amount column.
-- **Expected:** Credits show "+€X" in emerald; debits show "−€X" in slate. Amounts use `formatMoney(minor, currency)` with the row's own currency.
+- **Expected:** Credits show "+€X" in the ok green; debits show "−€X" in slate (transfers and unticked rows muted). Amounts use `formatMoney(minor, currency)` with the row's own currency.
 - **Automated:** No
 
 ## Row splits
@@ -440,10 +440,10 @@
 - **Type:** Happy
 - **Preconditions:** In review; an AUTOMARKET €35.00 debit.
 - **Steps:**
-  1. Click "Split AUTOMARKET on 2026-06-17".
-  2. Line 1 → Groceries €20; Line 2 → Soap €15.
+  1. Open the row's ⋯ ("AUTOMARKET on 2026-06-17: more actions") → "Split AUTOMARKET on 2026-06-17".
+  2. In the **Split** dialog: Line 1 → Groceries €20; Line 2 → Soap €15; **Done**.
   3. Import.
-- **Expected:** The editor shows the progress bar and "Fully allocated" when lines sum to 35.00. The committed item has `budgetItemId: null`, `memberId: null`, and `splits: [{Groceries,20},{Soap,15}]`. The server persists a split transaction with two `TransactionSplit` slices.
+- **Expected:** The dialog shows the "Remaining to allocate" meter and "Fully allocated" when lines sum to 35.00; the row's split chip reads "Groceries €20 · Soap €15". The committed item has `budgetItemId: null`, `memberId: null`, and `splits: [{Groceries,20},{Soap,15}]`. The server persists a split transaction with two `TransactionSplit` slices.
 - **Automated:** Yes (ImportPage.test.tsx — "splits a row across two categories and commits the slices"; ImportPreviewCommitTests.cs — "Commit_PersistsSplitRow_AcrossLines_AndTracksEachLine")
 
 ### IMP-046 - Incomplete split blocks the import
@@ -452,7 +452,7 @@
 - **Preconditions:** AUTOMARKET €35 split with only €20 allocated.
 - **Steps:**
   1. Enter Line 1 = €20 (€15 left), leave the rest.
-- **Expected:** Message "Finish the highlighted rows first — splits must add up, and transfers need an account." The split badge is amber, the remaining readout shows "€15.00 left", and Import is disabled (`reviewIncomplete`). `onCommit` never fires.
+- **Expected:** The list's foot note "Finish the highlighted rows first." (a polite live region), with the rules behind its (i) **What the highlighted rows need**: "Splits must add up, transfers need an account, a fee needs a category, and jar amounts can't exceed what arrived." The dialog's Done stays disabled and its readout shows "€15.00 left"; closed (Escape), the row's split chip is bad-toned and Import is disabled (`reviewIncomplete`). `onCommit` never fires.
 - **Automated:** Yes (ImportPage.test.tsx — "blocks the import while a split is incomplete")
 
 ### IMP-047 - Over-allocated split is flagged and blocked
@@ -461,7 +461,7 @@
 - **Preconditions:** AUTOMARKET €35 split.
 - **Steps:**
   1. Enter Line 1 = €20, Line 2 = €20 (total €40).
-- **Expected:** Remaining readout shows "€5.00 over" in rose, the progress bar turns rose, `splitInfo.valid` is false and Import stays disabled. The client blocks before the server's "must add up to 35.0000; they add up to 40.0000" check.
+- **Expected:** Remaining readout shows "€5.00 over" in the bad tone, the meter turns bad, `splitInfo.valid` is false and Import stays disabled. The client blocks before the server's "must add up to 35.0000; they add up to 40.0000" check.
 - **Automated:** No
 
 ### IMP-048 - A split needs at least two lines; extra lines can be added/removed
@@ -469,8 +469,8 @@
 - **Type:** Boundary
 - **Preconditions:** A split editor open.
 - **Steps:**
-  1. Observe the minimum lines; add a third with "+ Add line"; remove it; try "Clear split".
-- **Expected:** A split starts with 2 lines; the "Remove line" ✕ only appears when there are >2 lines, so it can never drop below 2. "Clear split" reverts the row to a single category. Server validator rejects `Splits.Count < 2` ("A split needs at least two lines."), an empty slice line ("Choose a budget line for every split line."), and a slice amount ≤ 0 ("Each split line needs an amount greater than zero.").
+  1. Observe the minimum lines; add a third with "+ Add line"; remove it ("Remove split line 3 for AUTOMARKET"); try "Clear split" (the dialog's footer, or the row's ⋯).
+- **Expected:** A split starts with 2 lines; the remove ✕ only appears when there are >2 lines, so it can never drop below 2. "Clear split" reverts the row to a single category (the Assign chip). Server validator rejects `Splits.Count < 2` ("A split needs at least two lines."), an empty slice line ("Choose a budget line for every split line."), and a slice amount ≤ 0 ("Each split line needs an amount greater than zero.").
 - **Automated:** Yes (CommitImportCommandValidator; ImportPreviewCommitTests.cs — "Commit_RejectsSplit_ThatDoesNotSumToTheAmount", "Commit_RejectsSplitLineOwnedByAnotherUser")
 
 ### IMP-049 - Server rejects a split whose slices don't sum to the amount
@@ -489,11 +489,11 @@
 - **Type:** Happy
 - **Preconditions:** Import account "Joint" selected at upload; a credit "E-BANKING PAYMENT €234.24" flagged `likelyTransfer`; "Savings" is another account.
 - **Steps:**
-  1. In review the row shows "Looks like a transfer".
-  2. Click "Mark E-BANKING PAYMENT on 2026-06-16 as a transfer".
-  3. Choose "Savings" as the counterparty.
+  1. In review the row shows the "Looks like a transfer" chip.
+  2. Open the row's ⋯ → "Mark E-BANKING PAYMENT on 2026-06-16 as a transfer".
+  3. In the **Transfer** dialog choose "Savings" in **From** ("Transfer account for E-BANKING PAYMENT on 2026-06-16"); **Done**.
   4. Import.
-- **Expected:** The row switches to a "Transfer" badge with "from" (credit → "from"; debit → "to") and an account select. Committed item has `budgetItemId: null, memberId: null, transferAccountId: Savings`. The server creates a `Transfer` transaction: a credit moves money **into** the import account (source = Savings, dest = Joint); a debit moves **out** (source = Joint, dest = counterparty). `TransferHeuristic` flags markers "E-BANKING PAYMENT", "INTERNAL TRANSFER", "TRANSFER TO/FROM", "OWN ACCOUNT".
+- **Expected:** The row switches to the "Transfer" chip with "from Savings" (credit → "from"; debit → "to"); the chip reopens the dialog. Committed item has `budgetItemId: null, memberId: null, transferAccountId: Savings`. The server creates a `Transfer` transaction: a credit moves money **into** the import account (source = Savings, dest = Joint); a debit moves **out** (source = Joint, dest = counterparty). `TransferHeuristic` flags markers "E-BANKING PAYMENT", "INTERNAL TRANSFER", "TRANSFER TO/FROM", "OWN ACCOUNT".
 - **Automated:** Yes (ImportPage.test.tsx — "marks a flagged row as a transfer…"; ImportPreviewCommitTests.cs — "Commit_Transfer_Credit_MovesMoneyIntoTheImportAccount"/"…Debit_MovesMoneyOutOf…"; "Preview_FlagsLikelyTransfers")
 
 ### IMP-051 - Transfer without a counterparty blocks the import
@@ -501,8 +501,8 @@
 - **Type:** Negative
 - **Preconditions:** A row marked as a transfer but no account chosen.
 - **Steps:**
-  1. Mark the row a transfer; leave the account at "Choose account…".
-- **Expected:** `reviewIncomplete` is true, Import disabled, and the "Finish the highlighted rows first…" note shows. `onCommit` never fires.
+  1. Mark the row a transfer; leave the dialog's account at "Choose account…" and close it.
+- **Expected:** The row's Transfer chip and "Choose account…" turn bad-toned, `reviewIncomplete` is true, Import disabled, and the "Finish the highlighted rows first…" note shows. `onCommit` never fires. The same chip turns bad-toned (its `title` naming the reason) for a typed fee the row cannot carry, whose "+ fee" line is then hidden, and for a fee without a line; a credit's "into jars" toggle turns bad-toned while its amounts exceed the credit, open or folded (ImportPage.restyle.test.tsx, ImportPage.jars.test.tsx).
 - **Automated:** Yes (ImportPage.test.tsx — "blocks import while a transfer has no counterparty chosen")
 
 ### IMP-052 - Transfer requires an import account to be chosen
@@ -511,7 +511,7 @@
 - **Preconditions:** No account selected at upload; transfer-like rows present (or a direct commit with `AccountId = null` and a `transferAccountId`).
 - **Steps:**
   1. Review without an account; then attempt a direct commit with a transfer item and no account.
-- **Expected:** With no import account the per-row **Transfer** button never renders (`canTransfer = !!accountId && otherAccounts.length > 0`), and an amber note "Some rows look like transfers between your accounts. Re-import with an account selected (on the previous step) to record them as transfers." appears. A direct commit fails **400** "Choose the account this import belongs to before marking rows as transfers."
+- **Expected:** With no import account **Mark as transfer** is absent from every row's ⋯ (`canTransfer = !!accountId && otherAccounts.length > 0`), and the file strip's "No account" carries a warn (i) **About the account**: "Some rows look like transfers between your accounts. Re-import with an account selected to record them as transfers." A direct commit fails **400** "Choose the account this import belongs to before marking rows as transfers."
 - **Automated:** Yes (ImportPreviewCommitTests.cs — "Commit_Transfer_RequiresAnImportAccount"; CommitImportCommandValidator)
 
 ### IMP-053 - Transfer counterparty must differ from the import account
@@ -537,8 +537,8 @@
 - **Type:** Happy
 - **Preconditions:** A row marked as a transfer.
 - **Steps:**
-  1. Click "Undo" (Cancel transfer).
-- **Expected:** `isTransfer = false`, `transferAccountId = ''`; the row shows the Category select again and can be categorised/split normally.
+  1. Open the row's ⋯ → "Undo transfer" (aria "Undo transfer for {payee} on {date}"; the Transfer dialog's **Undo transfer** button has the same name).
+- **Expected:** `isTransfer = false`, `transferAccountId = ''`; the row shows the Assign chip again and can be categorised/split normally.
 - **Automated:** No
 
 ## Dedup, idempotency & possible-duplicate hint
@@ -579,7 +579,7 @@
 - **Preconditions:** A transaction exists at €80.90 debit, payee "WOLT", 2026-06-15; the incoming row has a *different* reference scheme.
 - **Steps:**
   1. Preview a file whose WOLT row's reference doesn't match but the content does.
-- **Expected:** WOLT is flagged `possibleDuplicate` and rendered **unticked** with an amber tint (`bg-amber-50/70`) and a "Possibly already imported" sub-label; the summary reads "1 possible duplicate unticked (tick to include)" plus the explanatory paragraph. It is excluded from the commit unless re-ticked. Match = same amount, direction-compatible, same currency (CI), payee equal-or-containment, booked within ±4 days.
+- **Expected:** WOLT is flagged `possibleDuplicate` and rendered **unticked** (muted text) with the warn chip "Possible duplicate" beside the payee; the list bar's chip reads "1 unticked" (or "N already imported" when rows were skipped) and its (i) **About skipped rows** ends "1 possible duplicate unticked (tick to include)." It is excluded from the commit unless re-ticked. Match = same amount, direction-compatible, same currency (CI), payee equal-or-containment, booked within ±4 days.
 - **Automated:** Yes (ImportPage.test.tsx — "unticks possible duplicates by default…"; ImportPreviewCommitTests.cs — "Preview_FlagsPossibleDuplicates…", "…MatchesWhenOnePayeeContainsTheOther")
 
 ### IMP-060 - Possible-duplicate window is ±4 days inclusive
@@ -624,10 +624,10 @@
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** PR #160 / "edit date format → Import → silently imports OLD parse" trap
-- **Preconditions:** Generic CSV in review; mapping panel shown.
+- **Preconditions:** Generic CSV in review; the Columns dialog open.
 - **Steps:**
-  1. Change any mapping control (e.g. Description column) without re-scanning.
-- **Expected:** `mappingDirty` (JSON-compare `mapping` vs `scannedMapping`) becomes true: the Import button is disabled, the amber note "You've changed the column mapping. Re-scan to apply it — otherwise the import would use the previous reading of your file." shows, the re-scan button becomes primary "Apply changes & re-scan", and `onCommit` early-returns while dirty. No stale parse can be committed.
+  1. In the Columns dialog change any control (e.g. Description column) without re-scanning.
+- **Expected:** `mappingDirty` (JSON-compare `mapping` vs `scannedMapping`) becomes true: the Import button is disabled, the Columns dialog's footer shows "You've changed the column mapping. Re-scan to apply it before importing.", its re-scan button reads "Apply changes & re-scan", and `onCommit` early-returns while dirty. Cancel/Escape on the dialog drops the edit and Import unblocks. No stale parse can be committed.
 - **Automated:** Yes (import.spec.ts — "editing the column mapping blocks import until re-scanned"; ImportPage.test.tsx)
 
 ### IMP-065 - Re-scan carries forward per-row work for unchanged rows
@@ -645,8 +645,8 @@
 - **Type:** Happy
 - **Preconditions:** Generic CSV in review; mapping untouched.
 - **Steps:**
-  1. Inspect the Import button and re-scan button.
-- **Expected:** `mappingDirty` is false: Import is enabled (given a valid grid), and the re-scan button reads "Re-scan with this mapping" (secondary) with no amber warning.
+  1. Inspect the Import button and, in the Columns dialog, the re-scan button.
+- **Expected:** `mappingDirty` is false: Import is enabled (given a valid list), and the Columns dialog's re-scan button reads "Re-scan" with no warning.
 - **Automated:** Yes (ImportPage.test.tsx — mapping-panel test asserts the clean state before editing)
 
 ## Commit, success summary & money sums
@@ -658,7 +658,7 @@
 - **Preconditions:** In review; AUTOMARKET €35 + WOLT €80.90, both EUR debits.
 - **Steps:**
   1. Import both.
-- **Expected:** "Import complete" with "2 transactions added." Stat tiles: **Imported** 2, **Skipped** 0, **Money in** €0.00, **Money out** €115.90 (35 + 80.90 summed from the reviewed rows in state), **Transfers** 0. Money is summed in minor units grouped by currency (transfers excluded from in/out; they stay a count). For the 3-row fixture: Money in €2,500.00 / Money out €46.30.
+- **Expected:** "Import complete" with the sr-only "2 transactions added." Stats: **Imported** 2, **Money in** €0.00, **Money out** €115.90 (35 + 80.90 summed from the reviewed rows in state), **Transfers** 0 (**Skipped**, **Matched**, **Pending review**, **Returned**, **Held** and the waiting-amount count show only above zero). Money is summed in minor units grouped by currency (transfers excluded from in/out; they stay a count). For the 3-row fixture: Money in €2,500.00 / Money out €46.30.
 - **Automated:** Yes (ImportPage.test.tsx — "shows real money sums (not counts) on the success screen"; import.spec.ts asserts 2,500.00 in / 46.30 out)
 
 ### IMP-068 - Mixed-currency import sums each currency separately; the other-currency rows arrive waiting
@@ -801,7 +801,7 @@
 - **Preconditions:** A preview that returns zero new rows.
 - **Steps:**
   1. Reach the "You're all caught up" card.
-- **Expected:** Heading "You're all caught up", body "Every transaction in this file is already in AllotJar — all N were skipped as duplicates. Nothing new to import.", an "Import another file" button (`reset` → upload), and a "View transactions →" link to `/transactions`. No review grid or commit button. (With no duplicates counted, the body ends "…already in AllotJar. Nothing new to import.")
+- **Expected:** Heading "You're all caught up", body "Every transaction in this file is already in AllotJar — all N were skipped as duplicates. Nothing new to import.", an "Import another file" button (`reset` → upload), and a "View transactions →" link to `/transactions`. No review list or commit button. (With no duplicates counted, the body ends "…already in AllotJar. Nothing new to import.")
 - **Automated:** Yes (ImportPage.test.tsx — "shows an all-caught-up message when every row was already imported")
 
 ### IMP-083 - "Choose a different file" / "Import another file" fully resets state
@@ -809,7 +809,7 @@
 - **Type:** Happy
 - **Preconditions:** In review or done phase.
 - **Steps:**
-  1. Click "Choose a different file" (review) or "Import another file" (done).
+  1. Click the file strip's ✕ "Choose a different file" (review) or "Import another file" (done).
 - **Expected:** `reset()` clears file, preview, rows, layout, mapping, scannedMapping, result, error, and bulk selections and returns to `upload`. Any prior categorisation is discarded; the format select retains its value but the file input is empty.
 - **Automated:** Partial (import.spec.ts clicks "Import another file" between imports)
 
@@ -870,7 +870,7 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Preconditions:** Owner on `/import`; one or more of `GET /accounts`, `GET /budget/current`, `GET /members` transiently fails (500/network).
 - **Steps:**
   1. Load `/import` while a reference call is failing; upload a generic CSV and reach review.
-- **Expected:** Each failed call is swallowed to null (`Promise.all([... .catch(() => null)])`, `ImportPage.tsx:212-221`) and defaulted — accounts → `[]` (no account options, transfers impossible, only the amber re-import note on likely-transfer rows), month → `null` (category selects offer only "Unassigned"; bulk-category button disabled), members → `[]` (member selects + "Apply to included" disabled). No error banner, no crash: the upload → preview → commit flow still completes; the commit simply carries `accountId: null` and unassigned lines.
+- **Expected:** Each failed call is swallowed to null (`Promise.all([... .catch(() => null)])`, `ImportPage.tsx:212-221`) and defaulted — accounts → `[]` (no account options, transfers impossible, only the strip's warn (i) about re-importing with an account), month → `null` (the Assign chip's picker offers only "Unassigned"; the bulk category action disabled), members → `[]` (no Member action in the rows' ⋯; the bulk member action disabled). No error banner, no crash: the upload → preview → commit flow still completes; the commit simply carries `accountId: null` and unassigned lines.
 - **Automated:** No
 
 ## Gap-fill additions
@@ -962,7 +962,7 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
   1. Preview the Joint statement; pick the transfer as the match on the 102.50 debit.
   2. Try to import without accepting the fee, then accept it, pick a budget line for the fee and import.
   3. Repeat with the Savings credit of 98.00.
-- **Expected:** (a) The candidate carries `fee = 2.50` (the debit is larger than the transfer). (b) The candidate carries `fee = 2.00` (the credit is smaller). In both cases the user must accept the fee explicitly and pick its budget line in the review grid (echoed on commit as `fee`, `feeBudgetItemId`; the server refuses a fee without a line, "Choose the budget line the transfer's fee is spent from."); a transfer that already has a fee pre-fills that fee's line. A match is never confirmed with a fee the user has not accepted, and a fee is only proposed while it is at most 10% of what arrives (no flat minimum, "10% only" of 30 September 2026): a 1,100.00 debit is offered as the 1,000.00 transfer with a fee of 100.00 (1,100.01 is not), and a 30.00 debit is not offered as a 20.00 transfer with a fee of 10.00; such a fixed charge is entered by hand on the transfer. Candidates stay nearest date first (rule 87); an exact amount only comes first between candidates on the same date. Once accepted, the transfer is confirmed and a separate fee expense row is created on the **source** account, dated the departure, on the chosen line.
+- **Expected:** (a) The candidate carries `fee = 2.50` (the debit is larger than the transfer). (b) The candidate carries `fee = 2.00` (the credit is smaller). In both cases the user must accept the fee explicitly (pick the candidate in the Transfer dialog's "Already recorded?" group) and pick its budget line there (**Fee category**; echoed on commit as `fee`, `feeBudgetItemId`; the server refuses a fee without a line, "Choose the budget line the transfer's fee is spent from."); a transfer that already has a fee pre-fills that fee's line. A match is never confirmed with a fee the user has not accepted, and a fee is only proposed while it is at most 10% of what arrives (no flat minimum, "10% only" of 30 September 2026): a 1,100.00 debit is offered as the 1,000.00 transfer with a fee of 100.00 (1,100.01 is not), and a 30.00 debit is not offered as a 20.00 transfer with a fee of 10.00; such a fixed charge is entered by hand on the transfer. Candidates stay nearest date first (rule 87); an exact amount only comes first between candidates on the same date. Once accepted, the transfer is confirmed and a separate fee expense row is created on the **source** account, dated the departure, on the chosen line.
 - **Automated:** Partial (TransferIdentityW07Tests.cs, TransferIdentityW07ReviewTests.cs)
 
 ### IMP-100 - Same-day rows are judged on the day's closing balance, credits first

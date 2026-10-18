@@ -407,7 +407,12 @@ body {
    top bar, and on phones of the fixed bottom tab bar (--tabbar-h is 0 where there is none). */
 html {
   scroll-padding-top: 5rem;
-  scroll-padding-bottom: calc(var(--tabbar-h) + 0.5rem);
+  scroll-padding-bottom: calc(var(--tabbar-h) + var(--dock-h, 0px) + 0.5rem);
+}
+/* A page that pins its own bar above the tab bar (`[data-dock]`: the Import review's "Import N
+   transactions", 61px) reserves it too, so a control reached by Tab never lands under it. */
+:root:has([data-dock]) {
+  --dock-h: 61px;
 }
 
 /* Public legal pages (/privacy, /terms): document-style prose without per-element
@@ -1339,6 +1344,27 @@ html {
   --dlg-field: var(--color-card);
   --dlg-edge: color-mix(in srgb, var(--color-slate-400) 65%, var(--dlg-field));
 }
+/* The same field tokens outside a dialog (opt-in: the Import page's upload card and the jar fields
+   under a review row, restyle PR 14), so `.dlg-sel` / `.dlg-in` draw their fill and edge there too. */
+.dlg-scope {
+  --dlg-surface: var(--color-card);
+  --dlg-field: var(--color-surface-2);
+  --dlg-edge: color-mix(in srgb, var(--color-slate-400) 80%, var(--dlg-field));
+}
+.dark .dlg-scope {
+  --dlg-surface: var(--color-surface-2);
+  --dlg-field: var(--color-card);
+  --dlg-edge: color-mix(in srgb, var(--color-slate-400) 65%, var(--dlg-field));
+}
+/* On a field-coloured panel (the jar fields under a review row) the fields read in the card colour. */
+.dlg-scope-panel {
+  --dlg-field: var(--color-card);
+  --dlg-edge: color-mix(in srgb, var(--color-slate-400) 80%, var(--dlg-field));
+}
+.dark .dlg-scope-panel {
+  --dlg-field: var(--color-background);
+  --dlg-edge: color-mix(in srgb, var(--color-slate-400) 65%, var(--dlg-field));
+}
 /* The middle scrolls when the screen is short; a soft shadow shows there is more above or below.
    A control reached by Tab scrolls clear of those shadows (and its focus ring with it). */
 .sheet-dlg-body {
@@ -1480,6 +1506,58 @@ html {
   .dlg-sel select:focus-visible {
     outline: 2px solid Highlight;
     outline-offset: 1px;
+  }
+}
+/* The Import review's include checkboxes (restyle PR 14): a 20px box that takes a quiet green tint
+   and tick when ticked (a column of solid squares would shout), a dash when only some rows are. */
+.im-check input {
+  appearance: none;
+  -webkit-appearance: none;
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border-radius: 6px;
+  cursor: pointer;
+  background: var(--color-card);
+  border: 1.5px solid color-mix(in srgb, var(--color-slate-400) 80%, var(--color-card));
+}
+.im-check input:checked,
+.im-check input:indeterminate {
+  background: color-mix(in srgb, var(--color-ok) 14%, var(--color-card));
+  border-color: color-mix(in srgb, var(--color-ok) 60%, var(--color-card));
+}
+.im-check input:checked::after {
+  content: '';
+  width: 9px;
+  height: 5px;
+  margin-top: -2px;
+  border: 2px solid var(--color-ok);
+  border-top: 0;
+  border-right: 0;
+  transform: rotate(-45deg);
+}
+.im-check input:indeterminate::after {
+  content: '';
+  width: 9px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--color-ok);
+}
+.im-check input:focus-visible {
+  outline: 2px solid var(--color-ring);
+  outline-offset: 2px;
+}
+.im-check input:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+@media (forced-colors: active) {
+  .im-check input {
+    appearance: auto;
+    -webkit-appearance: auto;
   }
 }
 @media (max-width: 699.98px) {

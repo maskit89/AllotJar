@@ -44,7 +44,7 @@
 - **Type:** Edge
 - **Preconditions:** Stubbed Playwright, both themes.
 - **Steps:**
-  1. `/import`: choose an account, upload a CSV, "Review transactions"; scan the review table, then an opened split editor ("Split AUTOMARKET on 2026-06-17"), then a marked transfer ("Mark WOLT on 2026-06-15 as a transfer") with its counterparty picker.
+  1. `/import`: choose an account, upload a CSV, "Review transactions"; scan the review list, then the Columns dialog with More options open, then the Split dialog (the row's ⋯ → "Split AUTOMARKET on 2026-06-17"), then the Transfer dialog (⋯ → "Mark WOLT on 2026-06-15 as a transfer") with its counterparty picker and "Already recorded?" radios; the include box is unticked and ticked by a real click on the way.
   2. `/jars`: open "New jar" — the form asks no Type: "Repeats" starts at "Doesn’t repeat", so "Needed by" and "Repeats" (with its "What repeating means" hint) render; select "Yearly" in Repeats (the date becomes "Next due date"); back to "Doesn’t repeat", fill Target `300` + "Needed by" `2026-12-15` (the mocked `POST /jars/schedule` preview renders), click "More options" (the "Include the deadline month" tick box renders, with its "What including the deadline month means" hint, and "Already set aside" with its "What setting money aside does" hint); tick "Set aside a fixed amount each month" (visible text "Fixed amount each month", with its "What a fixed amount means" hint; "Monthly amount" replaces the date and Repeats); then "Edit Home insurance" (two-step Archive).
   3. `/help` with `analytics` flag on: the "Analytics consent" region + the "Privacy" card's "Google Analytics" switch (`client/e2e/help.spec.ts` also scans the page with a topic row and the hero's (i) open, light and dark).
   4. `/` for a brand-new user: welcome dialog, every spotlight tour step through "Finish", the "Getting started" checklist region.
@@ -243,16 +243,16 @@
 - **Expected:** `document.documentElement` gains `.dark`, which reassigns `--color-slate-50…950` (inverted), `--color-surface` (#0f172a), `--color-surface-2`, shadows and the hero gradient in index.css. The bulk of the UI — which styles itself off the slate ramp + `bg-surface` — flips without any per-element `dark:` class. Body background goes `#fafcfa` → `#0e1311`. (Persistence/no-flash owned by `04-account-preferences.md` PREF-036/039.)
 - **Automated:** Partial (`client/e2e/a11y.spec.ts` renders every route in dark; `client/e2e/responsive-dark.spec.ts` "toggling to dark stamps the root and inverts the slate ramp (UX-024)": the live Dark mode toggle turns a People card's name (`text-slate-900`, no `dark:` class) from near-black to near-white)
 
-### UX-025 - The import mapping-preview table flips to dark with no dark: overrides (slate-remap gotcha)
+### UX-025 - The import Columns dialog's sample table flips to dark with no dark: overrides (slate-remap gotcha)
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** Import coherence (I1/I2) dark-mode slate-remap gotcha — plain slate classes must flip automatically; adding a `dark:` override to the sample table double-remaps and washes it out.
-- **Preconditions:** Stubbed/real, `/import`, generic CSV uploaded so the "csv-mapping" panel + sample-rows table render, dark theme.
+- **Preconditions:** Stubbed/real, `/import`, generic CSV uploaded so the file strip offers **Columns**, dark theme.
 - **Steps:**
-  1. Upload a generic CSV, reach the mapping panel with the sample-rows table (`bg-slate-50 text-slate-500`, `divide-slate-100`, `text-slate-600` cells).
+  1. Upload a generic CSV, click **Columns**: the dialog's sample-rows table (`text-slate-500` headers and cells on the dialog's field tint, `border-line` dividers).
   2. Toggle Dark.
-- **Expected:** The sample table and mapping labels invert correctly using ONLY the remapped slate ramp — there are deliberately NO `dark:` overrides on the preview table (ImportPage comment: "the slate scale is remapped for dark mode in index.css, so plain slate classes flip automatically"). Header row, zebra dividers and cell text stay legible; nothing renders light-on-light or a double-inverted grey. Axe dark scan of `/import` (incl. review table) is clean.
-- **Automated:** Partial (`client/e2e/a11y.spec.ts` dark scan of `/import` + review table)
+- **Expected:** The sample table and the dialog's labels invert correctly using ONLY the remapped slate ramp — there are deliberately NO `dark:` overrides on the sample table. Header row, dividers and cell text stay legible (header luminance < 0.2 on the dark field, contrast ≥ 4.5 : 1 for headers and cells); nothing renders light-on-light or a double-inverted grey. Axe dark scan of `/import` (the list, the Columns/Split/Transfer dialogs) is clean.
+- **Automated:** Yes (`client/e2e/responsive-dark.spec.ts` UX-025 samples the dialog's `thead th` / `tbody td`; `client/e2e/a11y.spec.ts` dark scan of `/import` + the dialogs)
 
 ### UX-026 - Accent tints add explicit dark: variants where the slate remap is insufficient
 - **Priority:** P2
@@ -324,15 +324,15 @@
 - **Expected:** Wide budget rows scroll within their own `overflow-x-auto` container; the document itself does not gain horizontal scroll (UX-031 holds). Row controls (planned editor, actual, reorder arrows, bill/paid) stay within the row and don't overflow the next column.
 - **Automated:** Yes (`client/e2e/mobile-layout.spec.ts` covers `/` no-overflow)
 
-### UX-033 - Import mapping + review tables scroll inside their own container at 375 px
+### UX-033 - The import review list fits a phone, and the Columns sample table scrolls in its own box at 375 px
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #95 mobile-layout fix.
-- **Preconditions:** `/import` at 375 px, generic CSV → mapping panel + review table shown.
+- **Preconditions:** `/import` at 375 px, generic CSV → the review list shown (the "Transactions to import" region), the Columns dialog available.
 - **Steps:**
-  1. Reach the sample-rows table and the review table; scroll each sideways; check the page.
-- **Expected:** Both wide tables are wrapped in `overflow-x-auto rounded-lg border` containers and scroll internally; the page does not scroll horizontally. The mapping selects stack rather than force a wide layout.
-- **Automated:** Yes (`client/e2e/mobile-layout.spec.ts` covers `/import`)
+  1. Check the page and the list's rows; open **Columns** and scroll its sample-rows table sideways.
+- **Expected:** The review is a list of rows (no `<table>` on the page), every row fits the viewport and the page does not scroll horizontally. The dialog's sample table is wrapped in an `overflow-x-auto` box and scrolls internally while the dialog and the page do not. The dialog's selects stack rather than force a wide layout.
+- **Automated:** Yes (`client/e2e/responsive-dark.spec.ts` UX-033)
 
 ### UX-034 - The sidebar collapses to a scrollable top-bar pill row below 900 px
 - **Priority:** P2
@@ -379,7 +379,7 @@
 - **Type:** Happy
 - **Preconditions:** A brand-new opt-out account (empty per PR #170) plus individually emptied features.
 - **Steps:**
-  1. Visit each zero-data surface: no accounts (`/accounts`), no jars (`/jars` + shelf), empty register (`/transactions`), no-data reports (`/reports`), solo People (`/people`), no-profile allocation (`/allocation`), all-caught-up import (`/import`).
+  1. Visit each zero-data surface: no accounts (`/accounts`), no jars (`/jars` + shelf), empty register (`/transactions`), no-data reports (`/reports`), solo People (`/people`), no-profile allocation (`/allocation`). (The import's all-caught-up state is a success card — a check medallion, "You're all caught up", the actions — not an `EmptyState`; see IMP-082.)
 - **Expected:** Each renders the shared `EmptyState` look — a dashed-border card (`border-dashed border-slate-300 bg-surface`), optional icon medallion, a semibold title, muted description, and a centred actions row — so empty states look intentional and consistent, not ad-hoc "nothing here" divs. Per-feature copy/CTAs are verified in the owning files (ACCT-003, JAR-001, IMP-082, etc.).
 - **Automated:** Partial (per-page empty-state tests assert copy; `a11y.spec.ts` does not scan empty fixtures)
 

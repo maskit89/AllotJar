@@ -222,10 +222,10 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Negative
 - **Preconditions:** `camtImport` flag on. Test as Adam (Admin), Lena (Limited), Rhea (Read-only).
 - **Steps:**
-  1. On `/transactions`, look for the "Import" link (`to="/import"`) for each role.
+  1. Look for the **Import** item in the navigation (the sidebar; the phone's More sheet) for each role. (The Transactions page has no Import link.)
   2. As Lena, navigate directly to `/import`.
-- **Expected:** The Import link renders only when `features.camtImport && canWrite` — visible to Owner/Admin only; **absent for Lena (Limited) despite her having transaction entry rights**, and absent for Rhea. Navigating directly to `/import` as Lena loads the page shell but every action she attempts is server-denied (ROLE-017). The code comment on `TransactionsPage` states it: "Recording/editing transactions is day-to-day entry (Limited+); importing needs Admin+."
-- **Automated:** No
+- **Expected:** The Import nav item is listed only when `features.camtImport && canWrite` (`client/src/components/navItems.ts`, `useNavItems`) — visible to Owner/Admin only; **absent for Lena (Limited) despite her having transaction entry rights**, and absent for Rhea. Navigating directly to `/import` as Lena loads the page shell but every action she attempts is server-denied (ROLE-017). The comment on `useNavItems` states it: "Import only when the statement-import flag is on and the login may change the budget (the page itself refuses read-only and limited logins)."
+- **Automated:** Partial (client/src/components/AppShell.test.tsx: "hides Import from a login that may not change the budget")
 
 ### ROLE-017 - Import preview AND commit are Admin+; Limited gets 403 even for the read-only preview
 - **Priority:** P0

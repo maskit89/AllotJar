@@ -17,6 +17,7 @@ import { mockGet, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { ImportPage } from './ImportPage'
 import { accounts, committed, members, month } from '../test/fixtures/import'
+import { categoryChip } from '../test/importReview'
 import type { ImportPreviewResult } from '../types'
 
 /** Two CAMT debits with no bank reference at all, as the server sends them. */
@@ -34,7 +35,7 @@ const csv = () => new File(['x'], 'stmt.xml', { type: 'text/xml' })
 
 async function goToReview(user: ReturnType<typeof userEvent.setup>) {
   await user.selectOptions(await screen.findByLabelText('File format'), 'camt')
-  await user.upload(await screen.findByLabelText('Statement file'), csv())
+  await user.upload(await screen.findByLabelText(/^Statement file/), csv())
   await user.click(screen.getByRole('button', { name: 'Review transactions' }))
   await screen.findByText('AUTOMARKET')
 }
@@ -113,18 +114,22 @@ describe('ImportPage: rows sharing a reference stay apart', () => {
     await goToReview(user)
 
     await user.click(screen.getByRole('button', { name: /^Import 2 transactions$/ }))
-    // The commit is still out: the rows can't be re-answered.
-    expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toBeDisabled()
-    expect(screen.getByLabelText('Category for WOLT on 2026-06-15')).toBeDisabled()
-    expect(screen.getByLabelText('Bulk category')).toBeDisabled()
-    expect(screen.getByLabelText('Bulk member')).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Apply to included' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Apply to expenses' })).toBeDisabled()
+    // The commit is still out: the rows can't be re-answered (the chips, the boxes, the row and
+    // bulk ⋯ menus, the file strip's controls all wait).
+    expect(categoryChip('AUTOMARKET on 2026-06-17')).toBeDisabled()
+    expect(categoryChip('WOLT on 2026-06-15')).toBeDisabled()
+    expect(screen.getByLabelText('Include AUTOMARKET on 2026-06-17')).toBeDisabled()
+    expect(screen.getByLabelText('Include all rows')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Bulk actions' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'AUTOMARKET on 2026-06-17: more actions' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Choose a different file' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Importing…' })).toBeDisabled()
 
     answer(committed({ imported: 1, held: [{ reference: '', index: 0, message: 'Would go below zero.' }] }))
     await screen.findByRole('status')
 
     // The held row is open again for its answer.
-    await waitFor(() => expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toBeEnabled())
+    await waitFor(() => expect(categoryChip('AUTOMARKET on 2026-06-17')).toBeEnabled())
+    expect(screen.getByRole('button', { name: 'Commit held rows' })).toBeEnabled()
   })
 })

@@ -528,9 +528,9 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Type:** Edge
 - **Preconditions:** `CamtImport` flag OFF; a writer login.
 - **Steps:**
-  1. Look for an Import entry point on `/transactions`; navigate directly to `/import`; call the import API.
-- **Expected:** the Transactions page hides its "Import" link (TX-088 — gated by `camtImport && canWrite`; Import is not in the top nav at all), `/import` is unregistered so it redirects to `/` (CMB-038), and the import controller 404s (IMP-006). All three Import surfaces follow the single `camtImport` flag, so there is no orphaned entry point when it is off.
-- **Automated:** Partial (client/src/pages/TransactionsPage.test.tsx covers the link visibility)
+  1. Look for an Import entry point in the navigation and on `/transactions`; navigate directly to `/import`; call the import API.
+- **Expected:** the navigation drops its **Import** item (TX-088 — `useNavItems` lists it only when `camtImport && canWrite`; the Transactions page has no Import link of its own), `/import` is unregistered so it redirects to `/` (CMB-038), and the import controller 404s (IMP-006). All three Import surfaces follow the single `camtImport` flag, so there is no orphaned entry point when it is off.
+- **Automated:** Partial (client/src/components/AppShell.test.tsx covers the nav item's visibility by role)
 
 ### CMB-042 - Analytics stays off under all-flags-on unless the server and a build-time id both enable it
 - **Priority:** P2

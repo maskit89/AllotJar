@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
-import { register, txAction, txRows } from './helpers'
+import { expect, test, type Locator, type Page } from '@playwright/test'
+import { register, rowAction, txAction, txRows } from './helpers'
 
 /**
  * Own-account transfers across two statements, driven through the live API + real SQL (W07,
@@ -42,6 +42,25 @@ async function addAccount(page: Page, name: string, opening: string) {
   await expect(page.getByRole('link', { name: `View ${name}`, exact: true })).toBeVisible()
 }
 
+/**
+ * Marks the review row named `row` ("{payee} on {date}") as a transfer from its ⋯ (restyle PR 14)
+ * and returns the Transfer dialog that opens: the other account ("Transfer account for {row}"),
+ * the "Already recorded?" radios ("Match recorded transfer for {row}") when the server offered
+ * candidates, and the status line. Done closes it; the row keeps the transfer.
+ */
+async function markTransfer(page: Page, row: string): Promise<Locator> {
+  await rowAction(page, `${row}: more actions`, `Mark ${row} as a transfer`)
+  const dialog = page.getByRole('dialog', { name: 'Transfer' })
+  await expect(dialog).toBeVisible()
+  return dialog
+}
+
+async function doneTransfer(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'Transfer' })
+  await dialog.getByRole('button', { name: 'Done' }).click()
+  await expect(dialog).toBeHidden()
+}
+
 /** The account-detail hero balance (aria-label "<name> balance: <amount>"). */
 async function balance(page: Page, name: string) {
   await page.goto('/accounts')
@@ -62,9 +81,10 @@ test('both statements of one transfer reconcile to a single movement when the us
 
   // --- Source statement: the debit is a confirmed departure; receipt is unknown.
   await upload(page, SOURCE_STATEMENT, 'Main')
-  await page.getByRole('button', { name: 'Mark TRANSFER TO POT on 2026-06-30 as a transfer' }).click()
-  await page.getByLabel('Transfer account for TRANSFER TO POT on 2026-06-30').selectOption({ label: 'Pot' })
-  await expect(page.getByText(/Recorded as departed on/)).toBeVisible()
+  let transfer = await markTransfer(page, 'TRANSFER TO POT on 2026-06-30')
+  await transfer.getByLabel('Transfer account for TRANSFER TO POT on 2026-06-30').selectOption({ label: 'Pot' })
+  await expect(transfer.getByText(/Recorded as departed on/)).toBeVisible()
+  await doneTransfer(page)
   await page.getByRole('button', { name: 'Import 1 transaction' }).click()
   await expect(page.getByRole('heading', { name: 'Import complete' })).toBeVisible()
   const transfersTile = page.locator('div', { has: page.getByText('Transfers', { exact: true }) }).last()
@@ -80,14 +100,15 @@ test('both statements of one transfer reconcile to a single movement when the us
   // --- Destination statement: the credit offers the recorded transfer; the user picks it.
   await upload(page, DESTINATION_STATEMENT, 'Pot')
   await expect(page.getByText('Looks like a transfer')).toBeVisible()
-  await page.getByRole('button', { name: 'Mark TRANSFER FROM MAIN on 2026-07-01 as a transfer' }).click()
-  const match = page.getByLabel('Match recorded transfer for TRANSFER FROM MAIN on 2026-07-01')
+  transfer = await markTransfer(page, 'TRANSFER FROM MAIN on 2026-07-01')
+  const match = transfer.getByLabel('Match recorded transfer for TRANSFER FROM MAIN on 2026-07-01')
   await expect(match).toBeVisible()
-  await expect(match.locator('option')).toHaveCount(2) // "record as new" + the one candidate
-  await match.selectOption({ index: 1 })
+  await expect(match.getByRole('radio')).toHaveCount(2) // "record as new" + the one candidate
+  await match.getByRole('radio').nth(1).check()
   // Choosing the candidate fixes the counterparty it names.
-  await expect(page.getByLabel('Transfer account for TRANSFER FROM MAIN on 2026-07-01')).toHaveValue(/.+/)
-  await expect(page.getByText(/Confirms the other side of the recorded transfer/)).toBeVisible()
+  await expect(transfer.getByLabel('Transfer account for TRANSFER FROM MAIN on 2026-07-01')).toHaveValue(/.+/)
+  await expect(transfer.getByText(/Confirms the other side of the recorded transfer/)).toBeVisible()
+  await doneTransfer(page)
   await page.getByRole('button', { name: 'Import 1 transaction' }).click()
   await expect(page.getByRole('heading', { name: 'Import complete' })).toBeVisible()
   await expect(page.getByText('0 transactions added')).toBeVisible() // confirming a leg creates no row
@@ -120,10 +141,11 @@ test('a receipt-first transfer is held for review with no posted effect until it
 
   // --- Rule 72: the credit is identified as a transfer from Main, departure unknown.
   await upload(page, DESTINATION_STATEMENT, 'Pot')
-  await page.getByRole('button', { name: 'Mark TRANSFER FROM MAIN on 2026-07-01 as a transfer' }).click()
-  await page.getByLabel('Transfer account for TRANSFER FROM MAIN on 2026-07-01').selectOption({ label: 'Main' })
-  await expect(page.getByLabel('Match recorded transfer for TRANSFER FROM MAIN on 2026-07-01')).toHaveCount(0)
-  await expect(page.getByText(/Held for review until the departure date is known/)).toBeVisible()
+  const transfer = await markTransfer(page, 'TRANSFER FROM MAIN on 2026-07-01')
+  await transfer.getByLabel('Transfer account for TRANSFER FROM MAIN on 2026-07-01').selectOption({ label: 'Main' })
+  await expect(transfer.getByLabel('Match recorded transfer for TRANSFER FROM MAIN on 2026-07-01')).toHaveCount(0)
+  await expect(transfer.getByText(/Held for review until the departure date is known/)).toBeVisible()
+  await doneTransfer(page)
   await page.getByRole('button', { name: 'Import 1 transaction' }).click()
   await expect(page.getByRole('heading', { name: 'Import complete' })).toBeVisible()
   const pendingTile = page.locator('div', { has: page.getByText('Pending review', { exact: true }) }).last()

@@ -15,6 +15,19 @@ async function expectNoViolations(page: Page) {
   expect(violations, summary).toEqual([])
 }
 
+/** Where an open (i) popover sits against its button: inside the screen, centred under it, and right beneath it. */
+async function hintPlacement(page: Page, label: string) {
+  return page.getByRole('tooltip').evaluate((el, label) => {
+    const t = el.getBoundingClientRect()
+    const b = document.querySelector(`button[aria-label="${label}"]`)!.getBoundingClientRect()
+    return {
+      inside: t.left >= 0 && t.top >= 0 && t.right <= window.innerWidth && t.bottom <= window.innerHeight,
+      centred: Math.abs(t.left + t.width / 2 - (b.left + b.width / 2)) < 24,
+      close: Math.min(Math.abs(t.top - b.bottom), Math.abs(b.top - t.bottom)) < 12,
+    }
+  }, label)
+}
+
 for (const theme of ['light', 'dark'] as const) {
   test.describe(`a11y — ${theme}`, () => {
     for (const path of AUTHED_ROUTES) {
@@ -74,28 +87,90 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
-    test('import review table has no WCAG A/AA violations', async ({ page }) => {
+    // The review list (restyle PR 14): the rows' editors are sheet dialogs behind each row's ⋯,
+    // and the Bank CSV column mapping is the Columns dialog.
+    test('import review list has no WCAG A/AA violations', async ({ page }) => {
       await authedSetup(page, theme)
       await page.goto('/import')
       await page.getByRole('heading', { level: 1 }).first().waitFor()
       // Choose an account so transfer marking is available.
       await page.getByLabel(/Add to account/).selectOption('acc0')
+      // The format (i)'s popover opens under its icon, inside the screen (placed against the viewport: a
+      // transformed wrapper would carry it off the right edge).
+      await page.getByRole('button', { name: 'About file formats' }).focus()
+      const formatHint = page.getByRole('tooltip')
+      await formatHint.waitFor()
+      expect(await hintPlacement(page, 'About file formats')).toEqual({ inside: true, centred: true, close: true })
+      await page.keyboard.press('Escape')
+      await expect(formatHint).toBeHidden()
       await page.getByLabel('Statement file').setInputFiles({
         name: 'tx.csv', mimeType: 'text/csv', buffer: Buffer.from('19/06/2026,SHOP,-5.00'),
       })
       await page.getByRole('button', { name: 'Review transactions' }).click()
-      await page.getByText('AUTOMARKET').waitFor() // the review table is up
+      await page.getByText('AUTOMARKET').waitFor() // the review list is up
       await expectNoViolations(page)
+      // The include box answers a real pointer click on itself (its 40px target sits behind it):
+      // unticking a row takes it out of the count, ticking it back puts it in.
+      const include = page.getByLabel('Include AUTOMARKET on 2026-06-17')
+      await include.uncheck()
+      await expect(page.getByRole('button', { name: 'Import 2 transactions' })).toBeVisible()
+      await include.check()
+      await expect(page.getByRole('button', { name: 'Import 3 transactions' })).toBeVisible()
 
-      // Expand a row's split editor and re-scan (selects, amount inputs, remaining hint).
-      await page.getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' }).click()
-      await page.getByLabel('Split line 1 amount for AUTOMARKET').waitFor()
+      // The Columns dialog: the sample table, the mapping selects, More options.
+      await page.getByRole('button', { name: 'Columns' }).click()
+      const columns = page.getByRole('dialog', { name: 'Columns' })
+      await columns.getByRole('table', { name: 'Sample of the uploaded file' }).waitFor()
+      await columns.getByText('More options').click()
+      await columns.getByLabel('Number format').waitFor()
+      await columns.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
       await expectNoViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(columns).toBeHidden()
 
-      // Mark the flagged row as a transfer and re-scan (badge + counterparty picker).
-      await page.getByRole('button', { name: 'Mark WOLT on 2026-06-15 as a transfer' }).click()
-      await page.getByLabel('Transfer account for WOLT on 2026-06-15').waitFor()
+      // A row's split editor (selects, amount inputs, remaining hint), behind its ⋯.
+      await page.getByRole('button', { name: 'AUTOMARKET on 2026-06-17: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Split AUTOMARKET on 2026-06-17' }).click()
+      const split = page.getByRole('dialog', { name: 'Split' })
+      await split.getByLabel('Split line 1 amount for AUTOMARKET').waitFor()
+      await split.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
       await expectNoViolations(page)
+      await page.keyboard.press('Escape')
+      await expect(split).toBeHidden()
+
+      // The flagged row marked as a transfer: the Transfer dialog (counterparty picker, the
+      // "Already recorded?" radios, the status line), with the row's chip behind it.
+      await page.getByRole('button', { name: 'WOLT on 2026-06-15: more actions' }).click()
+      await page.getByRole('menuitem', { name: 'Mark WOLT on 2026-06-15 as a transfer' }).click()
+      const transfer = page.getByRole('dialog', { name: 'Transfer' })
+      await transfer.getByLabel('Transfer account for WOLT on 2026-06-15').waitFor()
+      await transfer.getByLabel('Match recorded transfer for WOLT on 2026-06-15').waitFor()
+      await transfer.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await expectNoViolations(page)
+    })
+
+    // The Columns sheet on a 375px phone: the sample table is wider than the sheet and scrolls sideways in
+    // a box a keyboard can reach (axe's scrollable-region-focusable fires only where the table overflows).
+    test('the Columns sheet on a phone has no WCAG A/AA violations, and its sample scrolls by keyboard', async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 667 })
+      await authedSetup(page, theme)
+      await page.goto('/import')
+      await page.getByRole('heading', { level: 1 }).first().waitFor()
+      await page.getByLabel('Statement file').setInputFiles({
+        name: 'tx.csv', mimeType: 'text/csv', buffer: Buffer.from('19/06/2026,SHOP,-5.00'),
+      })
+      await page.getByRole('button', { name: 'Review transactions' }).click()
+      await page.getByText('AUTOMARKET').waitFor()
+      await page.getByRole('button', { name: 'Columns' }).click()
+      const columns = page.getByRole('dialog', { name: 'Columns' })
+      await columns.getByText('More options').click()
+      await columns.getByLabel('Number format').waitFor()
+      await columns.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await expectNoViolations(page)
+      const sample = columns.getByRole('region', { name: 'Sample of the uploaded file' })
+      await sample.focus()
+      await expect(sample).toBeFocused()
+      await expect(sample.getByRole('table', { name: 'Sample of the uploaded file' })).toBeVisible()
     })
 
     test('empty Jars page with its example jars has no WCAG A/AA violations', async ({ page }) => {

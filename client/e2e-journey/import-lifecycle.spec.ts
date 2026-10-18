@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { register, txRows } from './helpers'
 
 /**
@@ -33,6 +33,35 @@ async function upload(page: Page, statement: string, opts: { accountName?: strin
     buffer: Buffer.from(statement),
   })
   await page.getByRole('button', { name: 'Review transactions' }).click()
+}
+
+/**
+ * The Bank CSV column mapping sits in the Columns dialog (restyle PR 14): the sample of the file,
+ * the Date/Amount/Description columns and the Date format, with the rest (Currency column, Number
+ * format, separator, header row) under "More options". A change there dirties the mapping, which
+ * the dialog says, and "Apply changes & re-scan" re-reads the file and closes it; Cancel (or
+ * Escape) drops the unapplied change.
+ */
+async function openColumns(page: Page): Promise<Locator> {
+  await page.getByRole('button', { name: 'Columns' }).click()
+  const columns = page.getByRole('dialog', { name: 'Columns' })
+  await expect(columns).toBeVisible()
+  return columns
+}
+
+async function cancelColumns(page: Page): Promise<void> {
+  const columns = page.getByRole('dialog', { name: 'Columns' })
+  await columns.getByRole('button', { name: 'Cancel' }).click()
+  await expect(columns).toBeHidden()
+}
+
+/**
+ * A row's line is a chip (restyle PR 14): "Assign {row}" while it has none, "Reassign {row}" once
+ * it has one, reading the line's name. Clicking it reveals the select "Category for {row}", which
+ * closes again on a pick.
+ */
+function categoryChip(page: Page, row: string): Locator {
+  return page.getByRole('button', { name: new RegExp(`^(Assign|Reassign) ${row}$`) })
 }
 
 /**
@@ -126,26 +155,34 @@ test('an ambiguous date file is pinned to one format for the whole file, and an 
 
   // --- IMP-026 + IMP-027: with both rows tying under dd/MM and MM/dd, the server resolves ONE
   // format for the whole file by preference order (dd/MM before MM/dd), pins it into the echoed
-  // mapping (the select shows it — not "Auto-detect") and reports it in the readout. Every row is
-  // read under that single format: 03/04 → 3 April, 05/06 → 5 June (never a mixed split).
-  await expect(page.getByLabel('Date format')).toHaveValue('dd/MM/yyyy')
-  await expect(page.getByText(/We read your dates as/)).toContainText('DD/MM/YYYY')
+  // mapping (the Columns dialog's select shows it — not "Auto-detect") and reports it in the
+  // readout. Every row is read under that single format: 03/04 → 3 April, 05/06 → 5 June (never
+  // a mixed split).
+  let columns = await openColumns(page)
+  await expect(columns.getByLabel('Date format')).toHaveValue('dd/MM/yyyy')
+  await expect(columns.getByText(/We read your dates as/)).toContainText('DD/MM/YYYY')
+  await cancelColumns(page)
   await expect(page.getByLabel('Include ALPHA SHOP on 2026-04-03')).toBeVisible()
   await expect(page.getByLabel('Include BETA STORE on 2026-06-05')).toBeVisible()
 
-  // --- IMP-028 (+ IMP-064 gating): choosing an explicit MM/DD/YYYY dirties the mapping (import
-  // blocks until a re-scan applies it), and the re-scan re-reads EVERY row under the user's
-  // format — 03/04 is now 4 March, 05/06 now 6 May.
-  await page.getByLabel('Date format').selectOption('MM/dd/yyyy')
+  // --- IMP-028 (+ IMP-064 gating): choosing an explicit MM/DD/YYYY dirties the mapping (the
+  // dialog says so; the import blocks until a re-scan applies it), and the re-scan re-reads EVERY
+  // row under the user's format — 03/04 is now 4 March, 05/06 now 6 May — and closes the dialog.
+  columns = await openColumns(page)
+  await columns.getByLabel('Date format').selectOption('MM/dd/yyyy')
+  await expect(columns.getByText(/changed the column mapping/)).toBeVisible()
   await expect(page.getByRole('button', { name: /Import \d+ transaction/ })).toBeDisabled()
-  await page.getByRole('button', { name: 'Apply changes & re-scan' }).click()
+  await columns.getByRole('button', { name: 'Apply changes & re-scan' }).click()
+  await expect(columns).toBeHidden()
 
   await expect(page.getByLabel('Include ALPHA SHOP on 2026-03-04')).toBeVisible()
   await expect(page.getByLabel('Include BETA STORE on 2026-05-06')).toBeVisible()
   await expect(page.getByLabel('Include ALPHA SHOP on 2026-04-03')).toHaveCount(0)
   // The explicit choice survives the re-scan echo (it is now the pinned format).
-  await expect(page.getByLabel('Date format')).toHaveValue('MM/dd/yyyy')
-  await expect(page.getByText(/We read your dates as/)).toContainText('MM/DD/YYYY')
+  columns = await openColumns(page)
+  await expect(columns.getByLabel('Date format')).toHaveValue('MM/dd/yyyy')
+  await expect(columns.getByText(/We read your dates as/)).toContainText('MM/DD/YYYY')
+  await cancelColumns(page)
   await expect(page.getByRole('button', { name: /Import \d+ transaction/ })).toBeEnabled()
 })
 
@@ -164,22 +201,36 @@ test('a re-scan carries per-row work forward for unchanged rows, and the commit 
   await upload(page, CARRYOVER_STATEMENT)
   await expect(page.getByText(/2 new transactions to review/)).toBeVisible()
 
-  // Per-row work: categorise one row to a seeded line, untick the other.
-  const category = page.getByLabel('Category for CORNER BAKERY on 2026-06-10')
+  // Per-row work: categorise one row to a seeded line (its chip opens the select, which closes
+  // on the pick and the chip then reads the line), untick the other.
+  const bakery = 'CORNER BAKERY on 2026-06-10'
+  await categoryChip(page, bakery).click()
+  const category = page.getByLabel(`Category for ${bakery}`)
+  const groceriesId = await category.locator('option', { hasText: 'Groceries' }).getAttribute('value')
+  expect(groceriesId).toMatch(/.+/)
   await category.selectOption({ label: 'Groceries' })
-  const groceriesId = await category.inputValue()
+  await expect(category).toHaveCount(0)
+  await expect(categoryChip(page, bakery)).toHaveText('Groceries')
   await page.getByLabel('Include NIGHT MARKET on 2026-06-11').uncheck()
 
-  // --- IMP-064: editing the Number format (a control whose change does NOT alter these rows'
-  // parse, so their references survive) dirties the mapping and blocks the import.
-  await page.getByLabel('Number format').selectOption('1')
+  // --- IMP-064: editing the Number format (under the Columns dialog's More options; a control
+  // whose change does NOT alter these rows' parse, so their references survive) dirties the
+  // mapping and blocks the import.
+  const columns = await openColumns(page)
+  await columns.getByText('More options').click()
+  await columns.getByLabel('Number format').selectOption('1')
   await expect(page.getByRole('button', { name: /Import \d+ transaction/ })).toBeDisabled()
-  await expect(page.getByText(/changed the column mapping/)).toBeVisible()
+  await expect(columns.getByText(/changed the column mapping/)).toBeVisible()
 
   // --- IMP-065 + IMP-020: the re-scan re-parses with the edited mapping; both rows come back with
   // unchanged references, so the category choice AND the untick carry forward.
-  await page.getByRole('button', { name: 'Apply changes & re-scan' }).click()
-  await expect(category).toHaveValue(groceriesId)
+  await columns.getByRole('button', { name: 'Apply changes & re-scan' }).click()
+  await expect(columns).toBeHidden()
+  await expect(categoryChip(page, bakery)).toHaveText('Groceries')
+  await categoryChip(page, bakery).click()
+  await expect(category).toHaveValue(groceriesId!)
+  await page.keyboard.press('Escape') // leaves the pick as it is
+  await expect(category).toHaveCount(0)
   await expect(page.getByLabel('Include NIGHT MARKET on 2026-06-11')).not.toBeChecked()
 
   // --- IMP-040 + IMP-067: only the included row is committed, and the success sums cover just

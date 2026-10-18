@@ -242,19 +242,38 @@ test.describe('responsive — data tables scroll inside their own container (375
     expect(m.contentPastCard, 'a card\'s content runs past the card').toBe(0)
   })
 
-  // UX-033 — BOTH import tables (the generic-CSV sample/mapping preview and the
-  // review grid) are wrapped in overflow-x-auto boxes and scroll internally; the
-  // page stays put. The sample table (3 short columns) may fit the phone, so it is
-  // asserted structurally (soft); the review grid carries per-row selects and is
-  // asserted as a genuine internal scroller.
-  test('the import mapping + review tables scroll inside their own containers (UX-033)', async ({
+  // UX-033 — the import review (restyle PR 14) has no wide grid any more: it is one list card
+  // whose rows are two lines on a phone (the payee and its chips truncate, the amount sits at the
+  // end), so nothing scrolls sideways: neither the page, nor the card, nor a row. The one table
+  // left, the sample of the uploaded file, sits in the Columns dialog in its own overflow-x box
+  // (3 short columns, which may fit the phone, so it is asserted structurally).
+  test('the import review list fits a phone with no sideways scroll, and the sample table scrolls in its own box (UX-033)', async ({
     page,
   }) => {
     await authedSetup(page, 'light')
     await page.goto('/import')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
 
-    // Reach both tables via the proven upload flow (mirrors a11y.spec.ts).
+    // The format (i)'s popover opens under its icon, inside the phone's screen.
+    await page.getByRole('button', { name: 'About file formats' }).focus()
+    const formatHint = page.getByRole('tooltip')
+    await formatHint.waitFor()
+    const placed = await formatHint.evaluate((el) => {
+      const t = el.getBoundingClientRect()
+      const b = document.querySelector('button[aria-label="About file formats"]')!.getBoundingClientRect()
+      return {
+        inside: t.left >= 0 && t.top >= 0 && t.right <= window.innerWidth && t.bottom <= window.innerHeight,
+        dx: Math.abs(t.left + t.width / 2 - (b.left + b.width / 2)),
+        gap: Math.min(Math.abs(t.top - b.bottom), Math.abs(b.top - t.bottom)),
+      }
+    })
+    expect(placed.inside, 'the format hint runs off the screen').toBe(true)
+    expect(placed.dx, 'the format hint is not centred under its (i)').toBeLessThan(24)
+    expect(placed.gap, 'the format hint sits away from its (i)').toBeLessThan(12)
+    await page.keyboard.press('Escape')
+    await expect(formatHint).toBeHidden()
+
+    // Reach the review via the proven upload flow (mirrors a11y.spec.ts).
     await page.getByLabel(/Add to account/).selectOption('acc0')
     await page.getByLabel('Statement file').setInputFiles({
       name: 'tx.csv',
@@ -263,13 +282,59 @@ test.describe('responsive — data tables scroll inside their own container (375
     })
     await page.getByRole('button', { name: 'Review transactions' }).click()
 
-    const sample = page.getByRole('table', { name: 'Sample of the uploaded file' })
-    const review = page.getByRole('table', { name: 'Transactions to import' })
-    await sample.waitFor()
-    await review.waitFor()
+    const list = page.getByRole('region', { name: 'Transactions to import' })
+    await list.waitFor()
+    await expect(list.getByTestId('import-row').first()).toBeVisible()
+    await expect(page.getByRole('table')).toHaveCount(0)
+    const m = await list.evaluate((card: HTMLElement) => {
+      const de = document.documentElement
+      const rows = Array.from(card.querySelectorAll<HTMLElement>('[data-testid="import-row"]'))
+      return {
+        pageScrollW: de.scrollWidth,
+        pageClientW: de.clientWidth,
+        viewportW: window.innerWidth,
+        cardRight: card.getBoundingClientRect().right,
+        cardScrollW: card.scrollWidth,
+        cardClientW: card.clientWidth,
+        rows: rows.length,
+        // What shows of a row (its elements; a chip's or an (i)'s invisible ::after hit area may
+        // reach past it, which the card's own scroll width above still guards).
+        contentPastRow: rows.flatMap((r) => {
+          const right = r.getBoundingClientRect().right
+          return Array.from(r.querySelectorAll<HTMLElement>('*')).filter((el) => el.getBoundingClientRect().right > right + 1)
+        }).length,
+        rowsPastCard: rows.filter((r) => r.getBoundingClientRect().right > card.getBoundingClientRect().right + 1).length,
+      }
+    })
+    expect(m.rows, 'the mocked rows render').toBe(4)
+    expect(m.pageScrollW, 'document overflows the viewport').toBeLessThanOrEqual(m.pageClientW + 1)
+    expect(m.cardRight, 'list card wider than the viewport').toBeLessThanOrEqual(m.viewportW + 1)
+    expect(m.cardScrollW, 'list card scrolls sideways').toBeLessThanOrEqual(m.cardClientW + 1)
+    expect(m.contentPastRow, 'a row\'s content runs past the row').toBe(0)
+    expect(m.rowsPastCard, 'a row runs past the card').toBe(0)
 
+    // A tap on a row's include box ticks it: the box sits above the payee button's full-row overlay (which
+    // opens the row's sheet), so the tap lands on the input and opens nothing.
+    const box = page.getByLabel('Include WOLT on 2026-06-15')
+    await expect(box).toBeChecked()
+    const at = (await box.boundingBox())!
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
+    await expect(box).not.toBeChecked()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await page.mouse.click(at.x + at.width / 2, at.y + at.height / 2)
+    await expect(box).toBeChecked()
+    // A flag that would not fit beside its payee drops under it, instead of squeezing the payee to a letter.
+    const payee = list.getByRole('button', { name: 'SEPA RETURN', exact: true })
+    const flag = list.getByText('Looks like a transfer coming back')
+    expect(await payee.evaluate((el) => el.scrollWidth <= el.clientWidth + 1), 'the payee is cut short beside its flag').toBe(true)
+    const [p, f] = [(await payee.boundingBox())!, (await flag.boundingBox())!]
+    expect(f.y, 'the flag did not drop under the payee').toBeGreaterThanOrEqual(p.y + p.height - 2)
+
+    // The sample table, in the Columns sheet.
+    await page.getByRole('button', { name: 'Columns' }).click()
+    const sample = page.getByRole('dialog', { name: 'Columns' }).getByRole('table', { name: 'Sample of the uploaded file' })
+    await sample.waitFor()
     await expectInnerScroller(sample, '/import mapping sample table', false)
-    await expectInnerScroller(review, '/import review grid', true)
   })
 
   // UX-031 — the accounts list (restyle PR 6) has no jar-reconciliation table any more: what the
@@ -523,10 +588,10 @@ test.describe('dark mode — token inversion + primitives', () => {
       .toBeGreaterThan(0.5)
   })
 
-  // UX-025 — the import mapping/sample table flips to dark using ONLY the remapped
-  // slate ramp (the ImportPage comment: no dark: overrides on the preview table).
-  // The header row (bg-slate-50) must render dark and the cells (text-slate-600)
-  // must stay legible — no light-on-light and no double-inverted wash-out.
+  // UX-025 — the import sample table (in the Columns dialog since restyle PR 14) flips to dark
+  // using ONLY the remapped slate ramp (no dark: overrides on it): its box, the dialog's field
+  // tint, must render dark, and the header and the cells (text-slate-500) must stay legible — no
+  // light-on-light and no double-inverted wash-out.
   test('the import mapping table flips to dark via the remapped ramp (UX-025)', async ({ page }) => {
     await authedSetup(page, 'dark')
     await page.goto('/import')
@@ -539,14 +604,17 @@ test.describe('dark mode — token inversion + primitives', () => {
       buffer: Buffer.from('19/06/2026,SHOP,-5.00'),
     })
     await page.getByRole('button', { name: 'Review transactions' }).click()
+    await page.getByRole('button', { name: 'Columns' }).click()
 
-    const sampleTable = page.getByRole('table', { name: 'Sample of the uploaded file' })
+    const sampleTable = page.getByRole('dialog', { name: 'Columns' }).getByRole('table', { name: 'Sample of the uploaded file' })
     await sampleTable.waitFor()
     await expect(page.locator('html')).toHaveClass(/dark/)
 
-    // Header row bg-slate-50 → dark (ramp inverted, not washed out to a light grey).
-    const header = await sample(sampleTable.locator('thead tr'))
+    // The header row's background → dark (ramp inverted, not washed out to a light grey), and
+    // its text AA-legible on it.
+    const header = await sample(sampleTable.locator('thead th').first())
     expect(luminance(header.effBg), 'mapping header did not invert to dark').toBeLessThan(0.2)
+    expect(contrast(header.color, header.effBg), 'mapping header text illegible in dark').toBeGreaterThanOrEqual(4.5)
 
     // Cell text stays AA-legible against its dark background.
     const cell = await sample(sampleTable.locator('tbody td').first())

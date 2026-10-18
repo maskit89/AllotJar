@@ -13,7 +13,7 @@ Repo paths below are relative to that root unless absolute.
 |---|---|---|
 | `/transactions` | `TransactionsPage` | `RequireAuth` (App.tsx:82-89). Not feature-flag gated — always registered. |
 | `/accounts/:id` | `AccountDetailPage` | `RequireAuth` + `features.accounts` flag (App.tsx:100-109). Shows the per-account register incl. signed transfer rows ("To/From {account}"). |
-| `/import` | `ImportPage` | `RequireAuth` + `features.camtImport` (App.tsx:161-170). Adjacent subsystem; reached via the register toolbar's Import link. |
+| `/import` | `ImportPage` | `RequireAuth` + `features.camtImport` (App.tsx:161-170). Adjacent subsystem; reached via the **Import** nav item (`client/src/components/navItems.ts`), not from this page. |
 
 - `RequireAuth` (App.tsx:38-48): shows `AuthSplash` while `bootstrapping`, renders children when authenticated, otherwise redirects to `/login?returnUrl=<encoded current path+search>`.
 - Nav: "Transactions" link in `AppNav` is ALWAYS shown (`show: true`, client/src/components/AppNav.tsx:33), regardless of role or flags.
@@ -30,7 +30,7 @@ Repo paths below are relative to that root unless absolute.
 ### Toolbar (TransactionsPage.tsx:639-676)
 - Segmented control "Filter transactions": **All** | **Unassigned** (client-side filter only).
 - Count text: "{n} transactions" — counts ALL loaded transactions, not the filtered subset.
-- **Import** link (icon + "Import") → `/import`; shown only when `features.camtImport && canWrite` (Admin+).
+- No Import link on this page: Import is a nav item (`navItems.ts`, shown only when `features.camtImport && canWrite`, Admin+); the empty state's copy names it.
 - **+ Add transaction** button (aria-label "Add transaction"); shown only when `canEnterData` (Limited+). Opens the add modal in "transaction" mode with error cleared.
 
 ### Add modal (TransactionsPage.tsx:403-633)
@@ -175,8 +175,8 @@ Amount parsing (`parseMinor`, client/src/lib/money.ts:264-299): accepts "." or "
 - **Empty register**: EmptyState "No transactions yet" (see §2). With rows but empty filter result: in-table message.
 - **Solo vs shared household**: Member selects (add, edit, split rows) appear only when `members.length >= 2`. `MemberId`/slice member features fully hidden solo. (People nav is a different subsystem.)
 - **0–1 accounts**: transfer mode unreachable in the UI (segmented control hidden); Account select hidden at 0 accounts. API transfer still callable.
-- **Roles**: ReadOnly — no add button, no hover actions, no assign pickers (static pill/"Unassigned" text), read-only banner; all commands 403 server-side. Limited — full day-to-day entry on this page, but no Import link (Admin+). Owner/Admin — everything.
-- **Feature flags off** (server `/features`, client defaults ALL-ON until loaded — FeatureContext.tsx): `camtImport` off hides the Import link + `/import` route; `accounts` off hides accounts routes/nav but the TransactionsPage still fetches `/accounts` and shows the Account select and transfer mode if accounts exist (not flag-gated on this page).
+- **Roles**: ReadOnly — no add button, no hover actions, no assign pickers (static pill/"Unassigned" text), read-only banner; all commands 403 server-side. Limited — full day-to-day entry on this page, but no Import nav item (Admin+). Owner/Admin — everything.
+- **Feature flags off** (server `/features`, client defaults ALL-ON until loaded — FeatureContext.tsx): `camtImport` off hides the Import nav item + `/import` route; `accounts` off hides accounts routes/nav but the TransactionsPage still fetches `/accounts` and shows the Account select and transfer mode if accounts exist (not flag-gated on this page).
 - **Deleted/archived referents**:
   - Deleted budget line → `Transaction.BudgetItemId` FK SetNull; whole tx becomes Unassigned; split slice's `BudgetItemId` SetNull → slice renders "Unassigned" in the summary (TransactionSplitConfiguration.cs:23-28).
   - Deleted account → `AccountId` explicitly nulled + `TransferAccountId` nulled by DeleteAccountCommandHandler (transactions/transfer rows SURVIVE; balances of remaining accounts keep the other leg). Register shows "—" (TransactionsPage) / "(removed account)" (AccountDetailPage).

@@ -5,6 +5,7 @@ import {
   sumMinor,
   parseMinor,
   formatMoney,
+  formatMoneyShort,
   toEditString,
   currencySymbol,
   setMoneyFormat,
@@ -349,5 +350,21 @@ describe('detectLocaleDefaults — browser-locale guess', () => {
     const { currency, numberFormat } = detectLocaleDefaults()
     expect(currency).toMatch(/^[A-Z]{3}$/)
     expect(NUMBER_FORMAT_OPTIONS.map((o) => o.value)).toContain(numberFormat)
+  })
+})
+
+describe('formatMoneyShort — whole amounts drop their decimals', () => {
+  afterEach(() => setMoneyFormat('comma-dot'))
+
+  it('drops the decimals of a whole amount and keeps them otherwise', () => {
+    expect(formatMoneyShort(1_750_000, 'EUR')).toBe('€175')
+    expect(formatMoneyShort(17_505_000, 'EUR')).toBe('€1,750.50')
+    expect(formatMoneyShort(0, 'EUR')).toBe('€0')
+    expect(formatMoneyShort(-2_000_000, 'GBP')).toBe('-£200')
+  })
+
+  it('follows the active money format', () => {
+    setMoneyFormat('dot-comma')
+    expect(formatMoneyShort(1_750_000, 'EUR')).toBe(formatMoney(1_750_000, 'EUR').replace(',00', ''))
   })
 })
