@@ -460,7 +460,7 @@
 - **Steps:**
   1. Open the invite modal for Sam; switch the "How should they get access?" control to "Set a temporary password".
   2. Enter Email `sam@x.eu`, Temporary password `Aa1-longpass`, click "Create login".
-- **Expected:** `POST /access/invite {method:Direct, tempPassword:"Aa1-longpass"}`; status box "Login created" + "We've emailed sam@x.eu a link to choose their own password…". On first sign-in the login must choose its own password through that emailed link (blocking "Choose your own password" dialog, S-P2-3, see INV-013); it has `ConsentedUtc=null`, so a blocking ConsentModal follows (consent flow → `03-session-auth-lifecycle.md`). Sam's membership is Active.
+- **Expected:** `POST /access/invite {method:Direct, tempPassword:"Aa1-longpass"}`; status box "Login created" + "We've emailed sam@x.eu a link to choose their own password…". On first sign-in the login must choose its own password through that emailed link (blocking "Choose a new password" dialog, S-P2-3, see INV-013); it has `ConsentedUtc=null`, so a blocking ConsentModal follows (consent flow → `03-session-auth-lifecycle.md`). Sam's membership is Active.
 - **Automated:** No
 
 ### PPL-045 - Invite validation: empty email and short temp password
@@ -542,7 +542,7 @@
 - **Steps:**
   1. Open the link → "Household invite" / "Join the household".
   2. Fill "Your name (optional)" = "Robin", "Password" ≥8, tick "I agree to the Terms of Service and Privacy Policy", click "Accept invite".
-- **Expected:** `POST /auth/accept-invite {token, password, displayName, acceptedTerms:true}` → 200 (JWT + refresh cookie, `ConsentedUtc` stamped so no later consent modal). SPA navigates to `/?joined=1`; the dashboard shows household B's budget and the greeting "You've joined this household — you're viewing its shared budget now…". The accepter is a **pure invitee** (no own household). Regression: the "invite did nothing / landed in my own budget" symptom must not recur.
+- **Expected:** `POST /auth/accept-invite {token, password, displayName, acceptedTerms:true}` → 200 (JWT + refresh cookie, `ConsentedUtc` stamped so no later consent modal). SPA navigates to `/?joined=1`; the dashboard shows household B's budget and the greeting "You’ve joined the household.". The accepter is a **pure invitee** (no own household). Regression: the "invite did nothing / landed in my own budget" symptom must not recur.
 - **Automated:** Partial (`client/src/pages/AcceptInvitePage.test.tsx`; `client/e2e-journey/invite.spec.ts` covers the full round-trip)
 
 ### PPL-053 - Signed-in accept: existing login joins, own budget untouched, full reload
@@ -646,7 +646,7 @@
 - **Steps:**
   1. Open `/account`; the Household card shows the "Your own budget" row (only when `!ownsHousehold`; its (i) "About your own budget" holds the explanation: "You’re a member of a shared household. Want a budget of your own too? We’ll create it …"). It doesn't wait for the household's people to load.
   2. Click its "Start" (named "Start my own budget"; busy text "Setting up…").
-- **Expected:** `POST /households/start-own` runs `HouseholdBootstrap.EnsureOwnHouseholdAsync(seedSampleBudget:false)` — creates an Owner membership + the owner as member #1, **no sample figures**, sets `ActiveOwnerId=null`, → `window.location.assign('/?started=1')`. Lands on the dashboard's create-month flow (blank/template) with the greeting "This is your own budget — set up your first month below…". Idempotent: calling again just switches back into the already-owned household. On failure: "Could not start your budget. Please try again." under the row.
+- **Expected:** `POST /households/start-own` runs `HouseholdBootstrap.EnsureOwnHouseholdAsync(seedSampleBudget:false)` — creates an Owner membership + the owner as member #1, **no sample figures**, sets `ActiveOwnerId=null`, → `window.location.assign('/?started=1')`. Lands on the dashboard's create-month flow (blank/template) with the greeting "Your own budget is ready.". Idempotent: calling again just switches back into the already-owned household. On failure: "Could not start your budget. Please try again." under the row.
 - **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`; `tests/AllotJar.Application.Tests/Application/HouseholdBootstrapTests.cs`)
 
 ### PPL-062 - "Your own budget" row hidden for a login that already owns a household
@@ -690,7 +690,7 @@
 - **Steps:**
   1. Open `/account`; the Household card has a ⋯ ("Household: more actions"; a bottom sheet titled "{label}’s household" on a phone) holding "Leave household" (only when the active household is joined, `!isOwn`).
   2. Choose "Leave household" → the Leave dialog asks "Leave {label}’s household?" ("Leave this household?" when the owner has no name, so the server labels it plainly "Household"; on a phone the ⋯ sheet's title is "{label}’s household" or "This household"): "You’ll no longer see its budget, and the owner isn’t needed to do this. You can be invited back anytime." (plus the private-accounts warning when there are any) → click "Yes, leave" (busy "Leaving…").
-- **Expected:** `POST /households/leave {ownerId:<B>}` → hard-deletes Robin's membership, then idempotently materializes Robin's OWN household (membership + owner member, **no samples**), resets `ActiveOwnerId=null`, → `window.location.assign('/?left=1')`. Lands on the create-month flow with greeting "You've left that household — you're viewing your own budget now. Nothing was deleted; you can be invited back anytime." Robin never strands in an empty un-seeded household.
+- **Expected:** `POST /households/leave {ownerId:<B>}` → hard-deletes Robin's membership, then idempotently materializes Robin's OWN household (membership + owner member, **no samples**), resets `ActiveOwnerId=null`, → `window.location.assign('/?left=1')`. Lands on the create-month flow with greeting "You’re back on your own budget." Robin never strands in an empty un-seeded household.
 - **Automated:** Partial (`client/src/pages/AccountPage.test.tsx`; `client/e2e/account-settings.spec.ts`; `client/e2e-journey/invite.spec.ts` covers leave→own-without-samples)
 
 ### PPL-066 - Leave: the dialog asks first, Cancel aborts
@@ -740,7 +740,7 @@
 - **Preconditions:** Fixtures for Owner, Admin, Limited, Read-only.
 - **Steps:**
   1. Open `/account` as each role.
-- **Expected:** The chip beside the name shows `HOUSEHOLD_ROLE_LABELS[role] ?? 'Member'` → Owner / Admin / Limited / Read-only (heard as "Access level: …"), with what the role allows behind its (i) ("About access level"; none for "Member"). The AppShell also renders a role banner for Limited ("You have limited access …") and Read-only ("You have read-only access …"). Full role enforcement → `25-roles-permissions.md`.
+- **Expected:** The chip beside the name shows `HOUSEHOLD_ROLE_LABELS[role] ?? 'Member'` → Owner / Admin / Limited / Read-only (heard as "Access level: …"), with what the role allows behind its (i) ("About access level"; none for "Member"). The AppShell also renders a role banner for Limited ("Limited access: …", warn tone) and Read-only ("Read-only access: …", info tone), one line each with the detail behind an (i). Full role enforcement → `25-roles-permissions.md`.
 - **Automated:** Partial (`client/src/pages/RoleGating.test.tsx` — banner text; Admin role not exercised there; `client/src/pages/AccountPage.test.tsx` — each role's chip and (i))
 
 ### PPL-071 - HouseholdAccess flag OFF: People renders but hides sign-in controls

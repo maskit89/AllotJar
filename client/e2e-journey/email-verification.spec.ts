@@ -15,11 +15,11 @@ test('a new registration is unverified with a banner, and the emailed link confi
   // register() lands on the dashboard (empty account). The banner must be present + persistent.
   await register(page, { email })
 
-  const banner = page.getByText(/please confirm your email/i)
+  const banner = page.getByText(/confirm your email: check your inbox/i)
   await expect(banner).toBeVisible()
   // Persists across navigation (it lives in the app shell).
   await page.goto('/account')
-  await expect(page.getByText(/please confirm your email/i)).toBeVisible()
+  await expect(page.getByText(/confirm your email: check your inbox/i)).toBeVisible()
 
   // Follow the REAL confirmation link from the mailbox.
   const link = await waitForEmailLink(page, email, '/confirm-email?')
@@ -31,7 +31,7 @@ test('a new registration is unverified with a banner, and the emailed link confi
   // a full page.goto('/') would mask that by re-running /auth/me on a fresh mount.
   await page.getByRole('link', { name: 'Go to AllotJar' }).click()
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByText(/please confirm your email/i)).toHaveCount(0)
+  await expect(page.getByText(/confirm your email: check your inbox/i)).toHaveCount(0)
 })
 
 test('registering an unverified email emails a claim link that takes the account over', async ({ page }) => {
@@ -60,7 +60,7 @@ test('registering an unverified email emails a claim link that takes the account
   await page.getByRole('button', { name: 'Set new password' }).click()
   await expect(page.getByRole('button', { name: 'Start a blank budget' })).toBeVisible()
   // Reclaim confirmed the email — no banner.
-  await expect(page.getByText(/please confirm your email/i)).toHaveCount(0)
+  await expect(page.getByText(/confirm your email: check your inbox/i)).toHaveCount(0)
 
   // The squatter is locked out: their password no longer works.
   await page.request.post('/api/auth/logout')

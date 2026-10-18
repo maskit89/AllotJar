@@ -1,10 +1,13 @@
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { Notice, NoticeAction } from './Notice'
 
 /**
  * Persistent (non-dismissible) nudge shown across the app while the signed-in login's email is
- * unverified. Not shown while the consent modal is up (that blocks the app anyway) or once
- * confirmed. Resend re-sends the confirmation email for the caller's own account.
+ * unverified: one line on the warn tone, the address behind its (i), and a quiet Resend. Not shown
+ * while the consent modal is up (that blocks the app anyway) or once confirmed. Resend re-sends
+ * the confirmation email for the caller's own account; its outcome replaces the line (on the ok or
+ * bad tone) rather than adding a second sentence.
  */
 export function VerifyEmailBanner() {
   const { isAuthenticated, emailConfirmed, needsConsent, email, resendVerification } = useAuth()
@@ -26,26 +29,31 @@ export function VerifyEmailBanner() {
     // aria-live (not role="status") so the resend feedback is announced without adding a second
     // `status` role to the page — journey/e2e specs query getByRole('status') for page banners and
     // a persistent nag here would collide with every one of them.
-    <div
+    <Notice
       aria-live="polite"
-      className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-950/40 dark:text-amber-100"
+      tone={state === 'sent' ? 'ok' : state === 'error' ? 'bad' : 'warn'}
+      hint={
+        email ? (
+          <>
+            The link went to <strong className="font-semibold text-slate-900">{email}</strong>. This line stays until
+            you open it; Resend sends a fresh one.
+          </>
+        ) : (
+          'This line stays until you open the link we emailed you; Resend sends a fresh one.'
+        )
+      }
+      hintLabel="About confirming your email"
+      action={
+        <NoticeAction onClick={onResend} disabled={state === 'sending'}>
+          {state === 'sending' ? 'Sending…' : 'Resend'}
+        </NoticeAction>
+      }
     >
-      <span>
-        Please confirm your email{email ? <> (<span className="font-medium">{email}</span>)</> : null} — check
-        your inbox for the link.{' '}
-        {state === 'sent' && <span className="font-medium">We've sent a fresh link.</span>}
-        {state === 'error' && (
-          <span className="font-medium">Couldn't resend just now — please try again.</span>
-        )}
-      </span>
-      <button
-        type="button"
-        onClick={onResend}
-        disabled={state === 'sending'}
-        className="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80 disabled:opacity-50"
-      >
-        {state === 'sending' ? 'Sending…' : 'Resend'}
-      </button>
-    </div>
+      {state === 'sent'
+        ? 'A fresh link is on its way.'
+        : state === 'error'
+          ? "Couldn't resend, try again."
+          : 'Confirm your email: check your inbox for the link.'}
+    </Notice>
   )
 }

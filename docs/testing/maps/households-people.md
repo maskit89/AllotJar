@@ -25,7 +25,7 @@ Roles (`src/AllotJar.Domain/Enums/HouseholdRole.cs`): Owner=0, Admin=1, Limited=
 Other chrome in this subsystem:
 - **Household switcher** — lives in the **account/user menu** (`UserMenu` in AppShell.tsx:24-138): a "Household" section listed only when `households.length > 1` (AppShell.tsx:88-112). The standalone `client/src/components/HouseholdSwitcher.tsx` component exists and is unit-tested but is **NOT rendered anywhere in the app** (only its test imports it) — dead component; test the UserMenu instead.
 - **ConsentModal** (client/src/components/ConsentModal.tsx) — blocking, non-dismissible dialog when `/auth/me` returns `needsConsent: true` (invite-created / legacy logins with `ConsentedUtc == null`). Rendered for any authed route EXCEPT `/terms` and `/privacy` (never covers the text being consented to). Onboarding is suppressed until consent is given (App.tsx:183-184).
-- **Access banner** (AppShell.tsx:164-169): read-only → "You have read-only access — you can view everything but cannot make changes."; limited → "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
+- **Access banner** (AppShell.tsx:164-169): read-only → "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access"); limited → "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access")
 
 ## 2. UI controls & user actions (exact labels)
 
@@ -76,9 +76,9 @@ Shown only when `canAccess` and there exist memberships with `memberId == null` 
 Avatar chip shows `{budgetCurrency} · {active household label}` (the ACTIVE household's budget currency from `/auth/me`, W08 — a member of a GBP household sees GBP whatever their own preference) (label = "Your household" for own, else owner displayName/email, fallback "Personal") (AppShell.tsx:47, AuthController.cs:354). Menu: "Household" section (only when >1 household) — one button per household, active one bold with "✓"; clicking a non-active one triggers `switchHousehold` → full `window.location.assign('/')` re-bootstrap (AuthContext.tsx:300-304); then "Account settings", "Sign out".
 
 ### Greeting banners (AppShell.tsx:242-247), all dismissible via "✕" (aria "Dismiss"):
-- joined: "You've joined this household — you're viewing its shared budget now. You can switch households anytime from the account menu."
-- started: "This is your own budget — set up your first month below. You can switch back to the shared household anytime from the account menu."
-- left: "You've left that household — you're viewing your own budget now. Nothing was deleted; you can be invited back anytime."
+- joined: "You’ve joined the household."
+- started: "Your own budget is ready."
+- left: "You’re back on your own budget."
 
 ### Analytics events fired (client/src/analytics/events.ts): `member_added`, `member_edited`, `member_invited` (+method), `member_role_changed` (+kind), `member_revoked`, `invite_accepted`.
 
@@ -196,7 +196,7 @@ ConsentModal: 'Something went wrong saving your agreement — please try again.'
 ## 7. Known invariants, gotchas & recent-fix regressions
 
 1. **OwnerId is the household key** — never re-keyed; all budget data carries it. Member CRUD handlers scope by `_currentUser.OwnerId` (the ACTIVE household), so an Admin viewing a joined household adds/edits persons in THAT household, not their own.
-2. **Accept-invite must land you IN the joined household** (PR #156): server sets `ActiveOwnerId` in both accept paths; client does a full reload (`window.location.assign('/?joined=1')`) for the signed-in path. Regression check: after accept, dashboard shows the invitér's budget + "You've joined this household…" banner, and the invite "did nothing" symptom must not return.
+2. **Accept-invite must land you IN the joined household** (PR #156): server sets `ActiveOwnerId` in both accept paths; client does a full reload (`window.location.assign('/?joined=1')`) for the signed-in path. Regression check: after accept, dashboard shows the invitér's budget + "You’ve joined the household." banner, and the invite "did nothing" symptom must not return.
 3. **Consent gap (GDPR, PR #156)**: link-accept form requires terms; direct-invite logins get `ConsentedUtc=null` → blocking ConsentModal at first sign-in (`/auth/me needsConsent`); modal never covers `/terms`//`/privacy`; onboarding waits for consent. Registration/link-accept record consent up front.
 4. **Start-own / leave never seed sample budgets** (PR #170 + `HouseholdsController` comments): `seedSampleBudget:false` in start-own AND the defensive bootstrap inside leave. Only register with explicit `IncludeSampleData=true` seeds. Regression: leaving a household or starting an own budget must land on the create-month flow, never pre-filled figures.
 5. **`HouseholdBootstrap.EnsureOwnHouseholdAsync` is idempotent** (Infrastructure/Persistence/HouseholdBootstrap.cs): guarded membership insert; owner-member seeding no-ops when household already has ANY member. Register + start-own + leave all share it.

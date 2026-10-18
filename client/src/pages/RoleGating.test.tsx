@@ -59,7 +59,7 @@ describe('role gating', () => {
     // The assigned line shows as static text instead of a dropdown.
     expect(screen.getByText('Groceries')).toBeInTheDocument()
     // And the role banner explains why.
-    expect(await screen.findByText(/read-only access/)).toBeInTheDocument()
+    expect(await screen.findByText(/Read-only access/)).toBeInTheDocument()
   })
 
   it('limited access keeps transaction entry available', async () => {

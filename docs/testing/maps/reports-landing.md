@@ -101,7 +101,7 @@ Rendered inside `AppShell active="reports" title="Reports"`.
 All navigation is plain `<a>` (no router) - required for SSR-safety.
 
 - `StagingBanner` at top (only when `VITE_APP_ENV === 'staging'`): role="status", text
-  `Staging - this is the AllotJar test environment. Features may change and your data can be reset or lost without notice.`
+  `Staging · test data, may be reset`
 - Header: logo link (aria-label `AllotJar home`, href `/`), nav (aria-label `Primary`): `Sign in`
   -> `/login`; primary CTA `Get started` -> `/login?register=1`.
 - Hero: eyebrow `Zero-based budgeting · crafted in Europe, at home anywhere`; H1

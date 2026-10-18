@@ -224,7 +224,7 @@ describe('ConfirmEmailPage in the green-banner frame (restyle PR 16)', () => {
     await screen.findByRole('heading', { level: 1, name: 'Email confirmed' })
 
     const statuses = screen.getAllByRole('status')
-    expect(statuses[0]).toHaveTextContent(/data can be reset or lost/i)
+    expect(statuses[0]).toHaveTextContent('Staging · test data, may be reset')
     expect(statuses[0].compareDocumentPosition(screen.getByRole('banner')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

@@ -507,8 +507,8 @@
 - **Preconditions:** Staging build (`VITE_APP_ENV=staging`); signed in and signed out.
 - **Steps:**
   1. Load an authed page, `/login`, and the landing `/`; look above the content.
-- **Expected:** A sticky amber `role="status"` strip renders above `<main>` in AppShell and on LoginPage/LandingPage: "Staging — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." The production build (the `deploy-production` job) renders nothing. It does not overlap the skip link or steal focus.
-- **Automated:** Partial (`client/src/components/StagingBanner.test.tsx` renders-nothing-in-prod / warns-in-staging; not axe-scanned since CI has no staging build)
+- **Expected:** A sticky `role="status"` strip on the warn (orange) tone (`Notice` strip, restyle PR 17) renders above `<main>` in AppShell and on LoginPage/LandingPage, one line: "Staging · test data, may be reset" The production build (the `deploy-production` job) renders nothing. It does not overlap the skip link or steal focus.
+- **Automated:** Partial (`client/src/components/StagingBanner.test.tsx` renders-nothing-in-prod / the one warn-tone line in staging; `Notice.test.tsx` the strip variant; not axe-scanned since CI has no staging build)
 
 ### UX-052 - Simultaneous banners stack in a stable order without overlap or duplicate landmarks
 - **Priority:** P2

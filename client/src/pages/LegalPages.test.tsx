@@ -135,7 +135,7 @@ describe('LegalLayout in the warm look (restyle PR 16)', () => {
     render(<PrivacyPage />)
 
     const status = screen.getByRole('status')
-    expect(status).toHaveTextContent(/data can be reset or lost/i)
+    expect(status).toHaveTextContent('Staging · test data, may be reset')
     expect(status.compareDocumentPosition(screen.getByRole('banner')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })

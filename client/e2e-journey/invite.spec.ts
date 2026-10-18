@@ -50,7 +50,7 @@ test('an owner invites a new person who accepts and lands in the shared househol
 
   // They land in the inviter's household (H1 auto-switch), seeing its shared budget — not a
   // fresh own budget or the login screen.
-  await expect(guest.getByText(/joined this household/)).toBeVisible()
+  await expect(guest.getByText(/joined the household/)).toBeVisible()
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
 
   // The accept CREATED their (unverified) login, so the INITIAL verification email must arrive
@@ -66,7 +66,7 @@ test('an owner invites a new person who accepts and lands in the shared househol
   await rowAction(guest, 'Household: more actions', 'Leave household')
   await guest.getByRole('button', { name: 'Yes, leave' }).click()
 
-  await expect(guest.getByText(/left that household/)).toBeVisible()
+  await expect(guest.getByText(/back on your own budget/)).toBeVisible()
   await expect(guest.getByText(/No budget for .+ yet/)).toBeVisible()
   await expect(guest.getByRole('button', { name: 'Start a blank budget' })).toBeVisible()
 

@@ -114,10 +114,10 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Steps:**
   1. On any authenticated page, read the AppShell access banner (`role="status"`).
 - **Expected:**
-     - **Read-only:** "You have read-only access — you can view everything but cannot make changes."
-     - **Limited:** "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
+     - **Read-only:** "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access")
+     - **Limited:** "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access")
      - **Owner / Admin:** no banner. The banner is driven by `isReadOnly` then `!canWrite && canEnterData`; Admin has `canWrite` so neither branch fires.
-- **Automated:** Partial (`RoleGating.test.tsx` asserts the `/read-only access/` banner for role 3; the Limited banner text is not directly asserted)
+- **Automated:** Partial (`RoleGating.test.tsx` asserts the `/Read-only access/` banner for role 3; the Limited banner text is not directly asserted)
 
 ### ROLE-008 - Feature-gate 404 vs role 403 vs auth 401 precedence
 - **Priority:** P1

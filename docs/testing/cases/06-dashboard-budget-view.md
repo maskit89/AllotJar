@@ -926,7 +926,7 @@
   1. Load `/`; inspect every surface; hover rows.
   2. Click "☐ Paid" on Rent.
 - **Expected:**
-  1. Amber banner: "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings." Group and line names render as static text (no inputs); planned amounts are plain text (no click-to-edit); no ▲▼, ✕, 🗑, 📅, "+ Add" rows, "+ Add a line", "+ Add group" anywhere; the Bill tag is a static span (no due-day editor).
+  1. Warn-tone banner: "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access") Group and line names render as static text (no inputs); planned amounts are plain text (no click-to-edit); no ▲▼, ✕, 🗑, 📅, "+ Add" rows, "+ Add a line", "+ Add group" anywhere; the Bill tag is a static span (no due-day editor).
   2. The Paid toggle IS present and works (PUT `/budget/items/{id}/paid` succeeds — `SetBudgetItemPaidCommand` is `[AllowLimited]`); the strip updates.
 - **Automated:** Partial (tests/.../AuthorizationBehaviourTests.cs — Limited runs only AllowLimited commands; client/src/pages/RoleGating.test.tsx covers Limited on other pages, not the dashboard chrome)
 
@@ -937,7 +937,7 @@
 - **Steps:**
   1. Load `/`; inspect and hover everywhere.
 - **Expected:**
-  - Amber banner: "You have read-only access — you can view everything but cannot make changes."
+  - Info-tone banner: "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access")
   - Everything DASH-066 hides is hidden, AND the Paid toggle is also absent (canEnterData false). Hero, strip, shelf and all figures render normally.
 - **Automated:** Partial (client/src/pages/RoleGating.test.tsx — ReadOnly banner + hidden controls on other pages; dashboard rows unasserted)
 

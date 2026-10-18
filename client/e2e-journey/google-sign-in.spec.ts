@@ -41,7 +41,7 @@ test('a first Google sign-in creates a passwordless account and must accept term
   // Deferred consent: a Google-created account never saw the Terms checkbox, so the blocking
   // ConsentModal must appear before the app is usable.
   const dialog = page.getByRole('dialog')
-  await expect(dialog.getByText('One thing before you start')).toBeVisible()
+  await expect(dialog.getByText('Accept the terms')).toBeVisible()
   await dialog.getByRole('button', { name: 'I agree' }).click()
   await expect(dialog).toBeHidden()
 

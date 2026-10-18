@@ -599,7 +599,7 @@ for (const theme of ['light', 'dark'] as const) {
         }),
       )
       await page.goto('/')
-      await page.getByText(/please confirm your email/i).waitFor()
+      await page.getByText('Confirm your email: check your inbox for the link.').waitFor()
       await expectNoViolations(page)
     })
 

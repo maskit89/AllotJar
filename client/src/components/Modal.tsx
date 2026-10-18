@@ -4,6 +4,8 @@ import { CloseIcon } from './icons'
 import { InfoHint } from './InfoHint'
 import { useMediaQuery } from '../lib/useMediaQuery'
 
+const noop = () => {}
+
 /**
  * An accessible modal dialog: a labelled `role="dialog" aria-modal` card centred
  * over a dimmed backdrop, closing on backdrop click, the ✕, or Escape, with a
@@ -19,6 +21,12 @@ import { useMediaQuery } from '../lib/useMediaQuery'
  * (i) after the title (the dialog keeps the title as its name). Focus opens on the visible close
  * control (the ✕, or the grab handle on a phone), as the plain dialog's does. Left out, the dialog
  * is unchanged.
+ *
+ * `dismissible={false}` (sheet only; the blocking consent and password prompts, restyle PR 17):
+ * nothing closes it — no ✕ or grab handle, no scrim click, no Escape — so the only ways out are the
+ * footer's own actions. Focus then opens on the footer control marked `data-sheet-focus` (its
+ * primary), as there is no close control to land on. `zIndex` (opt-in) raises it over other fixed
+ * layers (the analytics banner, the onboarding dialogs). Left out, both are as before.
  */
 export function Modal({
   title,
@@ -29,6 +37,8 @@ export function Modal({
   hint,
   hintLabel,
   footer,
+  dismissible = true,
+  zIndex,
 }: {
   title: ReactNode
   onClose: () => void
@@ -42,9 +52,14 @@ export function Modal({
   hintLabel?: string
   /** Sheet only: what stays at the foot of the sheet while the middle scrolls (the actions). */
   footer?: ReactNode
+  /** Sheet only: `false` removes every way to close it (see above); the footer's actions are the exits. */
+  dismissible?: boolean
+  /** Sheet only: the layer it sits on (the default is 50). */
+  zIndex?: number
 }) {
   const ref = useRef<HTMLDivElement>(null)
-  useDialogA11y(ref, onClose)
+  // A sheet that cannot be dismissed ignores Escape too.
+  useDialogA11y(ref, sheet && !dismissible ? noop : onClose)
   // Sheet: a phone closes it by the grab handle, a wide screen by the ✕ (one of the two at a time).
   const phone = useMediaQuery('(max-width: 699.98px)')
 
@@ -61,7 +76,7 @@ export function Modal({
   // on a wide screen is the title's (i): its hint would open each time). Runs after useDialogA11y's
   // own effect, so focus still returns to the opener on close.
   useEffect(() => {
-    if (sheet) ref.current?.querySelector<HTMLElement>('[data-sheet-close]')?.focus()
+    if (sheet) ref.current?.querySelector<HTMLElement>('[data-sheet-close], [data-sheet-focus]')?.focus()
   }, [sheet])
 
   const label = typeof title === 'string' ? title : undefined
@@ -70,11 +85,14 @@ export function Modal({
     return (
       // One column that may shrink below its content (minmax(0,1fr)), and a card that may too
       // (min-w-0): a long line inside truncates or wraps instead of widening the sheet past the screen.
-      <div className="fixed inset-0 z-50 grid grid-cols-[minmax(0,1fr)] place-items-center p-6 max-[699.98px]:items-end max-[699.98px]:justify-items-stretch max-[699.98px]:p-0">
+      <div
+        className="fixed inset-0 z-50 grid grid-cols-[minmax(0,1fr)] place-items-center p-6 max-[699.98px]:items-end max-[699.98px]:justify-items-stretch max-[699.98px]:p-0"
+        style={zIndex === undefined ? undefined : { zIndex }}
+      >
         <div
           className="fixed inset-0 bg-[rgb(10_20_15/0.26)] backdrop-blur-[2px] backdrop-saturate-[0.9] dark:bg-black/50"
           aria-hidden
-          onClick={onClose}
+          onClick={dismissible ? onClose : undefined}
         />
         <div
           ref={ref}
@@ -84,7 +102,7 @@ export function Modal({
           className="sheet-dlg relative z-10 flex max-h-[calc(100dvh-48px)] w-full max-w-[480px] min-w-0 flex-col rounded-2xl text-sm border border-slate-200/80 px-6 pt-[22px] pb-6 shadow-[var(--shadow-frame-lg)] max-[699.98px]:max-h-[calc(100dvh-12px)] max-[699.98px]:max-w-none max-[699.98px]:rounded-t-[20px] max-[699.98px]:rounded-b-none max-[699.98px]:border-x-0 max-[699.98px]:border-b-0 max-[699.98px]:px-[18px] max-[699.98px]:pt-2 max-[699.98px]:pb-[calc(20px+env(safe-area-inset-bottom))]"
         >
           {/* The phone's grab handle: a real button (as the action sheets' handle), the sheet's close there. */}
-          {phone && (
+          {phone && dismissible && (
             <button
               type="button"
               data-sheet-close=""
@@ -107,7 +125,7 @@ export function Modal({
                 </InfoHint>
               )}
             </div>
-            {!phone && (
+            {!phone && dismissible && (
               <button
                 type="button"
                 data-sheet-close=""

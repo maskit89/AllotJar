@@ -5,6 +5,7 @@ import { AccountMenu } from './AccountMenu'
 import { AppNav, SideNavLink, type FrameKey } from './AppNav'
 import { JarLogo } from './Jar'
 import { useNavItems } from './navItems'
+import { Notice } from './Notice'
 import { PhoneNav } from './PhoneNav'
 import { SharingReviewBanner } from './SharingReviewBanner'
 import { StagingBanner } from './StagingBanner'
@@ -22,7 +23,9 @@ import { VerifyEmailBanner } from './VerifyEmailBanner'
  * whose More sheet holds the other pages, the account, Dark mode and Sign out (PhoneNav).
  *
  * The banners (verify email, sharing review, the household greeting, read-only / limited access)
- * open the content, under the top bar.
+ * open the content, under the top bar: one Notice line each (restyle PR 17). The sidebar is marked
+ * `data-sidebar` so a bar fixed over the foot of the screen (the analytics consent banner) can
+ * keep to the content column (`--sidebar-w`, index.css).
  */
 export function AppShell({
   active,
@@ -58,10 +61,20 @@ export function AppShell({
   children: ReactNode
 }) {
   const { canWrite, canEnterData, isReadOnly } = useAuth()
-  const accessBanner = isReadOnly
-    ? 'You have read-only access — you can view everything but cannot make changes.'
+  // One line, on the info tone for read-only and the warn tone for limited; what the access level
+  // allows in full sits behind the line's (i).
+  const access = isReadOnly
+    ? {
+        tone: 'info' as const,
+        line: 'Read-only access: you can view everything, not change it.',
+        hint: 'You can open every page and see every figure, but nothing here can be added, changed or deleted by you. Ask the owner or an admin for more access.',
+      }
     : !canWrite && canEnterData
-      ? 'You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings.'
+      ? {
+          tone: 'warn' as const,
+          line: 'Limited access: you can record transactions, mark bills paid and run allocation.',
+          hint: 'You can add, split and assign transactions, mark bills paid and run allocation. The budget’s groups and lines, accounts, people and settings take an admin.',
+        }
       : null
 
   // A one-time greeting after a household change: ?joined=1 (accepted an invite), ?started=1
@@ -95,6 +108,7 @@ export function AppShell({
       {/* Desktop sidebar (900px and up). */}
       <aside
         data-tour="sidebar"
+        data-sidebar=""
         className="sticky top-0 hidden h-screen flex-col gap-1.5 overflow-y-auto border-r border-slate-200 bg-side px-3.5 pt-[18px] pb-3.5 min-[900px]:flex"
       >
         <div className="flex items-center gap-2.5 px-2.5 pt-1 pb-5">
@@ -126,34 +140,18 @@ export function AppShell({
             <SharingReviewBanner />
 
             {greeting && (
-              <div
-                role="status"
-                className="flex items-start justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3 text-sm text-brand-800 dark:border-brand-500/30 dark:bg-brand-500/10 dark:text-brand-200"
-              >
-                <span>
-                  {greeting === 'joined'
-                    ? 'You’ve joined this household — you’re viewing its shared budget now. You can switch households anytime from the account menu.'
-                    : greeting === 'started'
-                      ? 'This is your own budget — set up your first month below. You can switch back to the shared household anytime from the account menu.'
-                      : 'You’ve left that household — you’re viewing your own budget now. Nothing was deleted; you can be invited back anytime.'}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setGreeting(null)}
-                  aria-label="Dismiss"
-                  className="shrink-0 rounded-md p-1 text-brand-700 transition hover:bg-brand-100 dark:text-brand-200"
-                >
-                  ✕
-                </button>
-              </div>
+              <Notice tone="ok" role="status" onDismiss={() => setGreeting(null)}>
+                {greeting === 'joined'
+                  ? 'You’ve joined the household.'
+                  : greeting === 'started'
+                    ? 'Your own budget is ready.'
+                    : 'You’re back on your own budget.'}
+              </Notice>
             )}
-            {accessBanner && (
-              <div
-                role="status"
-                className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
-              >
-                {accessBanner}
-              </div>
+            {access && (
+              <Notice tone={access.tone} role="status" hint={access.hint} hintLabel="About your access">
+                {access.line}
+              </Notice>
             )}
             {children}
           </div>

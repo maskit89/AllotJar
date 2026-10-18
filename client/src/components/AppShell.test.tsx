@@ -110,7 +110,7 @@ describe('AppShell (the app frame)', () => {
     me = meFor({ role: 3, households: [{ ...own, role: 3 }] }) // read-only
     renderShell()
     const navs = await screen.findAllByRole('navigation', { name: 'Primary' })
-    await screen.findByText(/read-only access/)
+    await screen.findByText(/Read-only access/)
     for (const n of navs) expect(within(n).queryByRole('link', { name: 'Import' })).not.toBeInTheDocument()
   })
 
@@ -268,13 +268,44 @@ describe('AppShell (the app frame)', () => {
     expect(header.querySelector('svg[viewBox="0 0 64 84"]')).not.toBeNull()
   })
 
-  it('keeps the banners: read-only access and the household greeting', { timeout: 15000 }, async () => {
+  it('keeps the banners: read-only access and the household greeting, one line each', { timeout: 15000 }, async () => {
     window.history.replaceState(null, '', '/?joined=1')
     me = meFor({ role: 3 })
+    const user = userEvent.setup()
     renderShell()
-    expect(await screen.findByText(/You’ve joined this household/)).toBeInTheDocument()
-    expect(await screen.findByText(/read-only access/)).toBeInTheDocument()
+    const greeting = await screen.findByText('You’ve joined the household.')
+    expect(greeting.closest('[data-tone]')).toHaveAttribute('data-tone', 'ok')
+    expect(greeting.closest('[role="status"]')).not.toBeNull()
+    // The param is stripped at once, so a refresh would not repeat it.
+    expect(window.location.search).toBe('')
+    const access = await screen.findByText('Read-only access: you can view everything, not change it.')
+    expect(access.closest('[data-tone]')).toHaveAttribute('data-tone', 'info')
     expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
+    // The full explanation sits behind the (i).
+    await user.hover(screen.getByRole('button', { name: 'About your access' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/nothing here can be added, changed or deleted by you/)
+    // The greeting dismisses; the access line stays.
+    await user.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText('You’ve joined the household.')).not.toBeInTheDocument()
+    expect(screen.getByText('Read-only access: you can view everything, not change it.')).toBeInTheDocument()
+  })
+
+  it('the other greetings and the limited-access line, each one sentence', { timeout: 15000 }, async () => {
+    window.history.replaceState(null, '', '/?started=1')
+    me = meFor({ role: 2, households: [{ ...own, role: 2 }] }) // Limited
+    const { unmount } = renderShell()
+    expect(await screen.findByText('Your own budget is ready.')).toBeInTheDocument()
+    const limited = await screen.findByText('Limited access: you can record transactions, mark bills paid and run allocation.')
+    expect(limited.closest('[data-tone]')).toHaveAttribute('data-tone', 'warn')
+    expect(screen.getByRole('button', { name: 'About your access' })).toBeInTheDocument()
+    unmount()
+
+    window.history.replaceState(null, '', '/?left=1')
+    me = meFor()
+    renderShell()
+    expect(await screen.findByText('You’re back on your own budget.')).toBeInTheDocument()
+    await screen.findByRole('button', { name: /^Account menu: Alex Byrne/ })
+    expect(screen.queryByRole('button', { name: 'About your access' })).not.toBeInTheDocument()
   })
 })
 

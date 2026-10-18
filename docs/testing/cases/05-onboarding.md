@@ -88,7 +88,7 @@
   3. Click "I agree".
   4. Observe what appears next.
 - **Expected:**
-  - Step 1-2: only the ConsentModal ("One thing before you start") renders; the welcome dialog is NOT in the DOM at all (not merely hidden underneath).
+  - Step 1-2: only the ConsentModal ("Accept the terms") renders; the welcome dialog is NOT in the DOM at all (not merely hidden underneath).
   - Step 3-4: after consent resolves (`needsConsent=false`), the onboarding layer mounts and the welcome dialog auto-opens normally (first time for this user), fully focusable.
 - **Automated:** Partial (client/src/components/ConsentModal.test.tsx — consent blocks until agreed; the onboarding-suppression half is unasserted)
 
@@ -428,7 +428,7 @@
   4. (Variant: from a joined-only login, use the Household card's ⋯ → "Leave household" → "Yes, leave" in the dialog instead and land on `/?left=1`.)
 - **Expected:**
   - Step 3: the "started" greeting banner shows; NO welcome dialog re-opens (record persists across the reload — email unchanged); the checklist NOW appears at "0 of 5 done" over the create-month hero — the own household is completely empty: no sample month, no Emergency Fund jar, regardless of whether the INVITER's household was sample-seeded.
-  - Step 4 variant: identical empty-own-household landing with the "left that household" greeting — leaving never seeds sample data and never re-triggers the welcome.
+  - Step 4 variant: identical empty-own-household landing with the "You’re back on your own budget." greeting — leaving never seeds sample data and never re-triggers the welcome.
 - **Automated:** Partial (client/e2e-journey/invite.spec.ts — the leave leg asserts the `?left` banner + create-month hero with NO sample figures, onboarding suppressed; tests/AllotJar.Application.Tests/Application/HouseholdBootstrapTests.cs — no-sample bootstrap creates no budget; the checklist/welcome behavior on this path unasserted)
 
 ## Gap-fill additions

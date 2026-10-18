@@ -52,13 +52,13 @@ All routes declared in `client/src/App.tsx`. Feature-flag-gated routes are **con
   - Link **"Account settings"** → `/account`.
   - Button **"Sign out"** → `track(EVENTS.logout)` then `logout()`.
 - **One-time greeting banner** (`role="status"`, AppShell.tsx:171-183,237-258) driven by URL params, param stripped immediately via `history.replaceState` so refresh doesn't repeat:
-  - `?joined=1`: "You've joined this household — you're viewing its shared budget now. You can switch households anytime from the account menu."
-  - `?started=1`: "This is your own budget — set up your first month below. You can switch back to the shared household anytime from the account menu."
-  - `?left=1`: "You've left that household — you're viewing your own budget now. Nothing was deleted; you can be invited back anytime." (added by PR #170 so a pure invitee's empty own household doesn't read as data loss)
+  - `?joined=1`: "You’ve joined the household."
+  - `?started=1`: "Your own budget is ready."
+  - `?left=1`: "You’re back on your own budget." (added by PR #170 so a pure invitee's empty own household doesn't read as data loss)
   - Dismiss button `aria-label="Dismiss"` (✕).
 - **Access banner** (`role="status"`, AppShell.tsx:164-169,259-266):
-  - `isReadOnly`: "You have read-only access — you can view everything but cannot make changes."
-  - `!canWrite && canEnterData` (Limited): "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
+  - `isReadOnly`: "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access")
+  - `!canWrite && canEnterData` (Limited): "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access")
 
 ### AppNav (`client/src/components/AppNav.tsx:31-40`)
 Items (label / to / show condition / `data-tour`):
@@ -84,10 +84,10 @@ Active item gets `aria-current="page"` (filled marker in sidebar, filled pill in
 - The chrome the public pages share, SSR-safe (the landing is prerendered): `PublicHeader` is the `.auth-top` row — the wordmark link `aria-label="AllotJar home"` → `/`, a `nav aria-label="Primary"` with one "Sign in" link → `/login`, the `ThemeButton` — in the green room on `/` and on the sage page on `/privacy` and `/terms` (`LegalLayout`, class `legal`); `PublicFooter` is the `footer` with `nav aria-label="Footer"`: "© {year} AllotJar", "Privacy" → `/privacy`, "Terms" → `/terms`. Both pages give their `main#main-content` `tabIndex={-1}`, so the "Skip to main content" link's target takes focus (as AppShell's main).
 
 ### StagingBanner (`client/src/components/StagingBanner.tsx`)
-- Renders **only when `IS_STAGING`** (`VITE_APP_ENV === 'staging'`, `client/src/lib/env.ts:9-16`); GA/prod build renders nothing. Sticky amber strip, `role="status"`: "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." Mounted in AppShell (above `<main>`), LoginPage, and LandingPage (SSR-safe: no hooks/browser globals, included in the landing prerender).
+- Renders **only when `IS_STAGING`** (`VITE_APP_ENV === 'staging'`, `client/src/lib/env.ts:9-16`); GA/prod build renders nothing. Sticky amber strip, `role="status"`: "Staging · test data, may be reset" Mounted in AppShell (above `<main>`), LoginPage, and LandingPage (SSR-safe: no hooks/browser globals, included in the landing prerender).
 
 ### ConsentModal (`client/src/components/ConsentModal.tsx`)
-- Blocking dialog for logins created FOR someone (owner-set password / legacy pre-terms accounts) with `needsConsent` from `/auth/me`. Title "**One thing before you start**"; body links **Terms of Service** (`/terms`) and **Privacy Policy** (`/privacy`) opening in new tabs; buttons **"Sign out"** and **"I agree"** ("Please wait…" while busy). Error (`role="alert"`): "Something went wrong saving your agreement — please try again." Not dismissible (no X, no backdrop close). **Suppressed on `/terms` and `/privacy` paths** so it never covers the text being consented to (ConsentModal.tsx:20-22). Agree → `POST /auth/consent` → `needsConsent=false`.
+- Blocking dialog for logins created FOR someone (owner-set password / legacy pre-terms accounts) with `needsConsent` from `/auth/me`. A sheet dialog (Modal `sheet`, restyle PR 17). Title "**Accept the terms**", the why behind its (i) "Why you are asked"; one body line linking **Terms of Service** (`/terms`) and **Privacy Policy** (`/privacy`), opening in new tabs; footer: quiet **"Sign out"** and the one primary **"I agree"** ("Please wait…" while busy). Error (`ErrorBanner`, `role="alert"`): "Something went wrong saving your agreement — please try again." Not dismissible (no ✕, no backdrop close, no Escape). **Suppressed on `/terms` and `/privacy` paths** so it never covers the text being consented to (ConsentModal.tsx:20-22). Agree → `POST /auth/consent` → `needsConsent=false`.
 
 ### Onboarding — WelcomeDialog (`client/src/onboarding/WelcomeDialog.tsx`)
 - `role="dialog" aria-modal="true"`, focus-trapped via `useDialogA11y` (Escape closes = dismiss, focus restored on close). Title "**Welcome to AllotJar**". Copy branches on `joined` (active household exists and `!isOwn`): member-joining copy ("You've joined a shared household budget…") vs owner copy ("…Setting up your first month takes a few minutes…"); both use `currencyNoun(budgetCurrency)` ("give every euro a job"; W08 — the active household's budget currency, not the login's preference). Three bullets each variant. Buttons: **"Skip for now"** (dismiss) and **"Take the tour"** (start tour). Close X `aria-label="Close"`; backdrop click also dismisses.

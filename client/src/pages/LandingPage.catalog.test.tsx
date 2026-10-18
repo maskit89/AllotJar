@@ -370,7 +370,7 @@ describe('LandingPage — SSR-safe prerender', () => {
 // Staging banner on the landing surface (LAND-033)
 // =============================================================================
 describe('LandingPage — staging banner integration', () => {
-  // LAND-033 — the staging build renders the sticky amber data-loss strip at the top of the
+  // LAND-033 — the staging build renders the sticky warn-tone data-loss strip at the top of the
   // landing page itself (StagingBanner.test.tsx proves the component in isolation; this
   // proves it is wired into LandingPage). The default build's absence is LAND-034 /
   // REG-016, already automated.
@@ -381,7 +381,7 @@ describe('LandingPage — staging banner integration', () => {
       render(<LandingPage />)
       const strip = screen.getByRole('status')
       expect(strip).toHaveTextContent(/Staging/)
-      expect(strip).toHaveTextContent(/your data can be reset or lost without notice/i)
+      expect(strip).toHaveTextContent('Staging · test data, may be reset')
     } finally {
       spy.mockRestore()
     }
@@ -535,13 +535,9 @@ describe('Analytics consent banner', () => {
     renderBanner()
 
     const region = await screen.findByRole('region', { name: 'Analytics consent' }, { timeout: 5000 })
-    expect(region).toHaveTextContent(
-      'We use Google Analytics to understand how the app is used and improve it.',
-    )
-    expect(region).toHaveTextContent(
-      'We never send your name, email, account names or any amounts — only anonymous usage.',
-    )
-    expect(region).toHaveTextContent('You can change this anytime under Help')
+    expect(region).toHaveTextContent('We use Google Analytics for anonymous usage only; change it under Help.')
+    // One line (restyle PR 17): the detail lives on the Help page's Privacy card.
+    expect(region.textContent).not.toMatch(/never send/)
     expect(within(region).getByRole('button', { name: 'Decline' })).toBeInTheDocument()
     expect(within(region).getByRole('button', { name: 'Accept' })).toBeInTheDocument()
   })

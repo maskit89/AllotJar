@@ -700,7 +700,7 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Preconditions:** Fixture W13.
 - **Steps:**
   1. As Sam, **Add account** "Sam's current", tick **Held by Sam** only. 2. Note the **Keep it private** box, save. 3. As Chris, list Accounts. 4. As Chris, add "Sam's savings" held by Sam. 5. Sign in as Sam.
-- **Expected:** 2: the box is ticked by default and shows only when the account is yours alone. 3: Chris does not see "Sam's current" at all. 4: saved shared (Chris sees it). 5: Sam sees the **Review sharing** banner listing "Sam's savings" as shared (rules 31/32, P54/P58).
+- **Expected:** 2: the box is ticked by default and shows only when the account is yours alone. 3: Chris does not see "Sam's current" at all. 4: saved shared (Chris sees it). 5: Sam sees the **Review sharing** banner ("Review who sees your accounts."); its dialog lists "Sam's savings" as shared (rules 31/32, P54/P58).
 - **Automated:** Yes (JointAccountsW13Tests — `AnAccountTheHolderAddsForThemselves_StartsPrivate_AndOnlyTheirLoginSeesIt_Rule31`, `AnAccountSomeoneElseAddsForAPersonWithALogin_StartsShared_AndAsksThemToReview_Rules31And32`; AccountsPage tests)
 
 ### ACCT-067 - Only the holder's own login can make a personal account private
@@ -753,7 +753,7 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Type:** Happy
 - **Preconditions:** Fixture W13 with Kid given a login later: Kid holds "Kid's piggy bank" (shared) and holds the account backing "Holiday".
 - **Steps:**
-  1. Link Kid's new login to the person Kid (accept the invite, or **Link** on People). 2. Sign in as Kid: **Review sharing**. 3. Tick "Keep Kid's piggy bank private", **Save choices**. 4. Sign in again.
+  1. Link Kid's new login to the person Kid (accept the invite, or **Link** on People). 2. Sign in as Kid: **Review sharing**. 3. Tick "Keep Kid's piggy bank private", **Save**. 4. Sign in again.
 - **Expected:** 2: every account Kid holds, as it is now (shared); the jar's account is disabled with its reason. Until step 3 nothing changes. 3: the piggy bank is private to Kid; the banner goes and does not return (rule 32, P58).
 - **Automated:** Yes (JointAccountsW13Tests — `LinkingALoginToAPersonWhoHoldsAccounts_AsksForAReview_WithoutChangingAnything_Rule32`; SharingReviewBanner tests)
 
