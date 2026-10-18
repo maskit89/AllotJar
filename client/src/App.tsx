@@ -2,6 +2,7 @@ import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-rou
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { safeInternalPath } from './lib/returnUrl'
 import { useAuth } from './auth/AuthContext'
+import { JarLogo } from './components/Jar'
 import { ConsentModal } from './components/ConsentModal'
 import { PasswordChangeModal } from './components/PasswordChangeModal'
 import { useFeatures } from './features/FeatureContext'
@@ -27,14 +28,27 @@ import { ImportPage } from './pages/ImportPage'
 import { HelpPage } from './pages/HelpPage'
 import { Onboarding } from './onboarding/Onboarding'
 
+/**
+ * The boot splash while the session is restored from the refresh cookie (restyle PR 20): the warm
+ * page of the signed-out frame, quiet (the sage page deepening into its floor, no room, no card),
+ * with the wordmark and a slim loading line under it. It fades in after a beat, so a quick restore
+ * shows only the page's own colour, never a flash of the mark. Announced once as "Loading…".
+ */
 function AuthSplash() {
   return (
-    <div className="flex min-h-screen items-center justify-center" role="status" aria-live="polite">
+    <div className="splash" role="status" aria-live="polite">
       <span className="sr-only">Loading…</span>
-      <div
-        className="h-8 w-8 animate-spin rounded-full border-2 border-slate-200 border-t-slate-500"
-        aria-hidden="true"
-      />
+      <div className="splash-mark" aria-hidden>
+        <span className="splash-brand">
+          <JarLogo size={40} />
+          <span className="splash-name">
+            Allot<span>Jar</span>
+          </span>
+        </span>
+        <span className="splash-line">
+          <span />
+        </span>
+      </div>
     </div>
   )
 }

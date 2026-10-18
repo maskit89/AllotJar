@@ -1521,7 +1521,8 @@ export function TransactionsPage() {
       case 'assign-pick': {
         const next = e.budgetItemId
         setAssigningId(null)
-        refocusRow(t.id, ['[data-assign-chip]', '[data-row-trigger]'])
+        // Chosen by leaving the select: focus stays where it went.
+        if (!e.blur) refocusRow(t.id, ['[data-assign-chip]', '[data-row-trigger]'])
         // Rule 79: a payment from a jar-backed account put on a line that is not a jar asks
         // which jar it comes from first; a jar line draws from its own jar and clearing the
         // line draws from unallocated — no prompt.

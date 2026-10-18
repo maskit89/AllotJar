@@ -252,7 +252,7 @@ export function MoveMoneyModal({ jar, fromPage = false, currency, accounts = [],
         </ul>
         {l.hasBackingDeficit && (
           <p className="mt-2 flex flex-wrap items-center gap-2">
-            <Badge tone="rose">Jars exceed account money</Badge>
+            <Badge tone="bad">Jars exceed account money</Badge>
             <span>Move money out of a jar until every positive jar is backed by the account.</span>
           </p>
         )}

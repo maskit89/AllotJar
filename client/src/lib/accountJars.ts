@@ -46,3 +46,30 @@ export function accountJars(a: AccountDto, recon: AccountReconciliationDto | und
           : { text: `${formatMoney(floatMinor, a.currency)} not in jars`, label: `About the money not in jars in ${a.name}`, hint: FREE_HINT }
   return { backed, count: jars.backedJarCount, pct, over, rest }
 }
+
+/**
+ * What the Accounts page hands an account's own page through router state (#344 P3-3): the
+ * account's line of the reconciliation the Accounts page has just read (null: the answer had no
+ * line for it, so it holds no jars), so the account's page shows its In jars tile at once instead
+ * of asking the server for the whole household's reconciliation again.
+ */
+export interface AccountReconState {
+  reconciliation: { accountId: string; line: AccountReconciliationDto | null }
+}
+
+export function reconState(accountId: string, line: AccountReconciliationDto | null | undefined): AccountReconState {
+  return { reconciliation: { accountId, line: line ?? null } }
+}
+
+/**
+ * The line handed over for `accountId`, or null when there is none to use (the page was opened
+ * directly, reloaded, or reached with Back or Forward, where the state may be stale: the caller
+ * passes `fresh` only for an in-app navigation, and then reads the reconciliation itself).
+ */
+export function reconFromState(state: unknown, accountId: string, fresh: boolean): { line: AccountReconciliationDto | null } | null {
+  if (!fresh || !state || typeof state !== 'object') return null
+  const r = (state as Partial<AccountReconState>).reconciliation
+  if (!r || typeof r !== 'object' || r.accountId !== accountId) return null
+  const line = r.line && typeof r.line === 'object' && r.line.accountId === accountId ? r.line : null
+  return { line }
+}

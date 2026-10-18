@@ -40,7 +40,9 @@ export function ForgotPasswordPage() {
     <AuthFrame>
       {sent ? (
         // Identical for every address (the server always 204s), so it can't reveal who has an account.
-        <div role="status" className="auth-form">
+        // The title takes focus, which reads it (#352 P3-2): the live region holds only the line
+        // under it, so the title is not announced twice.
+        <div className="auth-form">
           <AuthTitle
             focusOnMount
             hint={
@@ -51,7 +53,7 @@ export function ForgotPasswordPage() {
           >
             Check your inbox
           </AuthTitle>
-          <p className="auth-sub">
+          <p role="status" className="auth-sub">
             If an account exists for <b>{email}</b>, we've emailed it a link to choose a new password. The link
             is valid for 2 hours.
           </p>

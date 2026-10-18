@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AccountDto, BudgetMonthDto, ImportPreviewResult, JarAccountLedgerDto } from '../types'
 
@@ -157,6 +157,34 @@ describe('ImportPage restyle (PR 14)', () => {
     // Its line, drawn in the muted colour, stays readable: nothing fades on an unticked row.
     expect(categoryChip('AUTOMARKET on 2026-06-17')).toHaveTextContent('Groceries')
     expect(categoryChip('AUTOMARKET on 2026-06-17')).not.toHaveClass('disabled:opacity-60')
+  })
+
+  // #350 P3-1: a keyboard user arrows through the revealed category select (Chrome fires change on
+  // a closed select for each arrow): it stays open, Enter commits the line, focus goes back to the chip.
+  it('the category select keeps open while the keyboard arrows through it, and commits on Enter', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user)
+    await user.click(categoryChip('AUTOMARKET on 2026-06-17'))
+    const select = screen.getByLabelText('Category for AUTOMARKET on 2026-06-17') as HTMLSelectElement
+    for (const value of ['bi1', 'bi2']) {
+      fireEvent.keyDown(select, { key: 'ArrowDown' })
+      fireEvent.change(select, { target: { value } })
+    }
+    expect(screen.getByLabelText('Category for AUTOMARKET on 2026-06-17')).toBe(select)
+    fireEvent.keyDown(select, { key: 'Enter' })
+    await waitFor(() => expect(screen.queryByLabelText('Category for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument())
+    expect(categoryChip('AUTOMARKET on 2026-06-17')).toHaveTextContent('Soap')
+    await waitFor(() => expect(categoryChip('AUTOMARKET on 2026-06-17')).toHaveFocus())
+
+    // Escape after arrowing leaves the line as it was.
+    await user.click(categoryChip('AUTOMARKET on 2026-06-17'))
+    const again = screen.getByLabelText('Category for AUTOMARKET on 2026-06-17') as HTMLSelectElement
+    fireEvent.keyDown(again, { key: 'ArrowUp' })
+    fireEvent.change(again, { target: { value: 'bi1' } })
+    fireEvent.keyDown(again, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByLabelText('Category for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument())
+    expect(categoryChip('AUTOMARKET on 2026-06-17')).toHaveTextContent('Soap')
   })
 
   it('a transfer row’s ⋯ offers Edit transfer and Undo transfer; a split row’s Edit split and Clear split', { timeout: 15000 }, async () => {

@@ -24,6 +24,7 @@ import { InfoHint } from '../components/InfoHint'
 import { StatusChip } from '../components/StatusChip'
 import { ActionSheet, RowMenu, type RowAction } from '../components/RowActions'
 import { AssignChip, NEUTRAL, TxTile } from '../components/transactions/TxParts'
+import { CommitSelect } from '../components/CommitSelect'
 import { DASH_CARD } from '../components/budget/card'
 import { AccountTypeGlyph } from '../components/accounts/AccountParts'
 import { ImportIcon, JarNavIcon } from '../components/icons'
@@ -1312,27 +1313,26 @@ export function ImportPage() {
       )
     } else if (assigning === r.key) {
       main = (
-        <select
+        // Arrow keys move the choice; Enter, leaving the select or a pointer choice commits it, and
+        // Escape closes it unchanged (#350 P3-1).
+        <CommitSelect
           autoFocus
-          value={r.budgetItemId}
+          initial={r.budgetItemId}
           aria-label={`Category for ${name}`}
-          onChange={(e) => {
-            updateRow(index, { budgetItemId: e.target.value })
-            assignReturn.current = r.key
+          onCommit={(value, how) => {
+            if (value !== r.budgetItemId) updateRow(index, { budgetItemId: value })
+            // Focus back on the chip after a choice; a blur has already put it where it went.
+            if (how === 'pick') assignReturn.current = r.key
             setAssigning(null)
           }}
-          onBlur={() => setAssigning(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              e.stopPropagation()
-              assignReturn.current = r.key
-              setAssigning(null)
-            }
+          onCancel={() => {
+            assignReturn.current = r.key
+            setAssigning(null)
           }}
           className="relative z-10 h-8 w-56 max-w-full max-[699.98px]:h-10 rounded-lg border border-input bg-surface px-2 text-sm text-slate-700 focus:border-brand-600 focus:ring-2 focus:ring-brand-500/40 focus:outline-none focus-visible:outline-none! disabled:opacity-50"
         >
           <CategoryOptions groups={groups} />
-        </select>
+        </CommitSelect>
       )
     } else {
       main = (

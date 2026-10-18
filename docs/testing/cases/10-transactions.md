@@ -292,9 +292,9 @@
 - **Preconditions:** An unassigned expense "Tesco 40.00".
 - **Steps:**
   1. Click the dashed **+ Assign** pill (aria `Assign Tesco`).
-  2. In the autofocused select choose "Groceries".
-- **Expected:** `PUT /transactions/{id}/assignment` `{ budgetItemId:<Groceries> }`; the row updates in place to the Groceries tint pill; Groceries' actual gains 40.00. `savingId` disables the select while in flight.
-- **Automated:** No (assignment covered indirectly; ManualTransactionTests/TransactionHandlersTests cover the handler `assign links/clears`)
+  2. In the autofocused select choose "Groceries" with the pointer — or, from the keyboard, arrow down to it (each arrow only moves through the options, #350 P3-1) and press Enter.
+- **Expected:** `PUT /transactions/{id}/assignment` `{ budgetItemId:<Groceries> }` — once, for the option chosen, never for the options arrowed past; the row updates in place to the Groceries tint pill; Groceries' actual gains 40.00. `savingId` disables the select while in flight.
+- **Automated:** Partly (TransactionsPage.catalog.test.tsx — arrowing then Enter assigns once, arrowing alone sends nothing; CommitSelect.test.tsx; ManualTransactionTests/TransactionHandlersTests cover the handler `assign links/clears`)
 
 ### TX-031 - Reassign an already-assigned transaction
 - **Priority:** P1
@@ -320,8 +320,9 @@
 - **Preconditions:** Assign picker open on a row.
 - **Steps:**
   1. Click elsewhere so the select loses focus (no selection change).
-- **Expected:** `onBlur` sets `assigningId = null`, closing the picker; no `PUT` fires. The row keeps its prior state.
-- **Automated:** No
+  2. Reopen it, arrow to another line from the keyboard, then Tab away.
+- **Expected:** Step 1: the picker closes; no `PUT` fires. The row keeps its prior state. Step 2: blur commits the option the keyboard rests on (#350 P3-1) — one `PUT`, and focus stays where it went (it is not pulled back to the row). Escape after arrowing closes it with no `PUT`.
+- **Automated:** Yes (TransactionsPage.catalog.test.tsx — blur with no selection sends nothing; leaving after arrowing assigns once, Escape sends nothing; CommitSelect.test.tsx)
 
 ### TX-034 - Assign picker offers unfiltered lines (income tx can point at an expense line)
 - **Priority:** P1

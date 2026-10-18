@@ -121,10 +121,13 @@ describe('ConfirmEmailPage in the green-banner frame (restyle PR 16)', () => {
     renderAt('/confirm-email?email=owner%40example.com&token=tok')
 
     const title = await screen.findByRole('heading', { level: 1, name: 'Email confirmed' })
-    const status = screen.getByRole('status')
-    expect(status).toContainElement(title)
+    // The focus move announces the title; the live region holds only the line under it, so the
+    // title is announced once, not twice (#352 P3-2).
     await waitFor(() => expect(title).toHaveFocus())
-    expect(within(status).getByText("You're all set.")).toBeInTheDocument()
+    const status = screen.getByRole('status')
+    expect(status).not.toContainElement(title)
+    expect(status.textContent).toBe("You're all set.")
+    expect(screen.getAllByRole('status')).toHaveLength(1)
     expect(screen.queryByText(/Thanks — your email address is confirmed/)).not.toBeInTheDocument()
 
     const go = screen.getByRole('link', { name: 'Go to AllotJar' })

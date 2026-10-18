@@ -193,8 +193,8 @@
 - **Preconditions:** Cold load with a valid refresh cookie but no in-memory token.
 - **Steps:**
   1. Load `/` (or any RequireAuth route) and observe while `refreshSession()` runs.
-- **Expected:** `AuthSplash` renders a centred spinner container with `role="status" aria-live="polite"` and an sr-only "Loading…"; it is replaced by the real page once auth hydrates (or by the landing/login on failure). No route content flashes before the splash resolves.
-- **Automated:** Partial (`client/src/auth/AuthContext.test.tsx` asserts single refresh + bootstrap; the role/aria-live markup is not asserted)
+- **Expected:** `AuthSplash` (restyle PR 20) is the signed-out frame's warm page, quiet: the sage page deepening into its floor, the wordmark (the jar logo and "AllotJar" in the brand ink) and a slim loading line under it, both decoration (`aria-hidden`); the mark fades in after a beat, so a quick restore shows only the page's colour. The container is `role="status" aria-live="polite"` with an sr-only "Loading…" (no grey spinner); it is replaced by the real page once auth hydrates (or by the landing/login on failure). No route content flashes before the splash resolves. Both themes.
+- **Automated:** Yes (`client/src/auth/AuthContext.test.tsx` asserts single refresh + bootstrap; `client/src/App.catalog.test.tsx` "the bootstrap splash: the wordmark on the warm page, announced as "Loading…"" asserts the markup)
 
 ### UX-020 - Success confirmations are announced via role="status"
 - **Priority:** P2
@@ -211,8 +211,8 @@
 - **Preconditions:** Real backend; trigger a save/fetch failure on several pages.
 - **Steps:**
   1. Force a failing action (e.g. failed planned-edit on `/`, failed add on `/accounts`, failed import preview on `/import`).
-- **Expected:** Every user-visible error uses `role="alert"` so it is announced immediately — the shared `ErrorBanner` (rose card, dark-tuned) or an equivalent inline `role="alert"`. The rose tint has explicit `dark:` variants (`dark:bg-rose-500/10 dark:text-rose-200`) so it stays legible in dark mode. Login/consent/change-password errors likewise use `role="alert"`.
-- **Automated:** Partial (per-page failure tests assert the copy; the `role="alert"` primitive is shared)
+- **Expected:** Every user-visible error uses `role="alert"` so it is announced immediately — the shared `ErrorBanner` or an equivalent inline `role="alert"`. Since restyle PR 20 the banner is on the bad status tone (`data-tone="bad"`: `text-bad` on `bg-bad-bg` with a hairline of the same red, no rose-50 card); the status tokens flip in the `.dark` block, so it stays legible in dark mode. Login/consent/change-password errors likewise use `role="alert"`.
+- **Automated:** Partial (per-page failure tests assert the copy; `client/src/components/ui/primitives.test.tsx` the tone and classes; `client/e2e/responsive-dark.spec.ts` UX-021 the dark contrast)
 
 ### UX-022 - Icon-only controls are labelled; decorative graphics are hidden
 - **Priority:** P2
@@ -260,7 +260,7 @@
 - **Preconditions:** Dark theme, pages using accent chips/badges/active-nav.
 - **Steps:**
   1. Inspect `Badge` tones, the active nav item, brand links, greeting/access banners in dark.
-- **Expected:** Accent-on-tint surfaces carry paired `dark:` classes because they don't ride the slate ramp — e.g. `Badge` brand/violet/rose/amber/teal each add `dark:bg-*-500/15 dark:text-*-200/300`; active nav `dark:bg-brand-500/15 dark:text-brand-200`; brand links `dark:text-brand-200`. The `neutral` badge tone intentionally has no `dark:` variant (it rides the inverted slate ramp). All remain AA-legible.
+- **Expected:** Accent-on-tint surfaces carry paired `dark:` classes because they don't ride the slate ramp — e.g. `Badge` brand adds `dark:bg-brand-500/15 dark:text-brand-200` (since restyle PR 20 the other tones are the status tokens ok / warn / bad, which flip in the `.dark` block themselves; the old violet, rose, amber and teal tints are gone); active nav `dark:bg-brand-500/15 dark:text-brand-200`; brand links `dark:text-brand-200`. The `neutral` badge tone intentionally has no `dark:` variant (it rides the inverted slate ramp). All remain AA-legible.
 - **Automated:** Partial (axe dark scans)
 
 ### UX-027 - Category hues, gold and chart marks brighten and stay readable on dark surfaces
@@ -380,7 +380,7 @@
 - **Preconditions:** A brand-new opt-out account (empty per PR #170) plus individually emptied features.
 - **Steps:**
   1. Visit each zero-data surface: no accounts (`/accounts`), no jars (`/jars` + shelf), empty register (`/transactions`), no-data reports (`/reports`), solo People (`/people`), no-profile allocation (`/allocation`). (The import's all-caught-up state is a success card — a check medallion, "You're all caught up", the actions — not an `EmptyState`; see IMP-082.)
-- **Expected:** Each renders the shared `EmptyState` look — a dashed-border card (`border-dashed border-slate-300 bg-surface`), optional icon medallion, a semibold title, muted description, and a centred actions row — so empty states look intentional and consistent, not ad-hoc "nothing here" divs. Per-feature copy/CTAs are verified in the owning files (ACCT-003, JAR-001, IMP-082, etc.).
+- **Expected:** Each renders the shared `EmptyState` look (`data-empty-state`; the neutral tone since restyle PR 20) — the card surface with a quiet dashed hairline (`border-dashed`, slate-500 at 32%, `bg-surface`), an optional icon medallion on the neutral tint (`bg-surface-2 text-slate-500`), a semibold title in the ink, muted description, and a centred actions row — so empty states look intentional and consistent, not ad-hoc "nothing here" divs. Per-feature copy/CTAs are verified in the owning files (ACCT-003, JAR-001, IMP-082, etc.).
 - **Automated:** Partial (per-page empty-state tests assert copy; `a11y.spec.ts` does not scan empty fixtures)
 
 ### UX-039 - The empty month uses the plan-your-income hero, not EmptyState and never the gold badge

@@ -68,8 +68,10 @@ export function ConfirmEmailPage() {
         </div>
       )}
       {status === 'done' && (
-        <div role="status" className="auth-form">
-          <AuthTitle focusOnMount sub="You're all set.">
+        // The title takes focus, which reads it (#352 P3-2): the live region holds only the line under
+        // it, so the title is not announced twice.
+        <div className="auth-form">
+          <AuthTitle focusOnMount sub={<span role="status">You're all set.</span>}>
             Email confirmed
           </AuthTitle>
           <Pill to="/">Go to AllotJar</Pill>

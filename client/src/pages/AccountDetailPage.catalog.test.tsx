@@ -78,7 +78,9 @@ function renderPage(id = 'a1') {
 // "Transactions" tile before the restyle).
 function txCountTileValue(): HTMLElement {
   const badge = screen.getByTestId('account-tx-count')
-  expect(badge.closest('h2')).toHaveTextContent(/^Transactions\s*\d+$/)
+  // The heading reads "Transactions, N" (#344 P3-6: the comma is visually hidden).
+  expect(badge.closest('h2')).toHaveTextContent(/^Transactions,\s*\d+$/)
+  expect(badge.closest('h2')).toHaveAccessibleName(/^Transactions, \d+$/)
   return badge
 }
 

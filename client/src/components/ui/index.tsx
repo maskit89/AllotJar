@@ -96,17 +96,21 @@ export function Select({ className = '', children, ...rest }: SelectHTMLAttribut
   )
 }
 
-export type BadgeTone = 'neutral' | 'brand' | 'violet' | 'rose' | 'amber' | 'teal'
+/**
+ * The Badge's tones, on the restyle's status tokens (restyle PR 20; the old amber, violet, rose and
+ * teal tints are gone): ok (funded, paid), warn (behind, needs a plan; orange, never gold), bad
+ * (overspent, a missed deadline), brand, and neutral.
+ */
+export type BadgeTone = 'neutral' | 'brand' | 'ok' | 'warn' | 'bad'
 
 const BADGE_TONES: Record<BadgeTone, string> = {
   // neutral rides the inverted slate ramp, so it needs no `dark:` variant.
   neutral: 'bg-slate-100 text-slate-600',
   brand: 'bg-brand-100 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200',
-  violet: 'bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300',
-  rose: 'bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300',
-  amber: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300',
-  // Transport's hue — the redesign adds teal (no teal tone existed before).
-  teal: 'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-300',
+  // The status tokens flip in the .dark block themselves.
+  ok: 'bg-ok-bg text-ok',
+  warn: 'bg-warn-bg text-warn',
+  bad: 'bg-bad-bg text-bad',
 }
 
 /** A small rounded pill for counts, tags and statuses. */
@@ -268,14 +272,16 @@ export function SegmentedControl<T extends string>({
 }
 
 /**
- * An inline error message. `role="alert"` so assistive tech announces it when it
- * appears. Dark-aware (the rose tint is tuned for dark surfaces).
+ * An inline error message, on the bad status tone (restyle PR 20: the bad text on its tint with a
+ * hairline of the same red, in place of the old rose-50 card; the tokens flip in dark themselves).
+ * `role="alert"` so assistive tech announces it when it appears.
  */
 export function ErrorBanner({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
     <div
       role="alert"
-      className={`rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200 ${className}`}
+      data-tone="bad"
+      className={`rounded-lg bg-bad-bg px-4 py-3 text-sm font-medium text-bad shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-bad)_24%,transparent)] ${className}`}
     >
       {children}
     </div>
@@ -285,7 +291,8 @@ export function ErrorBanner({ children, className = '' }: { children: ReactNode;
 /**
  * A friendly empty/zero-data placeholder: an optional icon medallion, a title,
  * supporting copy and an optional actions row. Replaces ad-hoc "nothing here yet"
- * divs so empty states look intentional and consistent.
+ * divs so empty states look intentional and consistent. On the neutral tone (restyle PR 20): the
+ * card surface with a quiet dashed hairline, the icon on the neutral tint, the title in the ink.
  */
 export function EmptyState({
   icon,
@@ -299,13 +306,16 @@ export function EmptyState({
   children?: ReactNode
 }) {
   return (
-    <div className="rounded-2xl border border-dashed border-slate-300 bg-surface px-6 py-12 text-center shadow-card">
+    <div
+      data-empty-state=""
+      className="rounded-2xl border-[1.5px] border-dashed border-[color-mix(in_srgb,var(--color-slate-500)_32%,transparent)] bg-surface px-6 py-12 text-center max-[699.98px]:rounded-[14px] max-[699.98px]:px-5 max-[699.98px]:py-10"
+    >
       {icon && (
-        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-slate-100 text-slate-500">
+        <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-surface-2 text-slate-500 dark:bg-foreground/7">
           {icon}
         </div>
       )}
-      <p className="text-base font-semibold text-slate-700">{title}</p>
+      <p className="text-base font-semibold text-slate-900">{title}</p>
       {description && <p className="mx-auto mt-1 max-w-md text-sm text-slate-500">{description}</p>}
       {children && <div className="mt-5 flex flex-wrap justify-center gap-3">{children}</div>}
     </div>

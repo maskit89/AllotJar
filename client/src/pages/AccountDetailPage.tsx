@@ -1,5 +1,5 @@
-import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
-import { useParams } from 'react-router-dom'
+import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { useLocation, useNavigationType, useParams } from 'react-router-dom'
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ShoppingBag, Split, Undo2, Wallet } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
 import { EmptyState } from '../components/ui'
@@ -10,7 +10,9 @@ import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
 import { EYEBROW } from '../components/budget/BudgetGroup'
 import { CategoryChip, NEUTRAL, TxTile } from '../components/transactions/TxParts'
 import { HolderAvatars, TypeTile } from '../components/accounts/AccountParts'
-import { accountJars } from '../lib/accountJars'
+import { accountJars, reconFromState } from '../lib/accountJars'
+import { registerRows, type RegisterRow } from '../lib/accountRegister'
+import { useJarLedgers } from '../lib/jarLedgers'
 import { JarNavIcon, TransactionsIcon } from '../components/icons'
 import { api } from '../lib/api'
 import { useAuth } from '../auth/AuthContext'
@@ -21,7 +23,7 @@ import { ACCOUNT_TYPE_LABELS, TransactionType } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
 import { formatDate, monthHeading, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, type CategoryHue } from '../lib/categoryColors'
-import { transactionTypeLabel } from '../lib/transactions'
+import { jarLinesOf, transactionTypeLabel } from '../lib/transactions'
 import { useMediaQuery } from '../lib/useMediaQuery'
 
 /**
@@ -51,23 +53,6 @@ const SMALL = 'text-xs font-normal whitespace-nowrap text-slate-400 tabular-nums
 const SMALL_PHONE = 'max-w-28 text-xs font-normal text-balance text-slate-400 tabular-nums'
 
 /**
- * The date a row posts on THIS account (the leg it posts): a transfer leaves its source on its
- * departure and reaches its destination on its receipt (null while a receipt is unconfirmed); any
- * other row on its own date.
- */
-function legDateOf(t: TransactionDto, id: string): string | null {
-  if (t.type !== TransactionType.Transfer) return t.date
-  return t.accountId === id ? (t.departedOn ?? t.date) : (t.receivedOn ?? null)
-}
-
-/** A row of the register, with the date it posts here (null: not yet) and the date it shows. */
-interface Row {
-  t: TransactionDto
-  legDate: string | null
-  shown: string
-}
-
-/**
  * A single account's page (restyle PR 11, the approved "polished Warm" mock-up), reached from an
  * account's card on Accounts; the top bar's chevron goes back there. Read-only for everyone.
  *  - One KPI row on the body's three columns: the green hero Balance (with its reason when it
@@ -92,17 +77,28 @@ export function AccountDetailPage() {
   const [account, setAccount] = useState<AccountDto | null>(null)
   const [transactions, setTransactions] = useState<TransactionDto[]>([])
   const [month, setMonth] = useState<BudgetMonthDto | null>(null)
-  const [recon, setRecon] = useState<AccountReconciliationDto | null>(null)
+  // The account's line of the reconciliation (what its jars hold of it), for the account it was
+  // read for: null while unknown, `line` null when the answer had none (or the read failed).
+  const [reconFor, setReconFor] = useState<{ id: string; line: AccountReconciliationDto | null } | null>(null)
   const [loading, setLoading] = useState(true)
   const [notFound, setNotFound] = useState(false)
   const listHeadingId = useId()
   const detailsHeadingId = useId()
 
+  // The Accounts page hands over the account's line of the reconciliation it has just read (#344
+  // P3-3) on an in-app open; a direct open, a reload, Back and Forward read it here instead.
+  const location = useLocation()
+  const navigationType = useNavigationType()
+  const handed = useMemo(() => reconFromState(location.state, id, navigationType === 'PUSH'), [location.state, id, navigationType])
+  const handedOver = !!handed
+
+  // Which jars each account holds (GET /jars/ledger, as Transactions reads it): a payment on a
+  // jar's line gets the jar chip when that jar sits in this account (#344 P3-2).
+  const { byAccount: ledgerByAccount, loaded: ledgersLoaded } = useJarLedgers()
+
   useEffect(() => {
     let cancelled = false
     setLoading(true)
-    // A figure from the account left before never shows for this one.
-    setRecon(null)
     Promise.all([
       api.get<AccountDto[]>('/accounts'),
       api.get<TransactionDto[]>('/transactions').catch(() => null),
@@ -118,42 +114,56 @@ export function AccountDetailPage() {
       })
       .catch(() => !cancelled && setNotFound(true))
       .finally(() => !cancelled && setLoading(false))
-    // What the account's jars hold of it (the Accounts card's figures), asked for at the same time
-    // but never waited on: the balance and the list show without it, and the In jars tile joins
-    // them when it answers. A failure only leaves the tile out, as the Accounts page leaves its
-    // jar lines out.
-    api
-      .get<AccountReconciliationDto[]>('/accounts/reconciliation')
-      .then((reconciliation) => {
-        if (cancelled) return
-        setRecon((Array.isArray(reconciliation?.data) ? reconciliation.data : []).find((r) => r.accountId === id) ?? null)
-      })
-      .catch(() => {})
+    // What the account's jars hold of it (the Accounts card's figures), when the Accounts page did
+    // not hand it over: asked for at the same time but never waited on: the balance and the list
+    // show without it, the In jars tile's room kept while it may come (see reserveJars), and the
+    // tile joins them when it answers. A failure only leaves the tile out, as the Accounts page
+    // leaves its jar lines out. A figure read for another account never shows for this one.
+    if (!handedOver) {
+      api
+        .get<AccountReconciliationDto[]>('/accounts/reconciliation')
+        .then((reconciliation) => {
+          if (cancelled) return
+          setReconFor({ id, line: (Array.isArray(reconciliation?.data) ? reconciliation.data : []).find((r) => r.accountId === id) ?? null })
+        })
+        .catch(() => !cancelled && setReconFor({ id, line: null }))
+    }
     return () => {
       cancelled = true
     }
-  }, [id])
+  }, [id, handedOver])
 
   // Each current-month line NAME to its category hue (the Transactions page's colours: income
   // emerald, savings and spending by their order). The register spans every month, but
   // /budget/current only knows this month's line ids, so keying by name lets a transaction keep its
-  // colour across months; a line not in this month takes a stable hue from its name. The names of
-  // the jars' lines (a jar's savings line) are kept for the jar chip.
-  const { hueByName, jarLineNames } = useMemo(() => {
+  // colour across months; a line not in this month takes a stable hue from its name. The jars'
+  // lines (a jar's savings line) are kept by id and by name, with the jar each belongs to.
+  const { hueByName, jarByName } = useMemo(() => {
     const hues: Record<string, CategoryHue> = {}
-    const jarLines = new Set<string>()
-    if (!month || !Array.isArray(month.categories)) return { hueByName: hues, jarLineNames: jarLines }
+    const jars = new Map<string, string>()
+    if (!month || !Array.isArray(month.categories)) return { hueByName: hues, jarByName: jars }
     let expenseIdx = 0
     let fundIdx = 0
     for (const c of month.categories) {
       const hue: CategoryHue = c.kind === 'Income' ? 'emerald' : c.kind === 'Savings' ? hueForIndex(fundIdx++) : hueForIndex(expenseIdx++)
       for (const it of c.items) {
         hues[it.name] = hue
-        if (it.savingsId) jarLines.add(it.name)
+        if (it.savingsId) jars.set(it.name, it.savingsId)
       }
     }
-    return { hueByName: hues, jarLineNames: jarLines }
+    return { hueByName: hues, jarByName: jars }
   }, [month])
+  const jarById = useMemo(() => jarLinesOf(Array.isArray(month?.categories) ? month : null), [month])
+
+  /**
+   * A payment's line is a jar's line for this account when it is a jar's savings line AND that jar
+   * sits in this account, as on Transactions (its isJarLineFor; there by this month's line ids, here
+   * by the line's name too, since the register spans every month).
+   */
+  const isJarLine = (t: TransactionDto): boolean => {
+    const jarId = (t.budgetItemId ? jarById.get(t.budgetItemId) : undefined) ?? (t.budgetItemName ? jarByName.get(t.budgetItemName) : undefined)
+    return !!jarId && (ledgerByAccount.get(id)?.jars.some((j) => j.jarId === jarId) ?? false)
+  }
 
   const colorForName = (name: string | null | undefined): string => {
     if (!name) return NEUTRAL
@@ -163,22 +173,17 @@ export function AccountDetailPage() {
     return hueColor(hueForIndex(Math.abs(h)))
   }
 
+  const shownAccount = account && account.id === id ? account : null
   // This account's rows (transfers into it included), newest first by the date each shows here;
   // the server's order is kept within a day.
-  const rows = useMemo<Row[]>(() => {
-    const own = transactions
-      .filter((t) => t.accountId === id || t.transferAccountId === id)
-      .map((t, i) => {
-        const legDate = legDateOf(t, id)
-        return { t, legDate, shown: legDate ?? t.date, i }
-      })
-    own.sort((a, b) => (a.shown < b.shown ? 1 : a.shown > b.shown ? -1 : a.i - b.i))
-    return own.map(({ t, legDate, shown }) => ({ t, legDate, shown }))
-  }, [transactions, id])
+  const rows = useMemo<RegisterRow[]>(
+    () => registerRows(transactions, id, shownAccount?.openingDate),
+    [transactions, id, shownAccount?.openingDate],
+  )
 
   // One group a month (the month a row shows in).
   const months = useMemo(() => {
-    const groups: Array<{ key: string; rows: Row[] }> = []
+    const groups: Array<{ key: string; rows: RegisterRow[] }> = []
     for (const r of rows) {
       const key = r.shown.slice(0, 7)
       const last = groups[groups.length - 1]
@@ -203,7 +208,14 @@ export function AccountDetailPage() {
   // Null = unavailable (no opening date, rule 67): shown as such, never as zero.
   const balanceMinor = account && account.currentBalance !== null ? fromAmount(account.currentBalance) : null
   // What the account's jars hold of it, or null when it holds none (or the figures didn't load).
+  const reconKnown = !!handed || reconFor?.id === id
+  const recon = handed ? handed.line : reconFor?.id === id ? reconFor.line : null
   const jars = account ? accountJars(account, recon ?? undefined, balanceMinor) : null
+  // While the figures are still on their way, the In jars tile's room is kept (#344 P3-6), so the
+  // tile takes it in place instead of pushing the list down: unless the jar ledger has already
+  // said this account holds no jar.
+  const reserveJars =
+    !reconKnown && (!ledgersLoaded || (ledgerByAccount.get(id)?.jars.some((j) => !j.isArchived) ?? false))
 
   /** The hero's short lines: why there is no balance, then what is in transit and pending review. */
   function heroSub(a: AccountDto): ReactNode {
@@ -226,29 +238,20 @@ export function AccountDetailPage() {
     )
   }
 
-  function renderRow({ t, legDate, shown }: Row, a: AccountDto) {
+  function renderRow({ t, shown, out, cameBack, beforeOpening, notCounted, sign }: RegisterRow, a: AccountDto) {
     const isTransfer = t.type === TransactionType.Transfer
     const isIncome = transactionTypeLabel(t.type) === 'Income'
     const isRefund = !!t.refundOfTransactionId
-    // A transfer out of this account (it is the source); else one into it.
-    const out = isTransfer && t.accountId === id
-    // Rules 40/74: a row dated before the opening date is history only; the opening balance
-    // already includes it, so it never moves the balance. The date that counts is the leg this
-    // account posts (a receipt not yet confirmed is pending, not history), and a transfer that left
-    // before the opening date but came back after it moved the balance on its return.
-    const returnedAfterOpening = out && !!t.returnedOn && !!a.openingDate && t.returnedOn >= a.openingDate
-    const postedBeforeOpening = !!a.openingDate && !!legDate && legDate < a.openingDate
-    const beforeOpening = postedBeforeOpening && !returnedAfterOpening
-    // A transfer the bank sent back never moved this balance either: it never reached the
-    // destination, and the source got it back (but for one that left before the opening date and
-    // came back after it, above).
-    const notCounted = beforeOpening || (isTransfer && t.transferStatus === 'Returned' && !(postedBeforeOpening && returnedAfterOpening))
+    // Rules 40/74 (lib/accountRegister): a row dated before the opening date is history only (the
+    // opening balance already includes it), a transfer sent back never moved the balance, and one
+    // that left before the opening date but came back after it moved it on its return, so it shows
+    // on its return date as money in (`cameBack`, #344 P3-1).
     const payee = t.payee || (isTransfer ? 'Transfer' : '—')
     const date = shortDate(shown)
     const lineColor = colorForName(t.budgetItemName)
-    // A payment on a jar's line draws from the jar, as on Transactions (there: when the jar sits in
-    // the paying account; here the page knows only that this account holds jars).
-    const jarLine = !isTransfer && !t.isSplit && !!t.budgetItemName && jarLineNames.has(t.budgetItemName) && !!jars
+    // A payment on a jar's line draws from the jar, as on Transactions: when that jar sits in this
+    // (the paying) account.
+    const jarLine = !isTransfer && !t.isSplit && !!t.budgetItemName && isJarLine(t)
 
     // The leading tile: one glyph per kind of row (no category icons in the data), in its colour.
     const glyph = isTransfer ? (
@@ -314,16 +317,30 @@ export function AccountDetailPage() {
     }
     const status = !isTransfer ? null : t.transferStatus === 'InTransit' ? (
       <StatusChip tone="line">In transit</StatusChip>
+    ) : t.transferStatus === 'Returned' && cameBack ? (
+      // Shown on its return date: its (i) names the day it left as well.
+      <span className="inline-flex items-center gap-0.5">
+        <StatusChip tone="bad">Returned</StatusChip>
+        <InfoHint
+          label={`About ${payee} on ${date}: returned`}
+          buttonClassName={TITLE_HINT}
+          align={phone ? 'center' : 'end'}
+          fixed
+          className="whitespace-normal"
+        >
+          Left on {formatDate(t.departedOn ?? t.date)}, before the opening balance of {formatDate(a.openingDate!)}, and came back on{' '}
+          {formatDate(t.returnedOn!)}: the return adds it to the balance.
+        </InfoHint>
+      </span>
     ) : t.transferStatus === 'Returned' ? (
       <StatusChip tone="bad">Returned</StatusChip>
     ) : t.transferStatus === 'PendingReview' ? (
       <StatusChip tone="warn">Pending review</StatusChip>
     ) : null
 
-    // The amount as this account sees it, in the row's own currency: a transfer − when the money
-    // left it and + when it came in (muted: it moved between your own accounts), income + in green,
-    // the rest −.
-    const sign = isTransfer ? (out ? '−' : '+') : isIncome ? '+' : '−'
+    // The amount as this account sees it, in the row's own currency (`sign`): a transfer − when the
+    // money left it and + when it came in (muted: it moved between your own accounts), income + in
+    // green, the rest −.
     // Still waiting for its amount in the budget currency: a tag, not a button (the amount is
     // entered on Transactions), explained behind its (i) as Before opening is. Under the amount;
     // on the narrowest phones on the second line, after the date.
@@ -446,7 +463,13 @@ export function AccountDetailPage() {
   }
 
   return (
-    <AppShell active="accounts" title={account?.name ?? 'Account'} back={{ to: '/accounts', label: 'Accounts' }}>
+    // On an in-app change of account the title reads Loading… until the new one is in, never the
+    // name of the account left (#344 P3-6).
+    <AppShell
+      active="accounts"
+      title={shownAccount?.name ?? (account && loading ? 'Loading…' : 'Account')}
+      back={{ to: '/accounts', label: 'Accounts' }}
+    >
       {loading && <p className="text-slate-500">Loading…</p>}
 
       {!loading && notFound && (
@@ -460,7 +483,7 @@ export function AccountDetailPage() {
       {!loading && account && (
         <>
           {/* On the body's three columns: the hero over the list's two, In jars over Account details. */}
-          <KpiRow tiles={jars ? 1 : 0} onGrid>
+          <KpiRow tiles={jars || reserveJars ? 1 : 0} onGrid>
             <KpiTile
               hero
               label="Balance"
@@ -469,8 +492,24 @@ export function AccountDetailPage() {
               valueLabel={`${account.name} balance: ${balanceMinor === null ? 'not available' : formatMoney(balanceMinor, currency)}`}
               sub={heroSub(account)}
               // Alone, the hero keeps to the list's two columns on a wide screen and fills a narrower row.
-              className={jars ? '' : '@min-[640px]:col-span-2!'}
+              className={jars || reserveJars ? '' : '@min-[640px]:col-span-2!'}
             />
+            {!jars && reserveJars && (
+              // The tile's room while its figures load: the same tile, its words and figures kept
+              // invisible (and hidden from screen readers), so the real one takes its place exactly.
+              <KpiTile
+                aria-hidden
+                data-testid="in-jars-pending"
+                label={'\u00a0'}
+                icon={<JarNavIcon strokeWidth={1.8} />}
+                hue="teal"
+                value={<span className="invisible">€0.00</span>}
+                extra={balanceMinor !== null ? <MiniBar pct={0} hue="teal" size="lg" /> : undefined}
+                sub={balanceMinor !== null ? <span className="invisible">€0.00 not in jars</span> : undefined}
+                strip="bar-sub"
+                className="animate-pulse"
+              />
+            )}
             {jars && (
               <KpiTile
                 label="In jars"
@@ -499,10 +538,11 @@ export function AccountDetailPage() {
               <section aria-labelledby={listHeadingId} className={`dash-palette ${DASH_CARD} @min-[900px]:col-span-2`}>
                 <h2 id={listHeadingId} className={`flex min-h-8 items-center gap-1.5 ${CARD_TITLE}`}>
                   Transactions
-                  {/* No badge on an empty list: the line under the title already says so. */}
+                  {/* No badge on an empty list: the line under the title already says so. The
+                      heading reads "Transactions, 10" (#344 P3-6): the comma is for the ear only. */}
                   {rows.length > 0 && (
                     <>
-                      {' '}
+                      <span className="sr-only">,</span>{' '}
                       <span data-testid="account-tx-count" className={COUNT_BADGE}>
                         {rows.length}
                       </span>
@@ -545,7 +585,7 @@ export function AccountDetailPage() {
                   </DetailRow>
                   {identifiers.map(([label, value]) => (
                     <DetailRow key={label} label={label}>
-                      {value}
+                      {label === 'IBAN' ? <Iban value={value} /> : value}
                     </DetailRow>
                   ))}
                 </dl>
@@ -571,5 +611,25 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
         {children}
       </dd>
     </div>
+  )
+}
+
+/**
+ * An IBAN in groups of four, as banks print it (#344 P3-5): display only. The groups are spaced
+ * by a margin, not by spaces, and a line may break only between them, so selecting or copying the
+ * IBAN gives the stored value. One stored with its own spaces shows as stored.
+ */
+function Iban({ value }: { value: string }) {
+  if (/\s/.test(value)) return <>{value}</>
+  const groups = value.match(/.{1,4}/g) ?? [value]
+  return (
+    <span data-iban="" className="[overflow-wrap:normal] break-normal">
+      {groups.map((g, i) => (
+        <Fragment key={i}>
+          {i > 0 && <wbr />}
+          <span className={i > 0 ? 'ml-[0.32em]' : undefined}>{g}</span>
+        </Fragment>
+      ))}
+    </span>
   )
 }
