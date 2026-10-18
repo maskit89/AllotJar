@@ -460,7 +460,7 @@ Also available: **"Blank July"** fixture — a freshly created blank month for a
 - **Steps:**
   1. Hover the "Emergency Fund" row and click **✕** (aria "Remove Emergency Fund this month").
   2. Send `DELETE /api/budget/items/{id}` directly.
-- **Expected:** 1: no optimistic removal; the skip-or-archive dialog opens (BUDG-034) — **Skip this month** keeps the line at €0 with a Skipped tag and spreads the rest over the months left (BUDG-060); **Archive the jar** stops future contributions (BUDG-061). 2: 400 "Emergency Fund is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones."; the line and the **Emergency Fund jar stay** exactly as they were. Jar detail → `13-jars.md` (JAR-094–099).
+- **Expected:** 1: no optimistic removal; the skip-or-archive dialog opens (BUDG-034) — **Skip this month** keeps the line at €0 with a Skipped tag and spreads the rest over the months left (BUDG-060); **Archive jar** (the dialog's archive step) stops future contributions (BUDG-061). 2: 400 "Emergency Fund is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones."; the line and the **Emergency Fund jar stay** exactly as they were. Jar detail → `13-jars.md` (JAR-094–099).
 - **Automated:** Yes (`CCategoriesLinesCoverageTests.cs` `DeleteSavingsLine_IsRefused_TheLineAndItsJarStay`; `DashboardPage.skip.test.tsx` BUDG-034)
 
 ### CAT-045 - Delete a line owned by another household is refused; rollback

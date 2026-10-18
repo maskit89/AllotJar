@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { BudgetMonthDto, JarScheduleDto } from '../types'
 
@@ -104,8 +104,10 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
-    expect(dialog.getByText(/^Remove Holiday from .+\?$/)).toBeInTheDocument()
-    expect(dialog.getByText(/can’t just be deleted: the jar’s plan would put it back/)).toBeInTheDocument()
+    // A short title; why the line can't be deleted sits behind the title's (i) (restyle PR 18).
+    expect(dialog.getByText('Skip Holiday this month')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About skipping a month' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/can’t just be deleted: the jar’s plan would put it back/)).toBeInTheDocument()
     expect(mockGet).toHaveBeenCalledWith('/budget/items/i-holiday/skip-preview')
     // The later months, as the server will replant them (rule 61).
     expect(await dialog.findByText(/spreads this month’s €150\.00 over the months that are left/, {}, { timeout: 5000 })).toBeInTheDocument()
@@ -165,8 +167,15 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     renderPage()
     await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    // "Archive jar" at the footer's left only turns the dialog to its archive step (restyle PR 18):
+    // the title changes, the preview gives way to one line, and the one press that archives is focused.
     await user.click(dialog.getByLabelText('Archive Holiday'))
     expect(mockPut).not.toHaveBeenCalled()
+    expect(dialog.getByText('Archive Holiday')).toBeInTheDocument()
+    expect(dialog.queryByTestId('skip-preview')).not.toBeInTheDocument()
+    expect(dialog.queryByLabelText('Skip Holiday this month')).not.toBeInTheDocument()
+    expect(dialog.getByLabelText('Skip Holiday this month instead')).toBeInTheDocument()
+    expect(dialog.getByLabelText('Confirm archive Holiday')).toHaveFocus()
     await user.click(dialog.getByLabelText('Confirm archive Holiday'))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/jar-holiday/archive', { archived: true }))
@@ -189,7 +198,14 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     renderPage()
     await lineAction(user, 'Holiday', 'Archive jar')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/^Remove Holiday from .+\?$/)).toBeInTheDocument()
+    expect(dialog.getByText('Archive Holiday')).toBeInTheDocument()
+    expect(mockPut).not.toHaveBeenCalled()
+    // Back to the skip step and its preview, then to the archive step again: still nothing sent.
+    await user.click(dialog.getByLabelText('Skip Holiday this month instead'))
+    expect(dialog.getByText('Skip Holiday this month')).toBeInTheDocument()
+    expect(await dialog.findByText(/spreads this month’s €150\.00 over the months that are left/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(dialog.getByLabelText('Skip Holiday this month')).toHaveFocus()
+    await user.click(dialog.getByLabelText('Archive Holiday'))
     expect(mockPut).not.toHaveBeenCalled()
     await user.click(dialog.getByLabelText('Confirm archive Holiday'))
 

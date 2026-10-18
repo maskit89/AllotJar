@@ -207,8 +207,14 @@ describe('AccountsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText('Account name'), 'Pocket')
+    // The holders are styled checkbox rows under a "Holders" eyebrow, their meaning behind its (i) (restyle PR 18).
     await user.click(await dialog.findByLabelText('Held by Chris'))
+    expect(dialog.getByText('Holders')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About holders' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/two or more a joint one/)).toBeInTheDocument()
     expect(dialog.getByLabelText('Keep this account private')).toBeChecked()
+    expect(dialog.getByText('Privacy')).toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'About keeping it private' })).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({ holderIds: ['m1'], isPrivate: true })),

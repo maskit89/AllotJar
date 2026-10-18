@@ -1502,6 +1502,17 @@ html {
 .dlg-check input[aria-invalid='true'] {
   border-color: var(--color-bad);
 }
+/* A dialog's radio (the payments a cycle can be marked paid with, restyle PR 18): the same box,
+   round; chosen, a brand ring around a dot of the field colour. */
+.dlg-check input[type='radio'] {
+  border-radius: 999px;
+}
+.dlg-check input[type='radio']:checked,
+.dark .dlg-check input[type='radio']:checked {
+  border-width: 6px;
+  background-color: var(--dlg-field);
+  background-image: none;
+}
 @media (forced-colors: active) {
   .dlg-check input {
     appearance: auto;

@@ -353,7 +353,7 @@ describe('TransactionsPage list — on a phone', () => {
     await user.keyboard('{Escape}')
     await user.click(screen.getByRole('button', { name: 'Enter amount in EUR: London Cab' }))
     const convert = await screen.findByRole('dialog', {}, { timeout: 5000 })
-    expect(within(convert).getByRole('button', { name: 'Confirm amount' })).toBeInTheDocument()
+    expect(within(convert).getByRole('button', { name: 'Save' })).toBeInTheDocument()
     expect(screen.queryByRole('dialog', { name: 'London Cab' })).not.toBeInTheDocument()
   })
 })

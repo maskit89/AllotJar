@@ -699,7 +699,7 @@ Fixture W13: one household. Chris (budget owner, login), Sam (Admin login, linke
 - **Type:** Happy
 - **Preconditions:** Fixture W13.
 - **Steps:**
-  1. As Sam, **Add account** "Sam's current", tick **Held by Sam** only. 2. Note the **Keep it private** box, save. 3. As Chris, list Accounts. 4. As Chris, add "Sam's savings" held by Sam. 5. Sign in as Sam.
+  1. As Sam, **Add account** "Sam's current", tick **Held by Sam** only (the **Holders** rows; their meaning is behind the eyebrow's (i), restyle PR 18). 2. Note the **Keep it private** row under **Privacy** (its (i) says who sees it), save. 3. As Chris, list Accounts. 4. As Chris, add "Sam's savings" held by Sam. 5. Sign in as Sam.
 - **Expected:** 2: the box is ticked by default and shows only when the account is yours alone. 3: Chris does not see "Sam's current" at all. 4: saved shared (Chris sees it). 5: Sam sees the **Review sharing** banner ("Review who sees your accounts."); its dialog lists "Sam's savings" as shared (rules 31/32, P54/P58).
 - **Automated:** Yes (JointAccountsW13Tests — `AnAccountTheHolderAddsForThemselves_StartsPrivate_AndOnlyTheirLoginSeesIt_Rule31`, `AnAccountSomeoneElseAddsForAPersonWithALogin_StartsShared_AndAsksThemToReview_Rules31And32`; AccountsPage tests)
 

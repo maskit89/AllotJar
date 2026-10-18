@@ -280,7 +280,7 @@
   3. Replaying the SPA's bearer token, `POST /api/accounts` with `currency: "GBP"` (the UI offers no way to pick one).
   4. On `/transactions` click **+ Add transaction**: payee "Diner", assigned to a line, account "Joint", tick **Paid in another currency**, Currency "USD", Amount paid 20, **Suggest**, keep or correct the Amount (e.g. 18.40), **Add transaction**.
   5. On `/import` import the statement with no import account; open `/transactions` and `/`.
-  6. On London Cab click **Enter amount** → **Suggest** → **Confirm amount**; assign it to a line; reopen `/`.
+  6. On London Cab click **Enter amount** → **Suggest** → **Save**; assign it to a line; reopen `/`.
   7. Open `/reports`.
 - **Expected:**
   - CP1: before any data the Currency select is editable (PREF-043); once the month exists it is read-only with "Your budget currency is fixed once your budget has accounts, months or transactions." (PREF-011). The month's `baseCurrency` is EUR.
