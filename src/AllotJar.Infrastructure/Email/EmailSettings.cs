@@ -45,7 +45,16 @@ public class EmailSettings
     /// config-only — deriving it from the request's Host header would let a spoofed header inject
     /// an attacker-controlled link into a legitimate reset email.
     /// </summary>
-    public string AppBaseUrl { get; set; } = "https://www.allotjar.com";
+    public string AppBaseUrl { get; set; } = ProductionOrigin;
+
+    /// <summary>The production site's origin: the built-in <see cref="AppBaseUrl"/>.</summary>
+    public const string ProductionOrigin = "https://www.allotjar.com";
+
+    /// <summary>Production is public at the apex as well as www, so either origin fits it.</summary>
+    public static readonly string[] ProductionOrigins = [ProductionOrigin, "https://allotjar.com"];
+
+    /// <summary>The staging site's origin; its settings file must set <see cref="AppBaseUrl"/> to it.</summary>
+    public const string StagingOrigin = "https://staging.allotjar.com";
 
     /// <summary>
     /// Log full message bodies from the fallback sender. Development-only convenience (the reset
@@ -89,6 +98,46 @@ public class EmailSettings
         return $"Email:AccountId does not look like a Cloudflare account id (expected 32 hex " +
                $"characters, got {id.Length}) — sends will fail with a 404 routing error. Copy the " +
                "FULL id from the dashboard URL or the account home sidebar, with no ellipsis.";
+    }
+
+    /// <summary>
+    /// Why every emailed link would open the WRONG site for the host this API runs on — or
+    /// <c>null</c> when <see cref="AppBaseUrl"/> fits the environment.
+    ///
+    /// The built-in default is the production origin, so a staging settings file that simply
+    /// omits <c>Email:AppBaseUrl</c> emails password-reset and invite links that open
+    /// www.allotjar.com, where the token (signed with staging's own DataProtection keys) is not
+    /// valid (12 October 2026). Deploy.ps1 refuses such a file before a deploy; this is the
+    /// matching check for an API that is already running (a pool recycle after a hand edit),
+    /// logged as an Error at startup so it reaches the error alerts. Only the two named
+    /// environments are judged: Development and the test hosts may point anywhere.
+    /// </summary>
+    public string? DescribeEnvironmentMismatch(string environmentName)
+    {
+        var isStaging = string.Equals(environmentName, "Staging", StringComparison.OrdinalIgnoreCase);
+        var isProduction = string.Equals(environmentName, "Production", StringComparison.OrdinalIgnoreCase);
+        if (!isStaging && !isProduction)
+        {
+            return null;
+        }
+
+        if (!Uri.TryCreate(AppBaseUrl?.Trim(), UriKind.Absolute, out var url)
+            || (url.Scheme != Uri.UriSchemeHttp && url.Scheme != Uri.UriSchemeHttps))
+        {
+            return $"Email:AppBaseUrl '{AppBaseUrl}' is not an absolute http(s) URL, so links in emails are broken.";
+        }
+
+        var origin = url.GetLeftPart(UriPartial.Authority);
+        var expected = isStaging ? [StagingOrigin] : ProductionOrigins;
+        if (expected.Contains(origin, StringComparer.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var expectedFile = isStaging ? "appsettings.Staging.json" : "appsettings.Production.json";
+        return $"Email:AppBaseUrl is {AppBaseUrl}, so every emailed link (password reset, invite) opens {origin} " +
+               $"instead of this {environmentName} site. Set Email:AppBaseUrl to {string.Join(" or ", expected)} in {expectedFile} " +
+               "and recycle the API app pool.";
     }
 
     /// <summary>

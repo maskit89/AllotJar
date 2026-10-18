@@ -187,6 +187,75 @@ $twoData = $prodBak + @([pscustomobject]@{ LogicalName = 'ZeroBudgetProd_2'; Phy
 $plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $twoData -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
 Assert-True ((-not $plan.ReusedTargetFiles) -and $plan.Targets[1] -eq 'C:\SQL\DATA\ZeroBudgetStaging_1.ndf') 'a file-count mismatch uses fresh <Database>_n.ndf names'
 
+Write-Host '== Get-StackSettingsProblems (a settings file must fit its stack) =='
+# Staging's real file shape: // comments, a "//" key, the staging database, no AppBaseUrl.
+# This is the 12 October 2026 bug: the API's default origin is production, so staging's
+# reset emails linked to www.allotjar.com.
+$stagingNoUrl = @'
+{
+  // server-only settings
+  "ConnectionStrings": {
+    "//": "Database is ZeroBudgetStaging for staging.",
+    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ZeroBudgetStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+  },
+  "Email": {
+    "Provider": "cloudflare",
+    "FromAddress": "AllotJar <no-reply@allotjar.com>"
+  }
+}
+'@
+$p = Get-StackSettingsProblems -SettingsText $stagingNoUrl -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'AppBaseUrl is missing' -and $p[0] -match 'https://staging\.allotjar\.com') 'staging without Email:AppBaseUrl is refused, naming the staging origin'
+$p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace 'ZeroBudgetStaging', 'ZeroBudgetProd') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 0) 'production may omit Email:AppBaseUrl (the built-in default is its own origin)'
+
+$stagingOk = $stagingNoUrl -replace '"Provider": "cloudflare",', '"Provider": "cloudflare", "AppBaseUrl": "https://staging.allotjar.com",'
+$p = Get-StackSettingsProblems -SettingsText $stagingOk -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 0) 'staging naming its own database and origin passes'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'HTTPS://Staging.AllotJar.com/') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 0) 'origin comparison ignores case and a trailing slash'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'https://www.allotjar.com') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://www\.allotjar\.com') 'staging pointing emailed links at production is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'staging.allotjar.com') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'not an absolute http') 'a schemeless AppBaseUrl is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=ZeroBudgetStaging', 'Database=ZeroBudgetProd') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'Database=ZeroBudgetProd' -and $p[0] -match 'ZeroBudgetStaging') 'staging naming the production database is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=ZeroBudgetStaging;', '') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'names no database') 'a connection string without a database is refused'
+$p = Get-StackSettingsProblems -SettingsText '{ "Jwt": { "Key": "x" } }' -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 2 -and $p[0] -match 'DefaultConnection is missing') 'a file without a connection string reports both problems'
+# Both wrong at once: the staging stack reading a copy of production's file.
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'staging\.allotjar', 'www.allotjar') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 2) 'a production file under the staging name reports the database and the origin'
+# A commented-out line neither satisfies nor fails a check.
+$p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace '"Provider": "cloudflare",', "`"Provider`": `"cloudflare`",`n    // `"AppBaseUrl`": `"https://staging.allotjar.com`",") -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'AppBaseUrl is missing') 'a commented-out AppBaseUrl does not count'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"Email": \{', '"Email": { "AppBaseUrl": "https://staging.allotjar.com",') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'appears 2 times') 'two AppBaseUrl entries are refused rather than guessed between'
+# Production is public at the apex as well as www: both fit, and only those two.
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 0) 'production naming the apex origin passes'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://www.allotjar.com') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 0) 'production naming the www origin passes'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://app.allotjar.com') -AspNetEnvironment Production
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'https://www\.allotjar\.com or https://allotjar\.com') 'production naming another host is refused, listing both accepted origins'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://allotjar\.com') 'staging pointing emailed links at the apex is refused'
+# Production must never name staging.
+$prodWrong = $stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd'
+$p = Get-StackSettingsProblems -SettingsText $prodWrong -AspNetEnvironment Production
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://staging\.allotjar\.com') 'production pointing emailed links at staging is refused'
+# The expected values can be overridden (another domain, another database name).
+$p = Get-StackSettingsProblems -SettingsText $stagingOk -AspNetEnvironment Staging -ExpectedDatabase 'Other' -ExpectedAppBaseUrl 'https://test.example'
+Assert-True ($p.Count -eq 2) 'overridden expectations are honoured'
+
+Write-Host '== Get-UrlOrigin =='
+Assert-True ((Get-UrlOrigin -Url 'HTTPS://Staging.AllotJar.com/reset?x=1') -eq 'https://staging.allotjar.com') 'origin drops path and case'
+Assert-True ((Get-UrlOrigin -Url 'http://127.0.0.1:5000/') -eq 'http://127.0.0.1:5000') 'origin keeps a non-default port'
+Assert-True ($null -eq (Get-UrlOrigin -Url 'www.allotjar.com')) 'a bare host is not an origin'
+Assert-True ($null -eq (Get-UrlOrigin -Url 'ftp://allotjar.com')) 'a non-http scheme is not an origin'
+Assert-True ($null -eq (Get-UrlOrigin -Url '')) 'empty is not an origin'
+
 if ($script:Failures -gt 0) {
     Write-Host "$($script:Failures) assertion(s) FAILED." -ForegroundColor Red
     exit 1

@@ -98,10 +98,18 @@ for the staging API; both preserved across deploys by `Deploy.ps1`'s robocopy ex
   "ApiKey": "<API token with Email Sending: Edit>",
   "AccountId": "<32 hex characters>",       // required — the send endpoint is account-scoped
   "FromAddress": "AllotJar <no-reply@allotjar.com>",
-  "AppBaseUrl": "https://www.allotjar.com"
+  "AppBaseUrl": "https://www.allotjar.com"              // staging: https://staging.allotjar.com
 }
 // Resend — same block without AccountId, and "Provider": "resend" (or omit Provider entirely)
 ```
+
+> **`AppBaseUrl` is the origin inside every emailed link** (password reset, invite) and is config-only
+> (never the request's Host header). Its built-in default is the production origin, so **staging's
+> `appsettings.Staging.json` must set it to `https://staging.allotjar.com`**; a staging file that omits
+> it emails links that open production, where the token (signed with staging's own DataProtection keys)
+> is not valid (12 October 2026). `Deploy.ps1` refuses, in its preflight, a settings file whose
+> `AppBaseUrl` or `Database=` names the other stack, and the API logs an **Error** at startup (so the
+> error alerts carry it) when the origin does not fit the environment it runs in.
 
 > **`AccountId` must be the FULL 32-character hex id** — from the dashboard URL
 > (`https://dash.cloudflare.com/<account-id>/…`) or the account-home sidebar. Dashboards and docs
