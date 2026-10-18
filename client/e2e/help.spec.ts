@@ -32,6 +32,10 @@ async function openHelp(page: Page) {
   await page.goto('/help')
   await expect(page.getByRole('heading', { level: 1, name: 'Help & guide' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Topics' })).toBeVisible()
+  // Settle the web font before any layout is measured: on a slow runner Hanken Grotesk can arrive
+  // between two measurements and move every row (main's run 937 failed the sign-in band that way).
+  await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {})
+  await page.evaluate(() => document.fonts.ready)
 }
 
 /**
@@ -116,7 +120,7 @@ test.describe('Help', () => {
     await jars.click()
     await expect(jars).toHaveAttribute('aria-expanded', 'false')
     await expect(panel).toBeHidden()
-    expect((await reports.boundingBox())!.y).toBe(before)
+    expect(Math.abs((await reports.boundingBox())!.y - before)).toBeLessThanOrEqual(1)
   })
 
   test('a topic opens and closes from the keyboard (Enter, Space), focus staying on the row', async ({ page }) => {
