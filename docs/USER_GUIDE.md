@@ -73,7 +73,7 @@ Every signed-in page shares the same chrome:
 - **The top bar** opens every data screen with a **month picker** (`‹ June 2026 ›`), the signature **Zero-based** pill, and the **light/dark** theme toggle. On an account's own page it starts with a back arrow to Accounts.
 - **Your account menu** is the chip with your initials at the bottom of the sidebar (top-right on mobile). It holds **Account settings**, **switching households** (if you belong to more than one), and **Sign out**.
 
-The **Help** page is a quick reference to everything below, with a button to replay the welcome tour.
+The **Help** page is a quick reference to everything below: one card of topics that open in place, with links to replay the welcome tour and to this guide. When the household is offered analytics, a **Privacy** card beside the topics holds the Google Analytics switch.
 
 ## 3. The Dashboard
 

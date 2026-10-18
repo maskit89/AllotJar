@@ -21,7 +21,9 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * 24px gap): two columns from 640px and three from 900px, the hero over two of them there.
  * `thirds`: the hero and two tiles on a grid of three equal columns (the Accounts page's cards)
  * from 900px; from 640px one row as the default (the hero half again as wide as each tile). With
- * no tiles (`tiles={0}`) the hero takes the whole row, so nothing sits beside an empty slot.
+ * no tiles (`tiles={0}`) on the default grid or `thirds` the hero takes the whole row, so nothing
+ * sits beside an empty slot; on `onGrid` it keeps its two of three columns (the caller adds its
+ * own span, as the Account detail page does).
  * `halves`: the hero and one tile on two equal columns from 640px (the People page's person cards,
  * with the same 24px gap), instead of the hero half again as wide as the tile.
  */
@@ -52,7 +54,8 @@ export function KpiRow({
       ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]'
       : tiles === 1
         ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]'
-        : ''
+        : // The hero alone (the Help page, restyle PR 13): across the whole row at every width.
+          '@min-[640px]:[&>:first-child]:col-span-2'
   return (
     <div className={`@container ${className}`}>
       <div className={`grid grid-cols-2 gap-3 @min-[640px]:gap-6 ${cols}`}>{children}</div>
@@ -88,6 +91,11 @@ export interface KpiTileProps extends Omit<HTMLAttributes<HTMLElement>, 'childre
   /** The green hero tile with the gold number (one per row, first). */
   hero?: boolean
   /**
+   * The hero's value is a short phrase, not a figure (the Help page's "Give every euro a job",
+   * restyle PR 13): white at 22px instead of the 38px gold number, so gold stays for figures.
+   */
+  phrase?: boolean
+  /**
    * A plain tile alone beside the hero: a slim strip across the narrow row. 'bar': the strip keeps
    * its sub-line and its bar (`extra`): the label at the left, the number and the sub-line at the
    * right, the bar across the strip under them. 'bar-sub' (an account's In jars, restyle PR 11):
@@ -111,6 +119,7 @@ export function KpiTile({
   subTone = 'muted',
   extra,
   hero = false,
+  phrase = false,
   strip = false,
   className = '',
   ...rest
@@ -140,7 +149,11 @@ export function KpiTile({
           {hintEl}
         </p>
         <p
-          className="gold-number w-fit text-[30px] leading-[1.1] font-bold tracking-[-0.025em] @min-[640px]:text-[38px]"
+          className={
+            phrase
+              ? 'mt-0.5 w-fit text-[22px] leading-[1.25] font-bold tracking-[-0.015em] text-white'
+              : 'gold-number w-fit text-[30px] leading-[1.1] font-bold tracking-[-0.025em] @min-[640px]:text-[38px]'
+          }
           aria-label={valueLabel}
         >
           {value}

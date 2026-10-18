@@ -46,7 +46,7 @@
 - **Steps:**
   1. `/import`: choose an account, upload a CSV, "Review transactions"; scan the review table, then an opened split editor ("Split AUTOMARKET on 2026-06-17"), then a marked transfer ("Mark WOLT on 2026-06-15 as a transfer") with its counterparty picker.
   2. `/jars`: open "New jar" — the form asks no Type: "Repeats" starts at "Doesn’t repeat", so "Needed by" and "Repeats" (with its "What repeating means" hint) render; select "Yearly" in Repeats (the date becomes "Next due date"); back to "Doesn’t repeat", fill Target `300` + "Needed by" `2026-12-15` (the mocked `POST /jars/schedule` preview renders), click "More options" (the "Include the deadline month" tick box renders, with its "What including the deadline month means" hint, and "Already set aside" with its "What setting money aside does" hint); tick "Set aside a fixed amount each month" (visible text "Fixed amount each month", with its "What a fixed amount means" hint; "Monthly amount" replaces the date and Repeats); then "Edit Home insurance" (two-step Archive).
-  3. `/help` with `analytics` flag on: the "Analytics consent" region + "Privacy & analytics" control.
+  3. `/help` with `analytics` flag on: the "Analytics consent" region + the "Privacy" card's "Google Analytics" switch (`client/e2e/help.spec.ts` also scans the page with a topic row and the hero's (i) open, light and dark).
   4. `/` for a brand-new user: welcome dialog, every spotlight tour step through "Finish", the "Getting started" checklist region.
 - **Expected:** Zero violations on every overlay in light and dark — dialogs carry `role="dialog" aria-modal`, the consent banner is a labelled `role="region"`, the checklist a labelled `section`/region, tour steps announce "Step n of 9".
 - **Automated:** Yes (`client/e2e/a11y.spec.ts`)
@@ -175,7 +175,7 @@
 - **Preconditions:** Every route, authed and public.
 - **Steps:**
   1. On each route, enumerate `<h1>` elements.
-- **Expected:** Exactly one h1 per page. AppShell renders the `title` prop as a visually-hidden `<h1 class="sr-only">` for data screens (the visible header is the TopBar); pages with their own visible h1 omit the prop — HelpPage ("Help & guide"), LandingPage ("Give every {noun} a job"), Legal pages (page title). `/login` and `/accept-invite` render the brand wordmark "AllotJar" as their single h1 (the "Sign in" / "Join the household" headings are lower-level). No page renders zero or two h1s.
+- **Expected:** Exactly one h1 per page. AppShell renders the `title` prop as a visually-hidden `<h1 class="sr-only">` for data screens (the visible header is the TopBar); pages with their own visible h1 omit the prop — LandingPage ("Give every {noun} a job"), Legal pages (page title). HelpPage passes `title="Help & guide"` like the data screens (its hero "Zero-based budgeting" is a named region, not a heading; the topic rows are h3s under the h2 "Topics"). `/login` and `/accept-invite` render the brand wordmark "AllotJar" as their single h1 (the "Sign in" / "Join the household" headings are lower-level). No page renders zero or two h1s.
 - **Automated:** Partial (`a11y.spec.ts` waits on `heading level 1 .first()`; `LandingPage.test.tsx` asserts a single H1)
 
 ### UX-018 - Primary navigation is a labelled landmark with a current-page marker
