@@ -276,6 +276,14 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     await user.type(fields.getByLabelText('Amount for Holiday'), '3000')
     expect(fields.getByText(/The jar amounts exceed/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Import 4 transactions' })).toBeDisabled()
+    // Folded away (as a re-scan folds them), the row still says the amounts are wrong.
+    const toggle = within(rowOf('Include SALARY on 2026-06-01')).getByRole('button', { name: '€3,000 into jars' })
+    expect(toggle).toHaveAttribute('title', 'The jar amounts exceed what arrived.')
+    expect(toggle).toHaveClass('text-bad')
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(toggle).toHaveClass('text-bad')
+    await user.click(toggle)
     // The foot note stays short; the rule it enforces sits behind its (i).
     expect(screen.getByText(/Finish the highlighted rows first/)).toBeInTheDocument()
     expect(await openHint(user, 'What the highlighted rows need')).toHaveTextContent(/jar amounts can’t exceed what arrived/)

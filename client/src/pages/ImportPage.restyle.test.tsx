@@ -572,6 +572,67 @@ describe('ImportPage restyle (PR 14)', () => {
     expect(line).toHaveAttribute('aria-describedby', missing.id)
   })
 
+  it('a fee the row cannot carry, or one without a line, marks the row itself once the dialog closes (nothing shows a fee that is not recorded)', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue(previewWithTransfer())
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user, 'acc1')
+    const row = () => within(rowOf('Include AUTOMARKET on 2026-06-17'))
+    const chip = () => row().getByRole('button', { name: 'Edit transfer for AUTOMARKET on 2026-06-17' })
+    const tone = () => row().getByText('Transfer').closest('[data-tone]')?.getAttribute('data-tone')
+
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    let dialog = await screen.findByRole('dialog', { name: 'Transfer' })
+    await user.selectOptions(within(dialog).getByLabelText('Transfer account for AUTOMARKET on 2026-06-17'), 'acc2')
+    // A fee larger than the row: Done closes the dialog, the row reads bad and names the reason; no "+ fee" line.
+    await user.type(within(dialog).getByLabelText('Fee for AUTOMARKET on 2026-06-17'), '99')
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Transfer' })).not.toBeInTheDocument())
+    expect(tone()).toBe('bad')
+    expect(chip()).toHaveAttribute('title', 'The fee must be more than zero and less than the row’s amount.')
+    expect(row().queryByText(/\+ fee/)).not.toBeInTheDocument()
+    expect(screen.getByText(/Finish the highlighted rows first/)).toBeInTheDocument()
+
+    // A fee the row can carry but no line for it yet: still bad, and the fee line now shows.
+    await user.click(chip())
+    dialog = await screen.findByRole('dialog', { name: 'Transfer' })
+    const fee = within(dialog).getByLabelText('Fee for AUTOMARKET on 2026-06-17')
+    await user.clear(fee)
+    await user.type(fee, '2')
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Transfer' })).not.toBeInTheDocument())
+    expect(tone()).toBe('bad')
+    expect(chip()).toHaveAttribute('title', 'Choose the fee’s category.')
+    expect(row().getByText('+ fee €2.00')).toBeInTheDocument()
+
+    // The line chosen: the row is complete again.
+    await user.click(chip())
+    dialog = await screen.findByRole('dialog', { name: 'Transfer' })
+    await user.selectOptions(within(dialog).getByLabelText('Fee category for AUTOMARKET on 2026-06-17'), 'bi1')
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Transfer' })).not.toBeInTheDocument())
+    expect(tone()).toBe('line')
+    expect(chip()).not.toHaveAttribute('title')
+    expect(screen.queryByText(/Finish the highlighted rows first/)).not.toBeInTheDocument()
+  })
+
+  it('the Transfer dialog of an unticked row says why its controls are disabled', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue(previewWithTransfer())
+    const user = userEvent.setup()
+    renderPage()
+    await goToReview(user, 'acc1')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    let dialog = await screen.findByRole('dialog', { name: 'Transfer' })
+    expect(within(dialog).queryByText('Tick the row to edit its transfer.')).not.toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Done' }))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Transfer' })).not.toBeInTheDocument())
+    await user.click(screen.getByLabelText('Include E-BANKING PAYMENT on 2026-06-16'))
+    await user.click(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' }))
+    dialog = await screen.findByRole('dialog', { name: 'Transfer' })
+    expect(within(dialog).getByText('Tick the row to edit its transfer.')).toBeInTheDocument()
+    expect(within(dialog).getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).toBeDisabled()
+  })
+
   it('the include-all box reads mixed while only some rows are ticked', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     renderPage()

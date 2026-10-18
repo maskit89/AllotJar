@@ -553,6 +553,12 @@ export function ImportPage() {
   // dialog closes by removing its own opener (Undo transfer, Clear split): the chip that opened it is
   // gone by then, so the dialog's own focus return would land nowhere.
   const dialogReturn = useRef<string | null>(null)
+  // A server error lands at the top of the page; on a phone the user pressed Import at the foot of
+  // a long list, so bring it into view (jsdom has no scrollIntoView).
+  const errorRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (error) errorRef.current?.scrollIntoView?.({ block: 'nearest' })
+  }, [error])
   useEffect(() => {
     if (transferFor !== null || splitOpen !== null || !dialogReturn.current) return
     const key = dialogReturn.current
@@ -1110,6 +1116,8 @@ export function ImportPage() {
     const showPaidFrom = importBacksJars && r.include && paidFromApplies(r, jarLineIds)
     const jarsAreOpen = showAllocation && jarsOpen.includes(r.key)
     const jarTotal = jarAllocationsTotal(r.jarAllocation)
+    // Wrong jar amounts mark the row whether the fields are open or folded away (a re-scan folds them).
+    const jarsProblem = showAllocation && !jarAllocationValid(r) ? (jarAllocationTooPrecise(r) ? TOO_MANY_DECIMALS : 'The jar amounts exceed what arrived.') : undefined
     const paidFromJar = showPaidFrom && r.paidFromJarId ? importJars.find((j) => j.jarId === r.paidFromJarId) : undefined
     const lineColor = r.budgetItemId && lines.hue[r.budgetItemId] ? hueColor(lines.hue[r.budgetItemId]) : NEUTRAL
     const jarLine = !!r.budgetItemId && jarLineIds.has(r.budgetItemId)
@@ -1221,7 +1229,17 @@ export function ImportPage() {
     let main: ReactNode
     let xflag: ReactNode = null
     if (r.isTransfer) {
-      const incomplete = !returning && !r.transferAccountId && !r.matchTransferId
+      // The row carries every reason the transfer blocks the import, as the dialog does: a missing
+      // account, a fee with no line (rule 91), or a typed fee the row can't carry.
+      const noAccount = !returning && !r.transferAccountId && !r.matchTransferId
+      const incomplete = noAccount || feeLineMissing(r) || !manualFeeValid(r)
+      const problem = noAccount
+        ? 'Choose the other account.'
+        : !manualFeeValid(r)
+          ? 'The fee must be more than zero and less than the row’s amount.'
+          : feeLineMissing(r)
+            ? 'Choose the fee’s category.'
+            : undefined
       const other = returning
         ? 'coming back'
         : match && match.counterpartyAccountId === null
@@ -1234,6 +1252,7 @@ export function ImportPage() {
           type="button"
           onClick={() => setTransferFor(r.key)}
           aria-label={`Edit transfer for ${name}`}
+          title={problem}
           className={`group/x relative flex min-w-0 items-center gap-2 rounded-lg after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] ${phone ? 'z-10' : ''}`}
         >
           {/* On a phone the icon alone says "transfer" (the mock-up's row), the chip only on a wide screen. */}
@@ -1357,7 +1376,7 @@ export function ImportPage() {
           {r.isCredit ? '+' : '−'}
           {formatMoney(fromAmount(r.amount), r.currency)}
         </span>
-        {r.isTransfer && feeMinor !== null && (
+        {r.isTransfer && feeMinor !== null && manualFeeValid(r) && (
           <span className="text-xs whitespace-nowrap text-slate-400 tabular-nums">+ fee {formatMoney(feeMinor, r.currency)}</span>
         )}
         {showAllocation && (
@@ -1366,7 +1385,10 @@ export function ImportPage() {
             aria-expanded={jarsAreOpen}
             aria-controls={`${domId}-jars`}
             onClick={() => setJarsOpen((open) => (open.includes(r.key) ? open.filter((k) => k !== r.key) : [...open, r.key]))}
-            className={`relative inline-flex items-center gap-[3px] rounded-md text-xs font-semibold whitespace-nowrap text-slate-500 transition after:absolute after:-inset-x-1.5 after:-inset-y-3 after:content-[''] hover:text-slate-900 ${phone ? 'z-10' : ''}`}
+            title={jarsProblem}
+            className={`relative inline-flex items-center gap-[3px] rounded-md text-xs font-semibold whitespace-nowrap transition after:absolute after:-inset-x-1.5 after:-inset-y-3 after:content-[''] ${
+              jarsProblem ? 'text-bad hover:text-bad' : 'text-slate-500 hover:text-slate-900'
+            } ${phone ? 'z-10' : ''}`}
           >
             {jarTotal !== null && jarTotal > 0 ? `${formatMoneyShort(fromAmount(jarTotal), r.currency)} into jars` : 'Into jars'}
             <ChevronDown aria-hidden strokeWidth={2} className={`size-3 text-slate-400 transition ${jarsAreOpen ? 'rotate-180' : ''}`} />
@@ -1544,6 +1566,7 @@ export function ImportPage() {
             </TxTile>
           }
         />
+        {!r.include && <p className="mt-3 text-[13px] text-slate-500">Tick the row to edit its transfer.</p>}
         <fieldset disabled={busy} className="m-0 mt-[18px] flex min-w-0 flex-col gap-4 border-0 p-0">
           {/* The other account: fixed by a chosen recorded transfer; named, never chosen, when it is private to another login. */}
           {returning ? null : privateSide ? (
@@ -2233,7 +2256,11 @@ export function ImportPage() {
 
   return (
     <AppShell active="import" title="Import transactions" actions={desktop ? importButton : undefined}>
-      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {error && (
+        <div ref={errorRef}>
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
+      )}
 
       {!canWrite && (
         <section aria-label="Import" className={`${DASH_CARD} text-sm text-slate-500`}>

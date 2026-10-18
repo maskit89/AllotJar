@@ -502,7 +502,7 @@
 - **Preconditions:** A row marked as a transfer but no account chosen.
 - **Steps:**
   1. Mark the row a transfer; leave the dialog's account at "Choose account…" and close it.
-- **Expected:** The row's Transfer chip and "Choose account…" turn bad-toned, `reviewIncomplete` is true, Import disabled, and the "Finish the highlighted rows first…" note shows. `onCommit` never fires.
+- **Expected:** The row's Transfer chip and "Choose account…" turn bad-toned, `reviewIncomplete` is true, Import disabled, and the "Finish the highlighted rows first…" note shows. `onCommit` never fires. The same chip turns bad-toned (its `title` naming the reason) for a typed fee the row cannot carry, whose "+ fee" line is then hidden, and for a fee without a line; a credit's "into jars" toggle turns bad-toned while its amounts exceed the credit, open or folded (ImportPage.restyle.test.tsx, ImportPage.jars.test.tsx).
 - **Automated:** Yes (ImportPage.test.tsx — "blocks import while a transfer has no counterparty chosen")
 
 ### IMP-052 - Transfer requires an import account to be chosen
