@@ -65,7 +65,7 @@
 
   /* The unified hero gradient (the dark-green band every screen opens with).
      A gradient, not a colour, so it's applied via `bg-[image:var(--hero-grad)]`
-     or the `.hero-surface` helper rather than a Tailwind colour utility. */
+     rather than a Tailwind colour utility. */
   --hero-grad: linear-gradient(135deg, #114a32, #1a6347 45%, #247e58);
 
   /* shadcn/ui semantic tokens (src/components/ui/*). Named the shadcn way so its
@@ -310,13 +310,6 @@ body {
   -webkit-text-fill-color: transparent;
   color: transparent;
   font-variant-numeric: tabular-nums;
-}
-
-/* The unified hero band: the dark-green gradient + heavy elevation + white text. */
-.hero-surface {
-  background: var(--hero-grad);
-  box-shadow: var(--shadow-hero);
-  color: #fff;
 }
 
 /* The Dashboard and the Jars page follow the approved palette (restyle PRs 3 and 4), which has no
@@ -1571,5 +1564,241 @@ html {
   }
   .dlg-sel select {
     height: 44px;
+  }
+}
+
+/* ============================================================================================
+   The public landing page (restyle PR 15): the sign-in pages' room, band and card (the `auth-*`
+   rules above, unchanged) around the page's own parts. Prefixed `land-`, used by LandingPage only.
+   ============================================================================================ */
+/* The room's right side: a quiet "Sign in" beside the theme button, in the room's pale ink. */
+.land-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.land-top-link {
+  display: inline-flex;
+  align-items: center;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #e6f1ea;
+}
+.land-top-link:hover {
+  color: #fff;
+  background: rgb(255 255 255 / 0.07);
+}
+/* The card holds the page's one primary: one sentence, the pill with "Sign in" beside it, the note. */
+.land .auth-main {
+  gap: 48px;
+}
+.land-lead {
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--color-foreground);
+}
+.land-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 18px;
+}
+.land-pill {
+  width: auto;
+  padding: 0 22px;
+  white-space: nowrap;
+}
+.land-signin {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-size: 14px;
+}
+/* The note rests at the card's foot (the card reaches past the room's foot, as the sign-in's). */
+.land-note {
+  margin-top: auto;
+  font-size: 13px;
+  color: var(--color-slate-500);
+}
+.land .auth-card > .land-note {
+  padding-top: var(--auth-gap);
+}
+/* Three feature cards (off-white, a tinted glyph, a short title, one line) and one line of promises. */
+.land-features {
+  width: 100%;
+  max-width: 1040px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.land-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+}
+.land-f {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 22px 24px;
+  border-radius: 16px;
+  border: 1px solid color-mix(in srgb, var(--color-slate-200) 70%, transparent);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+}
+.land-glyph {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+}
+.land-glyph svg {
+  width: 18px;
+  height: 18px;
+}
+.land-f h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  color: var(--color-foreground);
+}
+.land-f p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-slate-500);
+}
+.land-promise {
+  margin: 0;
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-slate-500);
+}
+.land-promise b {
+  font-weight: inherit;
+}
+/* The closing line with the same primary, then the quiet footer. */
+.land-close {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 0 0;
+  text-align: center;
+}
+.land-close h2 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--color-foreground);
+}
+.land-foot {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  padding: 0 24px 32px;
+  font-size: 13px;
+  color: var(--color-slate-500);
+}
+.land-foot nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.land-foot a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  font-weight: 600;
+  color: var(--color-slate-500);
+}
+.land-foot a:hover {
+  color: var(--color-foreground);
+}
+@media (max-width: 1100px) {
+  .land-cards {
+    gap: 16px;
+  }
+}
+/* Phone: the band and the small shelf as on the sign-in page; the card hangs from the band's foot as
+   a card (not the form's sheet to the bottom of the screen: the page goes on under it), with the
+   full gold hairline; the feature cards stack. */
+@media (max-width: 699.98px) {
+  .land .auth-top {
+    padding-right: 8px;
+  }
+  .land-top-link {
+    padding: 0 10px;
+  }
+  .land .auth-main {
+    gap: 20px;
+    padding: 0 16px 24px;
+  }
+  .land .auth-card,
+  .dark .land .auth-card {
+    flex: none;
+    width: auto;
+    padding: 22px 20px 24px;
+    border-radius: 22px;
+    background: var(--color-card);
+  }
+  .land .auth-card {
+    box-shadow: 0 2px 6px rgb(22 44 32 / 0.08), 0 30px 60px -28px rgb(22 44 32 / 0.5);
+  }
+  .dark .land .auth-card {
+    box-shadow: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 48px -26px rgb(0 0 0 / 0.75);
+  }
+  .land .auth-card::after,
+  .dark .land .auth-card::after {
+    border-radius: 22px;
+    padding: 1px;
+  }
+  .land .auth-card::after {
+    background: linear-gradient(135deg, rgb(236 200 110 / 0.95), rgb(229 190 94 / 0.28) 32%, rgb(229 190 94 / 0.28) 68%, rgb(236 200 110 / 0.85));
+  }
+  .dark .land .auth-card::after {
+    background: linear-gradient(135deg, rgb(236 200 110 / 0.75), rgb(229 190 94 / 0.14) 32%, rgb(229 190 94 / 0.14) 68%, rgb(236 200 110 / 0.6));
+  }
+  .land-cards {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  /* A row: the glyph at the left, the title and its line beside it. */
+  .land-f {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr);
+    gap: 3px 14px;
+    padding: 16px 18px;
+  }
+  .land-glyph {
+    grid-row: 1 / 3;
+    align-self: start;
+  }
+  .land-promise b {
+    display: block;
+  }
+  .land-promise .land-dot {
+    display: none;
+  }
+  .land-close {
+    padding-top: 12px;
+  }
+  .land-close h2 {
+    font-size: 26px;
+  }
+  .land-foot {
+    padding: 0 16px 24px;
   }
 }

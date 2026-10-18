@@ -227,7 +227,7 @@ test('the accounts jar captions and their hints fit a 320px phone, a shortfall i
 test.describe('signed-out pages on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
-  for (const path of ['/login', '/login?register=1', '/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x']) {
+  for (const path of ['/', '/login', '/login?register=1', '/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x']) {
     test(`${path} does not overflow horizontally`, async ({ page }) => {
       await page.route('**/api/**', mockApi)
       await page.goto(path)
@@ -235,6 +235,28 @@ test.describe('signed-out pages on a phone', () => {
       await assertNoHorizontalOverflow(page, path)
     })
   }
+
+  // The landing (restyle PR 15): the band, the line and the card with the one primary and the
+  // "Sign in" beside it are on the first screen of a 390x844 phone, with the card hanging from
+  // the band's foot as the sign-in sheet does.
+  test('the landing shows the line and the primary on the first screen', async ({ page }) => {
+    await page.route('**/api/**', mockApi)
+    await page.goto('/')
+    const line = page.getByRole('banner').getByRole('heading', { level: 1, name: 'Give every euro a job.' })
+    await line.waitFor()
+    await page.waitForLoadState('networkidle')
+    await page.evaluate(() => document.fonts.ready)
+    for (const el of [line, page.getByRole('link', { name: 'Create your free account' }).first(), page.getByRole('link', { name: 'Sign in' }).last()]) {
+      const box = await el.boundingBox()
+      expect(box, 'on the page').not.toBeNull()
+      expect(box!.y + box!.height).toBeLessThanOrEqual(844)
+    }
+    // The hero's button is the only filled green button on the first screen.
+    const inView = await page.locator('.bg-brand-600').evaluateAll((els) =>
+      els.filter((el) => el.getBoundingClientRect().top < window.innerHeight).length,
+    )
+    expect(inView).toBe(1)
+  })
 
   test('the Sign in form fits the first screen, the expired notice included', async ({ page }) => {
     await page.route('**/api/**', mockApi)
