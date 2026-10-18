@@ -273,7 +273,7 @@ jobs:
             fi
             verdict "$run_sha" "$status" "$conclusion"
           done <<< "$runs"
-          refuse "No CI run found on main at or before $SHA among the newest 100 CI runs (a 404 from the runs list can also mean the token lacks actions: read)."
+          refuse "No CI run found on main at or before $SHA among the newest 100 CI runs (a 404 from the compare calls can also mean the token lacks contents: read)."
 
   build-production:
     name: build release (production)
