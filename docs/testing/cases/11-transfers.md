@@ -304,10 +304,10 @@
   2. Open `/accounts/{Pot}`; find the same transfer row.
 - **Expected:**
   - The row appears in both registers (filter is `accountId === id || transferAccountId === id`).
-  - On **Current** (source, `accountId === id`): amount shows **−€300.00** (muted slate), Category cell "Current → Pot".
-  - On **Pot** (destination): amount shows **+€300.00**, Category cell "Current → Pot".
+  - On **Current** (source, `accountId === id`): amount shows **−€300.00** (muted slate), the route (`[data-tx-route]`) an up-right arrow and "To Pot" (the page's title names Current).
+  - On **Pot** (destination): amount shows **+€300.00**, the route a down-left arrow and "From Current".
   - Amount formats in the transaction's `t.currency`. The detail page is read-only (no edit/delete/transfer controls).
-- **Automated:** No
+- **Automated:** Yes (client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-045 signs, ACCT-046 route; client/e2e-journey/transfers-balances.spec.ts — TRF-025 leg, real backend)
 
 ### TRF-026 - Deleted counterparty renders "(removed account)" on detail and "—" on the main register
 - **Priority:** P1
@@ -316,12 +316,12 @@
 - **Preconditions:** trf-owner; a Current→Pot transfer exists; then **Pot** (destination) is deleted (via the accounts delete-confirm modal).
 - **Steps:**
   1. On `/transactions`, inspect the surviving transfer row's Account cell.
-  2. On `/accounts/{Current}`, inspect the row's Category cell.
+  2. On `/accounts/{Current}`, inspect the row's route.
 - **Expected:**
   - The transfer row survives the account delete (DeleteAccount nulls `TransferAccountId`; the row is kept).
   - Main register Account cell: **"Current → —"** (null `transferAccountName`).
-  - Current's detail Category cell: **"Current → (removed account)"**; the amount still shows **−€300.00** (Current keeps its transfer-out; Pot's credit is gone with Pot).
-- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs — DeleteAccount clears the pointer and keeps the transaction; the UI fallback strings are untested)
+  - Current's detail route: **"To (removed account)"** (a transfer into Current from a deleted account reads "From (removed account)"); the amount still shows **−€300.00** (Current keeps its transfer-out; Pot's credit is gone with Pot).
+- **Automated:** Partial (tests/AllotJar.Application.Tests/Transactions/TransfersTests.cs — DeleteAccount clears the pointer and keeps the transaction; client/src/pages/AccountDetailPage.catalog.test.tsx — ACCT-046 the detail fallback; the main register's "—" is untested)
 
 ### TRF-027 - A transfer is excluded from the register hero money-in / money-out and unassigned count
 - **Priority:** P1

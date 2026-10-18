@@ -66,8 +66,8 @@
 - **Type:** Negative
 - **Preconditions:** Manual axe run.
 - **Steps:**
-  1. Manually axe-scan `/accept-invite?code=…`, `/accounts/:id` (AccountDetailPage), the staging build (`VITE_APP_ENV=staging`, banner rendered), and error/empty renders (fetch failures, empty month, all-caught-up import) in both themes.
-- **Expected:** These are NOT in `AUTHED_ROUTES` and the e2e fixtures are always happy-path, so they are unscanned by CI. They must be checked manually and be violation-free; document any finding — the automated `a11y` gate does not protect them.
+  1. Manually axe-scan `/accept-invite?code=…`, the staging build (`VITE_APP_ENV=staging`, banner rendered), and error/empty renders (fetch failures, empty month, all-caught-up import) in both themes.
+- **Expected:** These are NOT in `AUTHED_ROUTES` and the e2e fixtures are always happy-path, so they are unscanned by CI. They must be checked manually and be violation-free; document any finding — the automated `a11y` gate does not protect them. (`/accounts/:id` is not in `AUTHED_ROUTES` either, but since the restyle (PR 11) `client/e2e/a11y.spec.ts` scans it on its own — "an account's page at 1280px/390px, its In jars (i) and a "Before opening" (i)…" — in both themes; its not-found, empty and error renders stay manual.)
 - **Automated:** No
 
 ## Keyboard navigation & focus management
@@ -354,14 +354,14 @@
 - **Expected:** The modal (`max-w-md`, `p-4` outer, scrollable `overflow-y-auto`) fits 375 px with no sideways scroll; the 2-col field grid reflows/stays within the dialog. Long content scrolls vertically inside the dialog, not the page. The Allocation dialogs are bottom sheets that fit the screen: long names truncate, the amounts, jar fields and actions stay in view, and only the middle scrolls.
 - **Automated:** Yes (`client/e2e/mobile-layout.spec.ts` "the jar modal fits a phone screen"; `client/e2e/allocation.spec.ts` — the Allocate dialog and the settings dialog at 375x667, and the Allocate sheet on a narrow phone)
 
-### UX-036 - Account-detail and reconciliation tables at 375 px
+### UX-036 - Account-detail register and the accounts list at 375 px
 - **Priority:** P2
 - **Type:** Negative
-- **Preconditions:** `/accounts/:id` and the `/accounts` reconciliation table at 375 px.
+- **Preconditions:** `/accounts/:id` and the `/accounts` list at 375 px.
 - **Steps:**
-  1. Load a busy account detail register and the reconciliation panel; scroll and check page overflow.
-- **Expected:** Both scroll inside their own containers with no page horizontal scroll. Note `/accounts/:id` (AccountDetailPage) is NOT in `AUTHED_ROUTES`, so the per-route 375px sweep skips it — it has its own dedicated spec instead.
-- **Automated:** Yes (`client/e2e/responsive-dark.spec.ts` — "the account-detail register scrolls inside its own container (UX-036)" + the reconciliation-table UX-031 test)
+  1. Load a busy account detail register and the accounts list; check page overflow.
+- **Expected:** Since the restyle (PR 11) the account-detail register is a list like Transactions, not a wide table: each row is two lines that truncate (payee and amount; then the category or route, the date and any status chip), so neither the page, nor the Transactions card, nor a row scrolls sideways, and the Account details card follows the list inside the viewport. At 320px (the WCAG 1.4.10 reflow width) and 360px the middle column stays readable on an account kept in another currency: the "Counts as … in the budget" line under each amount wraps within a capped width, and below 360px a "Needs EUR amount" tag and its (i) move to the row's second line, so no category chip is cut to its dot (most of each name shows at 320px, all of it at 360px), nothing runs under the amount, and the page never scrolls sideways. Note `/accounts/:id` (AccountDetailPage) is NOT in `AUTHED_ROUTES`, so the per-route 375px sweep skips it — it has its own dedicated spec instead.
+- **Automated:** Yes (`client/e2e/responsive-dark.spec.ts` — "the account-detail register fits a phone with no sideways scroll (UX-036)", "the account-detail rows keep their category readable beside long amount lines at 320 and 360 px (UX-036)" + the accounts list UX-031 test)
 
 ### UX-037 - Tour steps that target the hidden sidebar centre gracefully on mobile
 - **Priority:** P3

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { shortDate, formatDate, monthYear, dayHeading } from './dates'
+import { shortDate, formatDate, monthYear, dayHeading, monthHeading } from './dates'
 
 // jsdom's navigator.language is en-US, so these assert the en-US rendering; the
 // helpers follow the browser locale at runtime.
@@ -83,5 +83,30 @@ describe('dayHeading', () => {
 
   it('returns the input unchanged when it is not a parseable ISO date', () => {
     expect(dayHeading('not-a-date', now)).toBe('not-a-date')
+  })
+})
+
+describe('monthHeading', () => {
+  // Sunday 11 Oct 2026, midday UTC.
+  const now = new Date(Date.UTC(2026, 9, 11, 12))
+  afterEach(() => vi.restoreAllMocks())
+
+  it('gives the full month name, with the year only for another year', () => {
+    expect(monthHeading('2026-10-07', now)).toBe('October')
+    expect(monthHeading('2026-01-31', now)).toBe('January')
+    expect(monthHeading('2025-12-31', now)).toBe('December 2025')
+    vi.spyOn(navigator, 'language', 'get').mockReturnValue('de-DE')
+    expect(monthHeading('2026-10-07', now)).toBe('Oktober')
+  })
+
+  it('counts this year on the UTC calendar, as todayIso does', () => {
+    // 00:30 UTC on 1 Jan 2027 is still 2026 in New York, but the app's "today" is UTC's.
+    const newYear = new Date(Date.UTC(2027, 0, 1, 0, 30))
+    expect(monthHeading('2026-12-31', newYear)).toBe('December 2026')
+    expect(monthHeading('2027-01-01', newYear)).toBe('January')
+  })
+
+  it('returns the input unchanged when it is not a parseable ISO date', () => {
+    expect(monthHeading('not-a-date', now)).toBe('not-a-date')
   })
 })

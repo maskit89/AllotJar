@@ -278,8 +278,8 @@ Legend: **CH** = covered here (CMB id) · **area** = owned by a single-feature c
 - **Type:** Boundary
 - **Preconditions:** shared household; jar "Christmas" held in account **Savings** (opening 0.00); plan 100.00/month for 3 months (jar tracked balance 300.00); no transfers into **Savings**.
 - **Steps:**
-  1. Open **Savings** detail `/accounts/:id` and read the reconciliation row for Christmas.
-- **Expected:** `BackedJarsTotal` = 300.00 (planned), `CurrentBalance` = 0.00 (no cash moved), so **Float = −300.00**, rendered in the rose tone (ACCT-054). The negative Float is the honest signal that the plan promises money the account does not physically hold yet — jar balance (plan) and account balance (actual) are deliberately independent, and reconciliation is where they meet.
+  1. Open **Savings**' page `/accounts/:id` and read its **In jars** tile (the same figures as Savings' card on `/accounts`).
+- **Expected:** `BackedJarsTotal` = 300.00 (planned), `CurrentBalance` = 0.00 (no cash moved), so **Float = −300.00**: In jars reads €300.00 with its bar and **"€300.00 over"** in red, its (i) saying to move money out of a jar to cover it (ACCT-054, ACCT-082). The negative Float is the honest signal that the plan promises money the account does not physically hold yet — jar balance (plan) and account balance (actual) are deliberately independent, and reconciliation is where they meet.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/AccountReconciliationTests.cs)
 
 ### CMB-019 - Back-filling an earlier month seeds a jar from its as-of balance, not the latest balance

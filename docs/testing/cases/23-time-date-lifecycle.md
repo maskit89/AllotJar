@@ -393,9 +393,10 @@
   1. On `/transactions` read both rows' Date cells.
   2. Open `/accounts/{id}` for the account and read the same rows.
 - **Expected:**
-  - Both render `shortDate` = **"20 Dec"** (en-GB) with **no year** — the register/account-detail deliberately drop the year (it "lives in the month picker"), so two December-20 rows from different years are visually indistinguishable by date alone (distinguish by list order: Date desc, Id desc).
+  - Both render `shortDate` = **"20 Dec"** (en-GB) with **no year** — the register deliberately drops the year (it "lives in the month picker"), so two December-20 rows from different years are visually indistinguishable by date alone (distinguish by list order: Date desc, Id desc).
+  - On the account's page (since the restyle, PR 11) the rows still read "20 Dec", but they sit under one heading per month, and a month of another year carries its year: **"December"** (this year) and **"December 2025"** (`monthHeading`, the year judged on the UTC calendar as `todayIso` does), so the two rows are told apart there.
   - Import review rows, by contrast, use `formatDate` (with year) precisely because statements can straddle a year boundary.
-- **Automated:** Partial (client/src/lib/dates.test.ts — shortDate has no year; formatDate includes year)
+- **Automated:** Partial (client/src/lib/dates.test.ts — shortDate has no year; formatDate includes year; monthHeading adds the year only for another year; client/src/pages/AccountDetailPage.test.tsx — "groups the rows under one eyebrow a month, with the year for another year…")
 
 ### TIME-030 - `shortDate`/`monthYear` parse ISO as local midnight (no timezone day-shift) and pass non-ISO through unchanged
 - **Priority:** P2

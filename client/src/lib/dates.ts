@@ -122,3 +122,24 @@ export function dayHeading(iso: string, now = new Date()): string {
   }
   return `${fmt.weekday.format(d)} ${fmt.date.format(d)}`
 }
+
+const monthHeadingFmt = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * A month header of an account's register, in the browser locale: the month's full name
+ * ("October"), with the year when it is not this year's ("December 2025"). Today is on the same
+ * UTC basis as `todayIso`. Returns the raw input unchanged if it isn't a parseable ISO date.
+ */
+export function monthHeading(iso: string, now = new Date()): string {
+  const d = fromIso(iso)
+  if (!d) return iso
+  const otherYear = iso.slice(0, 4) !== todayIso(now).slice(0, 4)
+  const loc = dateLocale()
+  const key = `${loc}|${otherYear}`
+  let fmt = monthHeadingFmt.get(key)
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat(loc, { month: 'long', ...(otherYear ? { year: 'numeric' } : {}), timeZone: 'UTC' })
+    monthHeadingFmt.set(key, fmt)
+  }
+  return fmt.format(d)
+}

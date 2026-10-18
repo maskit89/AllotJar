@@ -308,7 +308,7 @@ Client:
 - `client/src/types.ts`
 - `client/src/lib/money.ts`
 - `client/src/lib/api.ts` (excerpt)
-- `client/src/components/{AppShell,TopBar,Hero,CategoryAccordion,BudgetItemRow,IncomeGroup,IncomeLineRow,SavingsGroup}.tsx`
+- `client/src/components/{AppShell,TopBar,CategoryAccordion,BudgetItemRow,IncomeGroup,IncomeLineRow,SavingsGroup}.tsx`
 - `client/src/features/{MonthContext,FeatureContext}.tsx`
 - `client/src/auth/AuthContext.tsx` (role-flag excerpt)
 - `client/src/onboarding/GettingStartedChecklist.tsx`

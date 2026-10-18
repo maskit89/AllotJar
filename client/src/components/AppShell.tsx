@@ -29,6 +29,7 @@ export function AppShell({
   title,
   month = false,
   actions,
+  back,
   children,
 }: {
   /** The frame's current place: a nav page, or 'account' (the account button is marked then). */
@@ -46,6 +47,12 @@ export function AppShell({
    * content as a right-aligned row. They render in one place at a time (never two mounted copies).
    */
   actions?: ReactNode
+  /**
+   * A detail page's way back to its parent page (e.g. an account's page back to Accounts): a
+   * chevron link named "Back to {label}" before the title, in place of the phone's logo. Left out,
+   * the top bar is as on every other page.
+   */
+  back?: { to: string; label: string }
   // Kept for call-site compatibility; the frame uses one 1240px column.
   maxWidth?: '4xl' | '5xl'
   children: ReactNode
@@ -112,7 +119,7 @@ export function AppShell({
           <StagingBanner />
         </div>
         <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
-          <TopBar title={title} month={month} actions={desktop ? actions : undefined} />
+          <TopBar title={title} month={month} actions={desktop ? actions : undefined} back={back} />
           <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 px-4 pt-1 pb-[calc(var(--tabbar-h)+32px)] min-[900px]:gap-6 min-[900px]:px-10 min-[900px]:pb-14">
             {actions && !desktop && <div className="flex justify-end gap-2.5">{actions}</div>}
             <VerifyEmailBanner />
