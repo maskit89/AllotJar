@@ -200,6 +200,12 @@ jobs:
             err=$(mktemp)
             for n in 1 2 3; do
               if out=$(gh api "$@" 2>"$err"); then printf '%s' "$out"; rm -f "$err"; return 0; fi
+              # GitHub's own "not found" is an answer, not an outage: not retried, and
+              # told apart (status 44) so a caller may treat it as a real negative.
+              if grep -q 'HTTP 404' "$err"; then
+                echo "GitHub API call answered 404: gh api $*" >&2; cat "$err" >&2
+                rm -f "$err"; return 44
+              fi
               echo "GitHub API call failed (attempt $n of 3): gh api $*" >&2; cat "$err" >&2
               [ "$n" -lt 3 ] && sleep $((n * 3))
             done
@@ -215,7 +221,9 @@ jobs:
               *) refuse "CI on main for $1 has not finished ($2 $3). Start this run again once it has." ;;
             esac
           }
-          FIELDS='.workflow_runs[] | "\(.head_sha) \(.status) \(.conclusion // "")"'
+          # Only runs on main count: a run of the same commit on another branch (PR CI skips
+          # the journey and a11y jobs) must not stand in for main's CI.
+          FIELDS='.workflow_runs[] | select(.head_branch == "main" and .event != "pull_request") | "\(.head_sha) \(.status) \(.conclusion // "")"'
 
           # The run for this exact commit, asked for by SHA: the newest-first list below
           # is sometimes served stale and can miss it.
@@ -227,13 +235,19 @@ jobs:
           done <<< "$own"
 
           # No run for this commit (docs-only head): the newest earlier run it descends
-          # from, provided nothing but docs changed since.
-          runs=$(gh_api "repos/$REPO/actions/workflows/ci.yml/runs?branch=main&per_page=30" --jq "$FIELDS") \
+          # from, provided nothing but docs changed since. The list is read unfiltered and
+          # narrowed to main by FIELDS: GitHub's branch= and event= listings have been
+          # served stuck on an old run (5 Oct), the unfiltered one was current.
+          runs=$(gh_api "repos/$REPO/actions/workflows/ci.yml/runs?per_page=100" --jq "$FIELDS") \
             || refuse "Could not list the CI runs on main."
           while read -r run_sha status conclusion; do
             [ -z "$run_sha" ] && continue
-            cmp=$(gh_api "repos/$REPO/compare/$run_sha...$SHA" --jq '"\(.status) \(.total_commits)"') \
-              || refuse "Could not compare $run_sha with $SHA."
+            rc=0
+            cmp=$(gh_api "repos/$REPO/compare/$run_sha...$SHA" --jq '"\(.status) \(.total_commits)"') || rc=$?
+            # A 404 means GitHub cannot relate the two commits (for example a run whose commit
+            # is gone): that run is not an ancestor, so look at the next one.
+            [ "$rc" -eq 44 ] && continue
+            [ "$rc" -eq 0 ] || refuse "Could not compare $run_sha with $SHA."
             case "${cmp%% *}" in
               identical|ahead) ;;
               diverged|behind) continue ;; # a real answer: this run is not an ancestor of the commit
@@ -242,6 +256,8 @@ jobs:
             if [ "${cmp%% *}" = ahead ]; then
               files=$(gh_api --paginate "repos/$REPO/compare/$run_sha...$SHA" --jq '.files[].filename') \
                 || refuse "Could not list the files changed since $run_sha."
+              # --paginate can repeat a file once per page of commits; count each file once.
+              files=$(printf '%s\n' "$files" | sort -u)
               # A range that is ahead by commits must list files; an empty answer is not "docs only".
               [ -n "$files" ] \
                 || refuse "GitHub listed no files changed since the last CI run on main ($run_sha), so it cannot be checked as docs only."
@@ -257,7 +273,7 @@ jobs:
             fi
             verdict "$run_sha" "$status" "$conclusion"
           done <<< "$runs"
-          refuse "No CI run found on main at or before $SHA."
+          refuse "No CI run found on main at or before $SHA among the newest 100 CI runs (a 404 from the compare calls can also mean the token lacks contents: read)."
 
   build-production:
     name: build release (production)
