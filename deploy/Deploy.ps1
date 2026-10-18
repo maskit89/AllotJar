@@ -10,7 +10,8 @@
         <release>\Deploy.ps1   (this script)
 
     Steps:
-      1. Check the stack exists (pools, the settings file for -AspNetEnvironment).
+      1. Check the stack exists (pools, the settings file for -AspNetEnvironment) and that
+         the settings file names this stack's database and Email:AppBaseUrl origin.
       2. Drop app_offline.htm so ANCM gracefully stops the API and releases locks.
       3. robocopy /MIR the new files, preserving the server-only settings files,
          the offline marker and the ANCM logs folder.
@@ -81,6 +82,14 @@ $settingsName = "appsettings.$AspNetEnvironment.json"
 $settingsPath = Join-Path $ApiDir $settingsName
 if (-not (Test-Path $settingsPath)) {
     throw "$settingsPath is missing: the $AspNetEnvironment API would start with no connection string. Create it from appsettings.Production.json.example (for a renamed staging stack, Rename-StagingStack.ps1 renames the old appsettings.Production.json to appsettings.Staging.json)."
+}
+# The file must also fit THIS stack: its connection string names this stack's database and
+# Email:AppBaseUrl names this stack's origin (staging must set it: the API's built-in default
+# is the production origin, so a staging file without it emails reset links that open
+# production). Checked here, while the stack still runs its old build, never after.
+$settingsProblems = Get-StackSettingsProblems -SettingsText ([System.IO.File]::ReadAllText($settingsPath)) -AspNetEnvironment $AspNetEnvironment
+if ($settingsProblems.Count -gt 0) {
+    throw "$settingsPath does not fit the $AspNetEnvironment stack, so nothing was deployed. Fix the file (it is edited by hand on the server; see docs/deployment/staging-prod.md) and deploy again:`n - " + ($settingsProblems -join "`n - ")
 }
 
 New-Item -ItemType Directory -Force -Path $ApiDir, $WebDir | Out-Null

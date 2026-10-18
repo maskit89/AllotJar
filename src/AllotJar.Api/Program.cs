@@ -352,6 +352,20 @@ static void LogEmailProvider(WebApplication app)
                 logger.LogWarning("Outbound email configuration looks wrong: {Problem}", smell);
             }
         }
+
+        // Where the links inside those emails open. An Error (not a Warning) when it is the other
+        // site's origin: that email is sent to a real person and its link does not work, and the
+        // Error level is what reaches the error alerts. Staging's file must set it explicitly,
+        // since the built-in default is the production origin.
+        var mismatch = settings.DescribeEnvironmentMismatch(app.Environment.EnvironmentName);
+        if (mismatch is not null)
+        {
+            logger.LogError("Links in emails open the wrong site: {Problem}", mismatch);
+        }
+        else
+        {
+            logger.LogWarning("Links in emails open {AppBaseUrl}.", settings.AppBaseUrl);
+        }
     }
     catch (Exception ex)
     {

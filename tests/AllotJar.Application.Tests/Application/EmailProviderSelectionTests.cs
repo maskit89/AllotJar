@@ -189,4 +189,57 @@ public class EmailProviderSelectionTests
         services.AddInfrastructure(configuration);
         return services.BuildServiceProvider();
     }
+
+    // REG-094 — the origin inside emailed links must be THIS site's. The built-in default is
+    // production, so a staging settings file that omits Email:AppBaseUrl mails reset links that
+    // open www.allotjar.com, where staging's token is not valid (12 October 2026).
+    [Theory]
+    [InlineData("Staging", "https://www.allotjar.com", "https://www.allotjar.com")]   // the real incident: the default, unset
+    [InlineData("Staging", "https://www.allotjar.com/", "https://www.allotjar.com")]
+    [InlineData("Staging", "https://allotjar.com", "https://allotjar.com")]
+    [InlineData("Production", "https://app.allotjar.com", "https://app.allotjar.com")]
+    [InlineData("Production", "https://staging.allotjar.com", "https://staging.allotjar.com")]
+    [InlineData("production", "http://localhost:5173", "http://localhost:5173")]       // environment names compare case-insensitively
+    public void Flags_links_that_open_the_other_site(string environment, string appBaseUrl, string openedOrigin)
+    {
+        var settings = new EmailSettings { AppBaseUrl = appBaseUrl };
+
+        settings.DescribeEnvironmentMismatch(environment).Should().NotBeNull()
+            .And.Contain($"opens {openedOrigin} ")
+            .And.Contain(environment.Equals("Staging", StringComparison.OrdinalIgnoreCase)
+                ? "https://staging.allotjar.com in appsettings.Staging.json"
+                : "https://www.allotjar.com or https://allotjar.com in appsettings.Production.json");
+    }
+
+    [Theory]
+    [InlineData("Staging", "https://staging.allotjar.com")]
+    [InlineData("Staging", "HTTPS://Staging.AllotJar.com/")]   // origin comparison ignores case and a trailing slash
+    [InlineData("Production", "https://www.allotjar.com")]
+    [InlineData("Production", "https://www.allotjar.com/app")] // only the origin is judged
+    [InlineData("Production", "https://allotjar.com")]         // the apex serves production too
+    [InlineData("Production", "https://ALLOTJAR.com/")]
+    public void Accepts_links_that_open_this_site(string environment, string appBaseUrl)
+    {
+        new EmailSettings { AppBaseUrl = appBaseUrl }.DescribeEnvironmentMismatch(environment).Should().BeNull();
+    }
+
+    [Theory]
+    [InlineData("Staging", "staging.allotjar.com")] // no scheme
+    [InlineData("Production", "")]
+    [InlineData("Production", "ftp://www.allotjar.com")]
+    public void Flags_a_base_url_that_is_not_an_absolute_http_url(string environment, string appBaseUrl)
+    {
+        new EmailSettings { AppBaseUrl = appBaseUrl }.DescribeEnvironmentMismatch(environment).Should().NotBeNull()
+            .And.Contain("not an absolute http(s) URL");
+    }
+
+    // Development and the test hosts point links wherever they like (a laptop, the e2e harness).
+    [Theory]
+    [InlineData("Development", "https://www.allotjar.com")]
+    [InlineData("Development", "http://localhost:5173")]
+    [InlineData("Test", "not a url")]
+    public void Judges_only_the_two_hosted_environments(string environment, string appBaseUrl)
+    {
+        new EmailSettings { AppBaseUrl = appBaseUrl }.DescribeEnvironmentMismatch(environment).Should().BeNull();
+    }
 }
