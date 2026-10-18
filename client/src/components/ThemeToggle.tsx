@@ -3,43 +3,11 @@ import { useTheme } from '../lib/theme'
 import { cn } from '../lib/utils'
 
 /**
- * The Light/Dark segmented toggle on the signed-out screens (sign in, forgot password, accept
- * invite, confirm email, reset password). Inside the app the top bar's ThemeButton and the
- * account menu's Dark mode switch do the same job.
- */
-export function ThemeToggle() {
-  const { mode, setMode } = useTheme()
-
-  return (
-    <div
-      role="group"
-      aria-label="Theme"
-      className="inline-flex items-center gap-0.5 rounded-[11px] border border-slate-200 bg-surface-2 p-[3px]"
-    >
-      {(['light', 'dark'] as const).map((m) => {
-        const selected = mode === m
-        return (
-          <button
-            key={m}
-            type="button"
-            aria-pressed={selected}
-            aria-label={m === 'light' ? 'Light mode' : 'Dark mode'}
-            onClick={() => setMode(m)}
-            className={`rounded-lg px-4 py-1.5 text-[13px] font-semibold capitalize transition ${
-              selected ? 'bg-brand-600 text-white' : 'text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            {m}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
-/**
- * The top bar's theme control on desktop: one round icon button, a toggle (`aria-pressed`) named
- * "Dark mode". It shows a moon in light mode and a sun in dark mode (the theme a press brings).
+ * The theme control: one round icon button, a toggle (`aria-pressed`) named "Dark mode". It shows
+ * a moon in light mode and a sun in dark mode (the theme a press brings). The top bar's on desktop,
+ * and the one in the green room of the signed-out pages (AuthFrame) and the public pages' header
+ * (PublicHeader); the old Light | Dark segmented toggle is gone (restyle PR 16). Inside the app the
+ * account menu's and the More sheet's Dark mode switches do the same job.
  */
 export function ThemeButton({ className = '' }: { className?: string }) {
   const { isDark, setMode } = useTheme()

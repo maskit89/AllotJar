@@ -1,6 +1,5 @@
-import { memo, useEffect, useRef, useState, type ReactNode } from 'react'
+import { memo, useEffect, useRef, type ReactNode } from 'react'
 import type { CategoryHue } from '../lib/categoryColors'
-import { currencyNoun, detectLocaleDefaults } from '../lib/money'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { GlassJar } from './GlassJar'
 import { JarLogo } from './Jar'
@@ -68,16 +67,18 @@ export const BandShelf = memo(function BandShelf() {
 })
 
 /**
- * The frame of the four signed-out pages (sign in and create account, forgot password, reset
- * password, accept invite), restyle PR 9, the approved "Green banner" mock-up. On desktop a green
- * room runs across the top of the sage page: the wordmark on its left, the theme button on its
- * right, one line of copy under a soft gold glow, and a quiet shelf of four glass jars, two each
- * side of the card. The off-white card with the gold hairline stands in front of the shelf and
- * reaches down onto the sage, and the sage under it deepens into a quiet floor. On a phone the room
- * is a compact green band of one fixed height on every page, and the card a sheet that hangs from its
- * foot down to the bottom of the screen; the sheet's last group (Google's button, the foot links)
- * rests on the bottom edge, so the line, the jars and the form never move when the mode changes,
- * a notice appears or Google's button arrives late.
+ * The frame of the five signed-out pages (sign in and create account, forgot password, reset
+ * password, accept invite and, since restyle PR 16, confirm email), restyle PR 9, the approved
+ * "Green banner" mock-up. On desktop a green room runs across the top of the sage page: the
+ * wordmark on its left, the theme button on its right, one line of copy under a soft gold glow
+ * ("Give every euro a job.", euro always, as on the landing page: the app is euro-first), and a
+ * quiet shelf of four glass jars, two each side of the card. The off-white card with the gold
+ * hairline stands in front of the shelf and reaches down onto the sage, and the sage under it
+ * deepens into a quiet floor. On a phone the room is a compact green band of one fixed height on
+ * every page, and the card a sheet that hangs from its foot down to the bottom of the screen; the
+ * sheet's last group (Google's button, the foot links) rests on the bottom edge, so the line, the
+ * jars and the form never move when the mode changes, a notice appears or Google's button arrives
+ * late.
  *
  * Only the shelf the screen shows is drawn (the room's on a desktop, the band's on a phone; CSS hides
  * the other as well), and it is memoised: it never changes, so typing in a field does not redraw it.
@@ -85,27 +86,30 @@ export const BandShelf = memo(function BandShelf() {
  * The page puts its card content in `children` (its own title, form, notices and links).
  * `srTitle` adds a visually hidden h1 for a card without a visible title (sign in).
  * `staging` shows the StagingBanner above the room (off for Accept invite, which never had it).
+ * `short` lets the desktop card fit its content (a page whose every state is a title, a line and
+ * one pill: Confirm email) instead of reaching the frame's minimum height; the phone sheet is the same.
  */
 export function AuthFrame({
   children,
   srTitle,
   staging = true,
   dense = false,
+  short = false,
 }: {
   children: ReactNode
   srTitle?: string
   staging?: boolean
   /** A taller form (Create account): a little less space between its parts on a phone. */
   dense?: boolean
+  /** Short states only (Confirm email): the desktop card ends under its content. */
+  short?: boolean
 }) {
-  // The line's money word follows the visitor's browser locale (as the sign-in page always did).
-  const [noun] = useState(() => currencyNoun(detectLocaleDefaults().currency))
   const phone = useMediaQuery('(max-width: 699.98px)')
 
   return (
     <div className="auth-page">
       {staging && <StagingBanner />}
-      <div className={`auth${dense ? ' auth-dense' : ''}`}>
+      <div className={`auth${dense ? ' auth-dense' : ''}${short ? ' auth-short' : ''}`}>
         {!phone && <RoomShelf />}
 
         <header className="auth-band">
@@ -120,7 +124,7 @@ export function AuthFrame({
           </div>
           <div className="auth-hero">
             <p className="auth-line">
-              Give every <span className="gold-number">{noun}</span> a job.
+              Give every <span className="gold-number">euro</span> a job.
             </p>
             {phone && <BandShelf />}
           </div>

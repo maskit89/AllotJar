@@ -227,7 +227,18 @@ test('the accounts jar captions and their hints fit a 320px phone, a shortfall i
 test.describe('signed-out pages on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 } })
 
-  for (const path of ['/', '/login', '/login?register=1', '/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x']) {
+  for (const path of [
+    '/',
+    '/login',
+    '/login?register=1',
+    '/forgot-password',
+    '/reset-password?email=a%40b.c&token=t',
+    '/accept-invite?code=x',
+    '/confirm-email',
+    '/confirm-email?email=a%40b.c&token=t',
+    '/privacy',
+    '/terms',
+  ]) {
     test(`${path} does not overflow horizontally`, async ({ page }) => {
       await page.route('**/api/**', mockApi)
       await page.goto(path)
@@ -278,7 +289,7 @@ test.describe('signed-out pages on a phone', () => {
   test('the band is one height everywhere: the switch and the line stay put across modes and pages', async ({ page }) => {
     await page.route('**/api/**', mockApi)
     await page.goto('/login')
-    const line = page.getByRole('banner').getByText(/^Give every \w+ a job\.$/)
+    const line = page.getByRole('banner').getByText('Give every euro a job.')
     const sw = page.getByRole('group', { name: 'Sign in or create an account' })
     await sw.waitFor()
     // Where the switch sits depends on how the line wraps, and that depends on the web font: on a
@@ -294,7 +305,7 @@ test.describe('signed-out pages on a phone', () => {
     expect((await sw.boundingBox())!.y, 'the switch under the finger').toBe(swY)
     expect((await line.boundingBox())!.y).toBe(lineY)
 
-    for (const path of ['/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x', '/login?reason=expired']) {
+    for (const path of ['/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=x', '/login?reason=expired', '/confirm-email']) {
       await page.goto(path)
       await page.getByRole('heading', { level: 1 }).waitFor()
       expect((await line.boundingBox())!.y, path).toBe(lineY)

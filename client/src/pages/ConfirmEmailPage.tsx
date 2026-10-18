@@ -2,19 +2,37 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../lib/api'
 import { useAuth } from '../auth/AuthContext'
-import { JarLogo } from '../components/Jar'
-import { StagingBanner } from '../components/StagingBanner'
-import { ThemeToggle } from '../components/ThemeToggle'
-import { Card } from '../components/ui'
+import { AuthFrame, AuthTitle } from '../components/AuthFrame'
+import { InfoHint } from '../components/InfoHint'
 
-const buttonLink =
-  'inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-brand-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-brand-700'
+/** The recovery line of a link that cannot be redeemed (the banner in the app has a Resend). */
+const RECOVER = 'Sign in and use Resend in the banner to get a fresh one.'
+
+/** The page's one primary: the sign-in form's green pill (the ui Button's primary classes, as the
+ *  landing's "Create your free account" draws it), as a react-router link. */
+function Pill({ to, children }: { to: string; children: string }) {
+  return (
+    <Link
+      to={to}
+      className="auth-pill inline-flex items-center justify-center rounded-lg bg-brand-600 font-semibold text-white transition hover:bg-brand-700 dark:bg-primary dark:hover:bg-brand-600"
+    >
+      {children}
+    </Link>
+  )
+}
 
 /**
  * Redeems the emailed address-confirmation link (?email=&token=). Public — the person clicking it
  * may not be signed in on this device. Confirming just flips the verified flag server-side; the
  * app itself was always usable, so this is a lightweight "you're confirmed" acknowledgement with a
  * clear recovery path for a dead link.
+ *
+ * Restyle PR 16: the card inside the signed-out frame (AuthFrame, restyle PR 9; `short`, so on a
+ * desktop the card ends under its content), one short state at a time with one primary each. Working: the title only, the quiet way back under it. Done: the
+ * title (it takes focus and is announced), "You're all set." and "Go to AllotJar", which leads out,
+ * so no foot link. Expired or incomplete: the title, the one recovery line and "Sign in", which is
+ * the way back itself, so no second link to /login under it; the incomplete link's why (it may have
+ * been split across two lines in the email) sits behind the (i) on its title.
  */
 export function ConfirmEmailPage() {
   const [params] = useSearchParams()
@@ -43,64 +61,50 @@ export function ConfirmEmailPage() {
   }, [status, email, token, markEmailConfirmed])
 
   return (
-    <>
-      <StagingBanner />
-      <div className="relative flex min-h-full items-center justify-center bg-slate-50 px-4 py-12">
-        <div className="absolute right-4 top-4">
-          <ThemeToggle />
+    <AuthFrame short>
+      {status === 'working' && (
+        <div role="status" className="auth-form">
+          <AuthTitle>Confirming your email…</AuthTitle>
         </div>
-        <div className="w-full max-w-sm">
-          <div className="mb-6 flex flex-col items-center text-center">
-            <JarLogo lg />
-            <h1 className="mt-3 text-[26px] font-extrabold tracking-[-0.035em] text-slate-900">
-              Allot<span style={{ color: 'var(--accent)' }}>Jar</span>
-            </h1>
-            <p className="mt-1 text-sm text-slate-500">Confirm your email.</p>
-          </div>
-
-          <Card className="p-8">
-            {status === 'working' && (
-              <p role="status" className="text-sm text-slate-600">
-                Confirming your email…
-              </p>
-            )}
-            {status === 'done' && (
-              <div role="status" className="space-y-4 text-sm text-slate-600">
-                <h2 className="text-base font-semibold text-slate-900">Email confirmed</h2>
-                <p>Thanks — your email address is confirmed. You're all set.</p>
-                <Link to="/" className={buttonLink}>
-                  Go to AllotJar
-                </Link>
-              </div>
-            )}
-            {(status === 'invalid' || status === 'incomplete') && (
-              <div className="space-y-4 text-sm text-slate-600">
-                <h2 className="text-base font-semibold text-slate-900">
-                  {status === 'incomplete' ? "This link isn't complete" : 'This link has expired'}
-                </h2>
-                <p>
-                  {status === 'incomplete'
-                    ? 'The confirmation link is missing some of its details — it may have been split across two lines in the email.'
-                    : 'That confirmation link is invalid or has expired.'}{' '}
-                  Sign in and use the “Resend” link in the banner to get a fresh one.
-                </p>
-                <Link to="/login" className={buttonLink}>
-                  Sign in
-                </Link>
-              </div>
-            )}
-          </Card>
-
-          <p className="mt-6 text-center text-sm">
-            <Link
-              to="/login"
-              className="font-medium text-brand-600 hover:text-brand-700 dark:text-brand-500"
-            >
-              Back to sign in
-            </Link>
-          </p>
+      )}
+      {status === 'done' && (
+        <div role="status" className="auth-form">
+          <AuthTitle focusOnMount sub="You're all set.">
+            Email confirmed
+          </AuthTitle>
+          <Pill to="/">Go to AllotJar</Pill>
         </div>
-      </div>
-    </>
+      )}
+      {status === 'invalid' && (
+        <div className="auth-form">
+          <AuthTitle sub={RECOVER}>This link has expired</AuthTitle>
+          <Pill to="/login">Sign in</Pill>
+        </div>
+      )}
+      {status === 'incomplete' && (
+        <div className="auth-form">
+          <AuthTitle
+            sub={RECOVER}
+            hint={
+              <InfoHint label="Why" buttonClassName="auth-i" align="end">
+                The confirmation link is missing some of its details — it may have been split across two
+                lines in the email.
+              </InfoHint>
+            }
+          >
+            This link isn't complete
+          </AuthTitle>
+          <Pill to="/login">Sign in</Pill>
+        </div>
+      )}
+
+      {status === 'working' && (
+        <div className="auth-foot">
+          <Link to="/login" className="auth-link">
+            Back to sign in
+          </Link>
+        </div>
+      )}
+    </AuthFrame>
   )
 }

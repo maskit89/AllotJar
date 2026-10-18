@@ -8,8 +8,7 @@ import { cn } from '../../lib/utils'
  * Adapted to AllotJar (see button.tsx for the shared rules): no focus ring and no `outline-none`
  * (the global :focus-visible outline marks the toggle), and no aria-invalid ring, only the
  * destructive border. A pressed toggle is filled with the brand green, like the app's
- * SegmentedControl and ThemeToggle, because upstream's accent tint is only about 1.1:1 from the
- * unpressed state. In Windows high-contrast mode a pressed toggle keeps a system-colour fill.
+ * SegmentedControl, because upstream's accent tint is only about 1.1:1 from the unpressed state. In Windows high-contrast mode a pressed toggle keeps a system-colour fill.
  */
 const toggleVariants = cva(
   "inline-flex items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap transition-[color,box-shadow] hover:bg-muted hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive-text data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:hover:bg-primary/90 forced-colors:data-[state=on]:bg-[Highlight] forced-colors:data-[state=on]:hover:bg-[Highlight] [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",

@@ -134,7 +134,7 @@
 ### UX-013 - Segmented / toggle controls use aria-pressed, not a tablist
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** ThemeToggle (`/confirm-email`), the "Sign in / Create account" switch (`/login`), and any `SegmentedControl`.
+- **Preconditions:** The "Sign in / Create account" switch (`/login`) and any `SegmentedControl` (the segmented ThemeToggle on `/confirm-email` is gone since restyle PR 16: every signed-out page has the round "Dark mode" button).
 - **Steps:**
   1. Focus a segment; toggle with Enter/Space; read state.
 - **Expected:** The control is a `role="group"` with an `aria-label` ("Theme", "Sign in or create an account") wrapping plain `<button>`s that carry `aria-pressed` (true on the selected one), operable by Enter/Space. It is deliberately NOT an ARIA tablist, so no roving-tabindex is required — each button is an ordinary tab stop. The "Dark mode" button (the top bar, and the green room on the signed-out pages since restyle PR 9) is a single toggle button with `aria-pressed`.
@@ -297,9 +297,9 @@
 - **Preconditions:** Fresh browser profile, no `zbb.theme`, OS set to dark.
 - **Steps:**
   1. Load the app (should be dark by OS); flip the OS to light and observe.
-  2. Pick a theme explicitly (press the "Dark mode" button, or Light / Dark on `/confirm-email`), then flip the OS again.
-- **Expected:** With `zbb.theme` unset, the theme (the "Dark mode" button, `ThemeToggle`) follows OS `prefers-color-scheme` live via a `matchMedia` change listener. After an explicit pick the listener stops honouring OS changes and the choice persists in `localStorage['zbb.theme']` (device-wide, not per-user, kept across household switches).
-- **Automated:** Yes (`client/e2e/theme-os-live.spec.ts` — system mode follows an emulated OS flip live; a theme pinned via the real ThemeToggle ignores OS flips and survives a reload; the sign-in page's "Dark mode" button follows the OS until a press pins it)
+  2. Pick a theme explicitly (press the "Dark mode" button — in the top bar, in the green room of a signed-out page such as `/confirm-email`, or in the header of `/`, `/privacy` and `/terms`), then flip the OS again.
+- **Expected:** With `zbb.theme` unset, the theme (the "Dark mode" button, `ThemeButton`) follows OS `prefers-color-scheme` live via a `matchMedia` change listener. After an explicit pick the listener stops honouring OS changes and the choice persists in `localStorage['zbb.theme']` (device-wide, not per-user, kept across household switches).
+- **Automated:** Yes (`client/e2e/theme-os-live.spec.ts` — system mode follows an emulated OS flip live; a theme pinned via the real Dark mode button ignores OS flips and survives a reload; the sign-in page's "Dark mode" button follows the OS until a press pins it)
 
 ## Responsive / mobile (375 px)
 
