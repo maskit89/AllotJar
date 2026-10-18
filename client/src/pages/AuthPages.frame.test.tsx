@@ -254,6 +254,26 @@ describe('Accept invite in the frame', () => {
   })
 })
 
+describe('The frame\'s line (restyle PR 16)', () => {
+  // The app is euro-first: the line reads "Give every euro a job." on every signed-out page under
+  // every browser locale (the landing page has read so since PR 15), never the locale's noun.
+  it('reads "Give every euro a job." on every page, under a UK and a US browser alike', () => {
+    for (const lang of ['en-GB', 'en-US', 'de-CH']) {
+      const spy = vi.spyOn(navigator, 'language', 'get').mockReturnValue(lang)
+      try {
+        for (const path of ['/forgot-password', '/reset-password?email=a%40b.c&token=t', '/accept-invite?code=ABC123']) {
+          const view = renderAt(path)
+          expect(screen.getByRole('banner')).toHaveTextContent(/^AllotJarGive every euro a job\.$/)
+          expect(screen.queryByText(/pound|dollar|franc/)).not.toBeInTheDocument()
+          view.unmount()
+        }
+      } finally {
+        spy.mockRestore()
+      }
+    }
+  })
+})
+
 describe('Sign in in a staging build', () => {
   it('keeps the banner above the room and the data-loss box under the terms one', async () => {
     envState.isStaging = true

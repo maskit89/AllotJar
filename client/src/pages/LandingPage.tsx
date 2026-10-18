@@ -2,9 +2,8 @@ import type { ReactNode } from 'react'
 import { Target, Users } from 'lucide-react'
 import { BandShelf, RoomShelf } from '../components/AuthFrame'
 import { JarNavIcon } from '../components/icons'
-import { JarLogo } from '../components/Jar'
+import { PublicFooter, PublicHeader } from '../components/PublicHeader'
 import { StagingBanner } from '../components/StagingBanner'
-import { ThemeButton } from '../components/ThemeToggle'
 import { hueColor, type CategoryHue } from '../lib/categoryColors'
 
 /**
@@ -17,7 +16,8 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * the free-to-start note. Under the room: three short feature cards, one closing line with the same
  * button, and a quiet footer. On a phone the room is the compact band with the small shelf and the
  * card hangs from its foot. The room, band and card are the `auth-*` rules in index.css; the page's
- * own parts are the `land-*` rules there.
+ * own parts are the `land-*` rules there. The header row and the footer are the public pages'
+ * shared pieces (PublicHeader.tsx, restyle PR 16: the legal pages draw the same ones).
  *
  * It is **self-contained and SSR-safe**: it renders to static HTML at build time
  * (scripts/prerender.mjs → renderToStaticMarkup), so nothing it renders may read `window`,
@@ -81,22 +81,7 @@ export function LandingPage() {
         <RoomShelf />
 
         <header className="auth-band">
-          <div className="auth-top">
-            <a href="/" className="auth-brand" aria-label="AllotJar home">
-              <JarLogo size={28} />
-              <span className="auth-brand-name">
-                Allot<span>Jar</span>
-              </span>
-            </a>
-            <div className="land-right">
-              <nav aria-label="Primary">
-                <a href={SIGN_IN} className="land-top-link">
-                  Sign in
-                </a>
-              </nav>
-              <ThemeButton className="auth-theme" />
-            </div>
-          </div>
+          <PublicHeader />
           <div className="auth-hero">
             <h1 className="auth-line">
               Give every <span className="gold-number">euro</span> a job.
@@ -105,7 +90,8 @@ export function LandingPage() {
           </div>
         </header>
 
-        <main id="main-content" className="auth-main">
+        {/* tabIndex -1: the skip link's target is programmatically focusable (as AppShell's main). */}
+        <main id="main-content" tabIndex={-1} className="auth-main focus:outline-none">
           <div className="auth-card">
             <p className="land-lead">
               Zero-based budgeting for households: plan the month to zero, with jars for the big bills
@@ -157,15 +143,7 @@ export function LandingPage() {
           </section>
         </main>
 
-        <footer className="land-foot">
-          <nav aria-label="Footer">
-            <span>© {new Date().getFullYear()} AllotJar</span>
-            <span aria-hidden>·</span>
-            <a href="/privacy">Privacy</a>
-            <span aria-hidden>·</span>
-            <a href="/terms">Terms</a>
-          </nav>
-        </footer>
+        <PublicFooter />
       </div>
     </div>
   )

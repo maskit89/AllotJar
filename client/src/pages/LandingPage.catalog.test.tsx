@@ -287,6 +287,16 @@ describe('LandingPage — the room, the card and the chrome', () => {
     expect(screen.getAllByRole('contentinfo')).toHaveLength(1)
     expect(screen.getAllByRole('navigation')).toHaveLength(2)
   })
+
+  // #351 review P3-2: the skip link's target is programmatically focusable (tabindex -1, as the
+  // app frame's main), so following the link really moves focus into the content.
+  it('the skip link lands focus on the main content', () => {
+    render(<LandingPage />)
+    const main = screen.getByRole('main')
+    expect(main).toHaveAttribute('tabindex', '-1')
+    main.focus()
+    expect(document.activeElement).toBe(main)
+  })
 })
 
 // =============================================================================
@@ -421,21 +431,26 @@ describe('Legal pages — Privacy & Terms completeness and chrome', () => {
     expect(document.title).toBe(spaDefault)
   })
 
-  // LAND-013 — the shared legal chrome: brand home link, a Sign-in link, and a Footer
-  // nav with Home / Privacy / Terms / Sign in and the copyright line. No app shell.
+  // LAND-013 — the shared public chrome (restyle PR 16: the landing's header row and footer):
+  // the wordmark is the way home, the header's Primary nav holds the one Sign-in link, and the
+  // Footer nav is the landing's (Privacy, Terms, the copyright line: no Home, no Sign in). No
+  // app shell.
   it('LAND-013: LegalLayout renders the public header + Footer nav chrome', () => {
     render(<PrivacyPage />)
 
-    expect(screen.getByRole('link', { name: 'AllotJar home' })).toHaveAttribute('href', '/')
-    // Header + footer both carry a Sign-in link, both to /login.
+    const header = screen.getByRole('banner')
+    expect(within(header).getByRole('link', { name: 'AllotJar home' })).toHaveAttribute('href', '/')
     const signIns = screen.getAllByRole('link', { name: 'Sign in' })
-    expect(signIns.length).toBeGreaterThanOrEqual(1)
-    signIns.forEach((a) => expect(a).toHaveAttribute('href', '/login'))
+    expect(signIns).toHaveLength(1)
+    expect(within(header).getByRole('navigation', { name: 'Primary' })).toContainElement(signIns[0])
+    expect(signIns[0]).toHaveAttribute('href', '/login')
+    expect(within(header).getByRole('button', { name: 'Dark mode' })).toBeInTheDocument()
 
     const footer = screen.getByRole('navigation', { name: 'Footer' })
-    expect(within(footer).getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
+    expect(within(footer).queryByRole('link', { name: 'Home' })).not.toBeInTheDocument()
     expect(within(footer).getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
     expect(within(footer).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
+    expect(within(footer).getAllByRole('link')).toHaveLength(2)
     const year = new Date().getFullYear()
     expect(within(footer).getByText(`© ${year} AllotJar`)).toBeInTheDocument()
   })

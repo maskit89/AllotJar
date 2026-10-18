@@ -155,7 +155,8 @@
   - Body identifies the data controller as Christopher Muscat (individual, Malta); covers what data is collected, how it is used, cookies and analytics (GA4, denied-by-default Consent Mode v2, hashed user id), sharing (hosting, Cloudflare, Google), international transfers, retention, protection, the 6 GDPR data-subject rights + right to complain to the Malta IDPC (link to `idpc.org.mt`), children (16+), changes, contact.
   - `mailto:privacy@allotjar.com` links present.
   - No auth redirect occurs — the page is fully public.
-- **Automated:** Partial (client/src/pages/LegalPages.test.tsx — H1, contact address, data controller, GDPR rights; client/e2e/legal.spec.ts — axe only)
+  - Restyle PR 16, the approved warm look: the landing page's header row on the sage page (the wordmark → `/`, a quiet "Sign in" → `/login`, the round **Dark mode** button; no green room, no line), then one off-white card with the gold hairline (max-width 46rem) holding the H1, the "Last updated" line and the text (`.legal-prose`: slate text, brand-green links), then the landing's footer "© {year} AllotJar · Privacy · Terms". Light and dark, desktop and phone (the card at the phone's width, 16px gutters, no sideways scroll). Not one word of the policy, its headings, the date or the contact address changed.
+- **Automated:** Yes (client/src/pages/LegalPages.test.tsx — H1, contact address, data controller, GDPR rights, the header, the card's order, the footer, the skip link, the staging banner; client/src/pages/LandingPage.catalog.test.tsx LAND-011; client/e2e/legal.spec.ts — axe in both themes, the header/card/footer, the theme button across a reload, the skip link; client/e2e/mobile-layout.spec.ts — no horizontal overflow at 390px)
 
 ### LAND-012 - Terms of Service renders complete and correct
 - **Priority:** P1
@@ -168,7 +169,8 @@
   - H1 "Terms of Service"; "Last updated: 1 July 2026"; 13 numbered sections.
   - Governing law = Malta with exclusive jurisdiction of Maltese courts; eligibility 16+; a "Not financial advice" section exists.
   - In-body link to `/privacy` labelled "Privacy Policy" works.
-- **Automated:** Partial (client/src/pages/LegalPages.test.tsx — H1, `/laws of Malta/`, privacy link; client/e2e/legal.spec.ts — axe only)
+  - The same chrome as LAND-011 (restyle PR 16): the header row, the one card with the H1, the date line and the 13 sections, the footer. Not one word of the terms, their headings or the date changed.
+- **Automated:** Yes (client/src/pages/LegalPages.test.tsx — H1, `/laws of Malta/`, privacy link, the header, the footer, the theme button; client/src/pages/LandingPage.catalog.test.tsx LAND-012; client/e2e/legal.spec.ts — axe in both themes, the theme button on /terms kept across a reload and on /privacy; client/e2e/mobile-layout.spec.ts — no horizontal overflow at 390px)
 
 ### LAND-013 - LegalLayout chrome and document-title lifecycle
 - **Priority:** P2
@@ -177,12 +179,12 @@
 - **Steps:**
   1. Click footer "Privacy"; note the browser tab title.
   2. From the legal footer click "Terms"; note the title.
-  3. Click legal footer "Home"; note the title.
-  4. Inspect the legal header and footer.
+  3. Click the wordmark (the way home); note the title.
+  4. Inspect the legal header and footer; press the theme button.
 - **Expected:**
   - Step 1: tab title becomes "Privacy Policy — AllotJar". Step 2: "Terms of Service — AllotJar". Step 3: title restored to the SPA default (unmount effect restores the previous title).
-  - Header: brand link `aria-label="AllotJar home"` → `/` plus a "Sign in" link → `/login`. Footer `nav aria-label="Footer"`: "Home", "Privacy", "Terms", "Sign in", "© 2026 AllotJar". No app shell, no month bar.
-- **Automated:** No
+  - Header (restyle PR 16: the landing page's header row, `PublicHeader`): the brand link `aria-label="AllotJar home"` → `/`, the `Primary` nav's one "Sign in" link → `/login`, and the round **Dark mode** button (`aria-pressed`), which turns dark mode on for the page and keeps it across a reload and on the other legal page. Footer `nav aria-label="Footer"` (`PublicFooter`, the landing's): "© {year} AllotJar", "Privacy", "Terms" — no "Home" (the wordmark is the way home) and no second "Sign in". A "Skip to main content" link whose target takes focus. No app shell, no month bar; the staging build's banner above the header, as on the landing.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-013 — the title lifecycle, the header and footer; client/src/pages/LegalPages.test.tsx; client/src/components/PublicHeader.test.tsx — the landing and a legal page draw the same header row and footer; client/e2e/legal.spec.ts — the theme button, the skip link)
 
 ### LAND-014 - Legal pages access variants: signed in, case-variant path, cold deep link
 - **Priority:** P2

@@ -696,10 +696,14 @@ html {
   margin-top: var(--auth-gap);
 }
 /* A short card (a sent or incomplete state) still reaches just past the room's foot onto the sage, as
-   every card in the mock-up does. */
+   every card in the mock-up does. A page of short states only (`auth-short`, Confirm email) lets its
+   card end under its content instead; its top, and so its overlap with the room, is the same. */
 @media (min-width: 700px) {
   .auth-card {
     min-height: 250px;
+  }
+  .auth-short .auth-card {
+    min-height: 0;
   }
 }
 /* The card's quiet foot (the way back) follows what is above it. */
@@ -1570,14 +1574,16 @@ html {
 /* ============================================================================================
    The public landing page (restyle PR 15): the sign-in pages' room, band and card (the `auth-*`
    rules above, unchanged) around the page's own parts. Prefixed `land-`, used by LandingPage only.
+   The header row's right side and the footer are shared with the legal pages (PublicHeader.tsx,
+   restyle PR 16): prefixed `pub-`.
    ============================================================================================ */
 /* The room's right side: a quiet "Sign in" beside the theme button, in the room's pale ink. */
-.land-right {
+.pub-right {
   display: flex;
   align-items: center;
   gap: 4px;
 }
-.land-top-link {
+.pub-top-link {
   display: inline-flex;
   align-items: center;
   height: 40px;
@@ -1587,7 +1593,7 @@ html {
   font-weight: 600;
   color: #e6f1ea;
 }
-.land-top-link:hover {
+.pub-top-link:hover {
   color: #fff;
   background: rgb(255 255 255 / 0.07);
 }
@@ -1686,7 +1692,7 @@ html {
 .land-promise b {
   font-weight: inherit;
 }
-/* The closing line with the same primary, then the quiet footer. */
+/* The closing line with the same primary. */
 .land-close {
   display: flex;
   flex-direction: column;
@@ -1703,7 +1709,8 @@ html {
   line-height: 1.15;
   color: var(--color-foreground);
 }
-.land-foot {
+/* The quiet footer of the public pages: the year, Privacy and Terms. */
+.pub-foot {
   position: relative;
   z-index: 4;
   display: flex;
@@ -1712,19 +1719,19 @@ html {
   font-size: 13px;
   color: var(--color-slate-500);
 }
-.land-foot nav {
+.pub-foot nav {
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.land-foot a {
+.pub-foot a {
   display: inline-flex;
   align-items: center;
   min-height: 40px;
   font-weight: 600;
   color: var(--color-slate-500);
 }
-.land-foot a:hover {
+.pub-foot a:hover {
   color: var(--color-foreground);
 }
 @media (max-width: 1100px) {
@@ -1739,7 +1746,7 @@ html {
   .land .auth-top {
     padding-right: 8px;
   }
-  .land-top-link {
+  .pub-top-link {
     padding: 0 10px;
   }
   .land .auth-main {
@@ -1798,7 +1805,137 @@ html {
   .land-close h2 {
     font-size: 26px;
   }
-  .land-foot {
+  .pub-foot {
     padding: 0 16px 24px;
+  }
+}
+
+/* ============================================================================================
+   The public legal pages (restyle PR 16): the landing's header row on the sage page (a document
+   page: no green room, so its ink is the page's and the theme button wears a hairline ring), one
+   off-white card with the gold hairline at a reading measure, the landing's footer under it.
+   Prefixed `legal-`, used by LegalLayout only (`.legal-prose` is above, with the page's prose).
+   ============================================================================================ */
+.legal-top {
+  position: relative;
+  z-index: 3;
+  width: 100%;
+  max-width: calc(46rem + 48px);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+.legal .auth-top {
+  height: 80px;
+  margin: 10px 0 0;
+  padding: 0;
+  color: var(--color-foreground);
+}
+.legal .auth-brand {
+  --accent: var(--color-brand-600);
+}
+.dark .legal .auth-brand {
+  --accent: var(--color-brand-500);
+}
+.legal .auth-brand-name {
+  color: var(--color-foreground);
+}
+.legal .auth-brand-name span {
+  color: var(--color-brand-600);
+}
+.dark .legal .auth-brand-name span {
+  color: var(--color-brand-500);
+}
+.legal .pub-top-link {
+  color: var(--color-slate-600);
+}
+.legal .pub-top-link:hover {
+  color: var(--color-foreground);
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+.legal .auth-theme {
+  color: var(--color-slate-500);
+  background: var(--color-card);
+  box-shadow: inset 0 0 0 1px var(--color-slate-200);
+}
+.legal .auth-theme:hover {
+  color: var(--color-foreground);
+  background: var(--color-card);
+}
+.legal-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 8px 24px 48px;
+}
+/* The card: the sign-in card's off-white, radius, shadow and gold hairline, at a reading measure. */
+.legal-card {
+  position: relative;
+  width: 100%;
+  max-width: 46rem;
+  padding: 40px 48px 44px;
+  border-radius: 22px;
+  background: var(--color-card);
+  color: var(--color-foreground);
+  box-shadow: 0 2px 6px rgb(22 44 32 / 0.08), 0 30px 60px -28px rgb(22 44 32 / 0.5);
+}
+.dark .legal-card {
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 48px -26px rgb(0 0 0 / 0.75);
+}
+.legal-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgb(236 200 110 / 0.95), rgb(229 190 94 / 0.28) 32%, rgb(229 190 94 / 0.28) 68%, rgb(236 200 110 / 0.85));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.dark .legal-card::after {
+  background: linear-gradient(135deg, rgb(236 200 110 / 0.75), rgb(229 190 94 / 0.14) 32%, rgb(229 190 94 / 0.14) 68%, rgb(236 200 110 / 0.6));
+}
+.legal-title {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.15;
+  color: var(--color-foreground);
+}
+.legal-date {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--color-slate-500);
+}
+.legal-card .legal-prose {
+  margin-top: 28px;
+}
+.legal-prose > :first-child {
+  margin-top: 0;
+}
+@media (max-width: 699.98px) {
+  .legal-top {
+    padding: 0;
+  }
+  .legal .auth-top {
+    height: 56px;
+    margin: 0;
+    padding: 0 8px 0 16px;
+  }
+  .legal-main {
+    padding: 4px 16px 24px;
+  }
+  .legal-card {
+    padding: 24px 20px 26px;
+    border-radius: 18px;
+  }
+  .legal-title {
+    font-size: 26px;
+  }
+  .legal-card .legal-prose {
+    margin-top: 22px;
   }
 }

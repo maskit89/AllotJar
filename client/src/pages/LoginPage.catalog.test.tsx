@@ -188,7 +188,7 @@ describe('LoginPage (REG catalog)', () => {
     expect(screen.queryByLabelText('Currency')).not.toBeInTheDocument()
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
-    expect(theLine(/^Give every \w+ a job\.$/)).toBeInTheDocument()
+    expect(theLine('Give every euro a job.')).toBeInTheDocument()
   })
 
   // REG-002 — switching to "Create account" reveals every registration field with
@@ -339,9 +339,10 @@ describe('LoginPage (REG catalog)', () => {
     ])
   })
 
-  // REG-031 — the two selects and the footer tagline preselect from the browser
-  // locale (detectLocaleDefaults, computed once on mount).
-  it('REG-031: the browser locale preselects the currency, number format and tagline noun', () => {
+  // REG-031 — the two selects preselect from the browser locale (detectLocaleDefaults, computed
+  // once on mount); the room's line reads "euro" whatever the locale (restyle PR 16: the app is
+  // euro-first, as the landing page already read since PR 15), never the locale's noun.
+  it('REG-031: the browser locale preselects the currency and number format; the line reads euro always', () => {
     const cases = [
       { lang: 'en-GB', currency: 'GBP', format: 'comma-dot', noun: 'pound' },
       { lang: 'de-DE', currency: 'EUR', format: 'dot-comma', noun: 'euro' },
@@ -353,7 +354,8 @@ describe('LoginPage (REG catalog)', () => {
         const view = renderAt('/login?register=1')
         expect((screen.getByLabelText('Currency') as HTMLSelectElement).value).toBe(c.currency)
         expect((screen.getByLabelText('Number format') as HTMLSelectElement).value).toBe(c.format)
-        expect(theLine(`Give every ${c.noun} a job.`)).toBeInTheDocument()
+        expect(theLine('Give every euro a job.')).toBeInTheDocument()
+        expect(document.querySelector('.auth-line')!.textContent).toBe('Give every euro a job.')
         view.unmount()
       } finally {
         spy.mockRestore()

@@ -15,7 +15,7 @@
   2. Inspect the page.
 - **Expected:**
   - Staging banner (`role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (staging build only), a strip across the top of the page above the green room.
-  - Desktop: a green room across the top holds the wordmark (jar logo + "AllotJar", not a heading) at its left, the round **Dark mode** button (`aria-pressed`, a moon in light, a sun in dark) at its right, and the one line "Give every pound a job." with the money word in gold (noun follows the locale-detected currency — en-GB → GBP → "pound"; EUR fallback locales read "euro"; see REG-031), over a shelf of four glass jars, two each side of the card (decoration, hidden from assistive tech; under 1180px wide only the two inner jars, under 1000px no shelf). Phone (under 700px wide): the wordmark row, the button and the line in a compact green band with a small shelf of the same four jars, and the card a sheet with rounded top corners from under the band to the bottom of the screen. No tagline "Zero-based budgeting, in your currency." and no Light/Dark "Theme" group (both gone).
+  - Desktop: a green room across the top holds the wordmark (jar logo + "AllotJar", not a heading) at its left, the round **Dark mode** button (`aria-pressed`, a moon in light, a sun in dark) at its right, and the one line "Give every euro a job." with the money word in gold (euro always, whatever the locale, since restyle PR 16 — the app is euro-first, as the landing page already read; see REG-031), over a shelf of four glass jars, two each side of the card (decoration, hidden from assistive tech; under 1180px wide only the two inner jars, under 1000px no shelf). Phone (under 700px wide): the wordmark row, the button and the line in a compact green band with a small shelf of the same four jars, and the card a sheet with rounded top corners from under the band to the bottom of the screen. No tagline "Zero-based budgeting, in your currency." and no Light/Dark "Theme" group (both gone).
   - The off-white card with a gold hairline edge. The page's only heading is a visually hidden h1 "Sign in to AllotJar".
   - At the top of the card, the full-width switch (`role="group"`, `aria-label="Sign in or create an account"`), options "Sign in" (pressed) and "Create account".
   - Only two fields: "Email" (`type=email`, placeholder "you@example.com", autocomplete `email`) and "Password" (`type=password`, placeholder "At least 8 characters", autocomplete `current-password`), with "Forgot password?" on the Password label's line. No name/currency/format/checkbox fields.
@@ -398,11 +398,11 @@
   1. Load `/login?register=1` under `en-US`; read the two selects and the line in the green room (the band on a phone).
   2. Repeat under `en-IN`, `de-CH`, `de-DE`, and `pt-PT`.
 - **Expected:**
-  - `en-US`: USD + `1,234.56`; the line "Give every dollar a job." (the money word in gold).
-  - `en-IN`: INR + `1,23,456.78` (lakh); "…every rupee…". `de-CH`: CHF + `1'234.56`; "…every franc…". `de-DE`: EUR + `1.234,56`; "…every euro…".
+  - `en-US`: USD + `1,234.56`. The line reads "Give every euro a job." (the money word in gold) under every locale — restyle PR 16: the frame's line is euro always, never the locale's noun ("dollar", "pound", "franc", "rupee" never appear in the room).
+  - `en-IN`: INR + `1,23,456.78` (lakh). `de-CH`: CHF + `1'234.56`. `de-DE`: EUR + `1.234,56`. The line still "…every euro…".
   - `pt-PT` (region not in the map): falls back to EUR; number format inferred from the locale's separators (comma decimal + space grouping → `1 234,56`).
   - Both selects remain fully user-overridable; the preselect is computed once on mount.
-- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-031 — en-GB, de-DE and en-US: the selects and the line, read as the whole line's text; client/src/lib/money.test.ts — detectLocaleDefaults + currencyNoun)
+- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-031 — en-GB, de-DE and en-US: the selects, and the line reads euro under each; `AuthPages.frame.test.tsx` — euro on the forgot, reset and accept-invite pages under en-GB, en-US and de-CH; client/src/lib/money.test.ts — detectLocaleDefaults + currencyNoun)
 
 ### REG-032 - Chosen currency and format actually govern the app after sign-up
 - **Priority:** P1
@@ -1116,10 +1116,15 @@ Setup: a Development-env API with NO `Email:ApiKey` so verification/reclaim emai
 - **Priority:** P2
 - **Type:** Negative
 - **Steps:**
-  1. Open `/confirm-email?email=&token=` with a good link, a dead link, and no token.
+  1. Open `/confirm-email?email=&token=` with a good link, a dead link, and no token; watch the page while the request is in flight.
 - **Expected:**
-  - Good: POSTs the decoded email+token once (StrictMode-safe), shows "Email confirmed" + a link home. Dead: "This link has expired" + a Sign in link (to resend from the banner). No token: "This link isn't complete", no API call.
-- **Automated:** Full (client/src/pages/ConfirmEmailPage.catalog.test.tsx — REG-092)
+  - Restyle PR 16: the page is a card in the signed-out frame (`AuthFrame`, as `/login`: the green room with the wordmark, the round **Dark mode** button and the line "Give every euro a job." over the shelf of jars on desktop; the compact band and the sheet on a phone; the staging build's banner above the room). No big logo, no "Confirm your email." subtitle, no Light | Dark group (the segmented `ThemeToggle` is deleted). One short state at a time, one primary (green pill) per screen:
+    - Working: the h1 "Confirming your email…" (`role="status"`), nothing else but the quiet "Back to sign in" → `/login` at the card's foot.
+    - Good: POSTs the decoded email+token once (StrictMode-safe) and calls `markEmailConfirmed()`; the h1 "Email confirmed" (`role="status"`, takes focus), one line "You're all set.", the primary "Go to AllotJar" → `/` (a client-side link). No foot link: the primary already leads out.
+    - Dead (the POST fails): the h1 "This link has expired", one line "Sign in and use Resend in the banner to get a fresh one.", the primary "Sign in" → `/login`. No foot link: the primary is the way back.
+    - No token (or no email): the h1 "This link isn't complete" with an (i) **"Why"** beside it holding "The confirmation link is missing some of its details — it may have been split across two lines in the email.", the same recovery line, the primary "Sign in" → `/login`; no API call. Tab order: the theme button, the (i), Sign in.
+  - Light and dark, desktop and phone, all finished; no sideways scroll on a phone; the band's line sits where it does on every other frame page.
+- **Automated:** Full (client/src/pages/ConfirmEmailPage.catalog.test.tsx — REG-092 and the frame: the four states, one primary each, the (i), the keyboard path, the theme button, the staging banner; client/e2e/a11y.spec.ts — axe on all four states and the (i) open, both themes; client/e2e/mobile-layout.spec.ts — no overflow and the band's height at 390px; client/e2e-journey/email-verification.spec.ts — the real emailed link, "Email confirmed", "Go to AllotJar")
 
 ### REG-093 - Register on an unverified email shows the client claim panel
 - **Priority:** P1

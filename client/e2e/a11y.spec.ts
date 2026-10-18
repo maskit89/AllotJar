@@ -1,6 +1,15 @@
 import AxeBuilder from '@axe-core/playwright'
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { AUTHED_ROUTES, authedSetup, FLAGS, mockApi, mockSignedIn, ONBOARDING_EMAIL } from './mocks'
+
+/** Waits until nothing under `target` is still animating, so axe reads the settled colours. A
+ *  cancelled animation (a transition replaced, its node removed) rejects its `finished` promise with
+ *  an AbortError, and we only need none still running: allSettled, never all (CI run 963). */
+async function animationsSettled(target: Locator) {
+  await target.evaluate((el) =>
+    Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)).then(() => undefined),
+  )
+}
 
 // The WCAG 2.x success criteria we assert against (A + AA, through 2.2).
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
@@ -58,9 +67,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'More', exact: true }).click()
       await page.getByRole('switch', { name: 'Dark mode' }).waitFor()
       // Let the slide-in finish so axe reads the settled colours.
-      await page.getByRole('dialog', { name: 'More', exact: true }).evaluate((el) =>
-        Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)),
-      )
+      await animationsSettled(page.getByRole('dialog', { name: 'More', exact: true }))
       await expectNoViolations(page)
     })
 
@@ -83,7 +90,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Rent', exact: true }).click()
       const sheet = page.getByRole('dialog', { name: 'Rent' })
       await sheet.getByRole('button', { name: 'Mark paid' }).waitFor()
-      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(sheet)
       await expectNoViolations(page)
     })
 
@@ -123,7 +130,7 @@ for (const theme of ['light', 'dark'] as const) {
       await columns.getByRole('table', { name: 'Sample of the uploaded file' }).waitFor()
       await columns.getByText('More options').click()
       await columns.getByLabel('Number format').waitFor()
-      await columns.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(columns)
       await expectNoViolations(page)
       await page.keyboard.press('Escape')
       await expect(columns).toBeHidden()
@@ -133,7 +140,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('menuitem', { name: 'Split AUTOMARKET on 2026-06-17' }).click()
       const split = page.getByRole('dialog', { name: 'Split' })
       await split.getByLabel('Split line 1 amount for AUTOMARKET').waitFor()
-      await split.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(split)
       await expectNoViolations(page)
       await page.keyboard.press('Escape')
       await expect(split).toBeHidden()
@@ -145,7 +152,7 @@ for (const theme of ['light', 'dark'] as const) {
       const transfer = page.getByRole('dialog', { name: 'Transfer' })
       await transfer.getByLabel('Transfer account for WOLT on 2026-06-15').waitFor()
       await transfer.getByLabel('Match recorded transfer for WOLT on 2026-06-15').waitFor()
-      await transfer.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(transfer)
       await expectNoViolations(page)
     })
 
@@ -165,7 +172,7 @@ for (const theme of ['light', 'dark'] as const) {
       const columns = page.getByRole('dialog', { name: 'Columns' })
       await columns.getByText('More options').click()
       await columns.getByLabel('Number format').waitFor()
-      await columns.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(columns)
       await expectNoViolations(page)
       const sample = columns.getByRole('region', { name: 'Sample of the uploaded file' })
       await sample.focus()
@@ -246,7 +253,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Home insurance: more actions' }).click()
       const sheet = page.getByRole('dialog', { name: 'Home insurance' })
       await sheet.getByRole('button', { name: 'Edit' }).waitFor()
-      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(sheet)
       await expectNoViolations(page)
     })
 
@@ -325,7 +332,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Welbees Supermarket', exact: true }).click()
       const sheet = page.getByRole('dialog', { name: 'Welbees Supermarket' })
       await sheet.getByRole('button', { name: 'Edit transaction: Welbees Supermarket' }).waitFor()
-      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(sheet)
       await expectNoViolations(page)
     })
 
@@ -365,7 +372,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Savings Joint: more actions' }).click()
       const sheet = page.getByRole('dialog', { name: 'Savings Joint' })
       await sheet.getByRole('button', { name: 'Edit Savings Joint' }).waitFor()
-      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(sheet)
       await expectNoViolations(page)
 
       await sheet.getByRole('button', { name: 'Edit Savings Joint' }).click()
@@ -449,7 +456,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Sam: more actions' }).click()
       const sheet = page.getByRole('dialog', { name: 'Sam' })
       await sheet.getByRole('button', { name: 'Edit Sam' }).waitFor()
-      await sheet.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(sheet)
       await expectNoViolations(page)
 
       await sheet.getByRole('button', { name: 'Edit Sam' }).click()
@@ -461,7 +468,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('button', { name: 'Sign-in guest@example.eu: more actions' }).click()
       const signIn = page.getByRole('dialog', { name: 'guest@example.eu' })
       await signIn.getByRole('button', { name: 'Remove guest@example.eu' }).waitFor()
-      await signIn.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)))
+      await animationsSettled(signIn)
       await expectNoViolations(page)
     })
 
@@ -539,18 +546,34 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
-    // The confirm-email page (public) — success state (mockApi 200s the confirm POST) + the
-    // incomplete-link recovery state.
+    // The confirm-email page (public, restyle PR 16: in the sign-in pages' frame) — its four
+    // states: done (mockApi 200s the confirm POST), expired (a 400), incomplete (no token) with
+    // its (i) open, and working (the request never answers).
     test('confirm-email page has no WCAG A/AA violations', async ({ page }) => {
       await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
 
       await page.goto('/confirm-email?email=owner%40example.com&token=tok')
-      await page.getByText('Email confirmed').waitFor()
+      await page.getByRole('heading', { level: 1, name: 'Email confirmed' }).waitFor()
+      await expectNoViolations(page)
+
+      await page.route(/\/api\/auth\/confirm-email$/, (route) =>
+        route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Invalid or expired token.' }) }),
+      )
+      await page.goto('/confirm-email?email=owner%40example.com&token=dead')
+      await page.getByRole('heading', { level: 1, name: 'This link has expired' }).waitFor()
       await expectNoViolations(page)
 
       await page.goto('/confirm-email')
-      await page.getByText("This link isn't complete").waitFor()
+      await page.getByRole('heading', { level: 1, name: "This link isn't complete" }).waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'Why' }).focus()
+      await page.getByRole('tooltip').waitFor()
+      await expectNoViolations(page)
+
+      await page.route(/\/api\/auth\/confirm-email$/, () => new Promise(() => {}))
+      await page.goto('/confirm-email?email=owner%40example.com&token=slow')
+      await page.getByRole('heading', { level: 1, name: 'Confirming your email…' }).waitFor()
       await expectNoViolations(page)
     })
 

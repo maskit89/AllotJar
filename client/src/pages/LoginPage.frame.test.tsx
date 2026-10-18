@@ -221,7 +221,7 @@ describe('LoginPage in the green-banner frame', () => {
 
     const banner = screen.getByRole('banner')
     expect(banner).toHaveTextContent('AllotJar')
-    expect(banner).toHaveTextContent(/^AllotJarGive every \w+ a job\.$/)
+    expect(banner).toHaveTextContent(/^AllotJarGive every euro a job\.$/)
     // Jars and logo are hidden from assistive tech; no image role anywhere on the page.
     expect(screen.queryAllByRole('img')).toEqual([])
     // One heading on the page: the visually hidden h1.
