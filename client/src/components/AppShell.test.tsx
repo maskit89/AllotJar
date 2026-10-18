@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Route, Routes } from 'react-router-dom'
 import type { FeatureFlags, HouseholdMemberDto, HouseholdSummary } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -221,6 +222,50 @@ describe('AppShell (the app frame)', () => {
     const desktop = await screen.findAllByRole('button', { name: 'Add transaction' })
     expect(desktop).toHaveLength(1)
     expect(desktop[0].closest('header')).toHaveAttribute('data-tour', 'topbar')
+  })
+
+  it('a detail page’s back link: a chevron named "Back to {page}" before the title, in place of the logo', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <Routes>
+        <Route
+          path="/accounts/a1"
+          element={
+            <AppShell active="accounts" title="Savings" back={{ to: '/accounts', label: 'Accounts' }}>
+              <p>Page body</p>
+            </AppShell>
+          }
+        />
+        <Route path="/accounts" element={<p>The accounts list</p>} />
+      </Routes>,
+      { route: '/accounts/a1', features: true, household: true, month: true },
+    )
+    const h1 = await screen.findByRole('heading', { level: 1, name: 'Savings' })
+    const header = h1.closest('header')!
+    const back = within(header).getByRole('link', { name: 'Back to Accounts' })
+    expect(back).toHaveAttribute('href', '/accounts')
+    expect(screen.getAllByRole('link', { name: 'Back to Accounts' })).toHaveLength(1)
+    // Before the title, and the phone's logo gives it its place.
+    expect(back.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(header.querySelector('svg[viewBox="0 0 64 84"]')).toBeNull()
+    // The sidebar's own Accounts link keeps its name, so the two never match one query.
+    const navs = await screen.findAllByRole('navigation', { name: 'Primary' })
+    const sidebar = navs.find((n) => !n.hasAttribute('data-tabbar'))!
+    expect(await within(sidebar).findByRole('link', { name: 'Accounts' })).toHaveAttribute('aria-current', 'page')
+
+    // A keyboard user reaches it and Enter follows it.
+    back.focus()
+    expect(back).toHaveFocus()
+    await user.keyboard('{Enter}')
+    expect(await screen.findByText('The accounts list')).toBeInTheDocument()
+  })
+
+  it('without a back link the top bar keeps its logo and has no Back link', { timeout: 15000 }, async () => {
+    renderShell({ active: 'accounts', title: 'Accounts' })
+    const h1 = await screen.findByRole('heading', { level: 1, name: 'Accounts' })
+    const header = h1.closest('header')!
+    expect(within(header).queryByRole('link', { name: /^Back to/ })).not.toBeInTheDocument()
+    expect(header.querySelector('svg[viewBox="0 0 64 84"]')).not.toBeNull()
   })
 
   it('keeps the banners: read-only access and the household greeting', { timeout: 15000 }, async () => {

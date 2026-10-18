@@ -12,7 +12,7 @@ Repo paths below are relative to that root unless absolute.
 | Route | Component | Guard / gating |
 |---|---|---|
 | `/transactions` | `TransactionsPage` | `RequireAuth` (App.tsx:82-89). Not feature-flag gated — always registered. |
-| `/accounts/:id` | `AccountDetailPage` | `RequireAuth` + `features.accounts` flag (App.tsx:100-109). Shows the per-account register incl. signed transfer rows. |
+| `/accounts/:id` | `AccountDetailPage` | `RequireAuth` + `features.accounts` flag (App.tsx:100-109). Shows the per-account register incl. signed transfer rows ("To/From {account}"). |
 | `/import` | `ImportPage` | `RequireAuth` + `features.camtImport` (App.tsx:161-170). Adjacent subsystem; reached via the register toolbar's Import link. |
 
 - `RequireAuth` (App.tsx:38-48): shows `AuthSplash` while `bootstrapping`, renders children when authenticated, otherwise redirects to `/login?returnUrl=<encoded current path+search>`.
@@ -52,7 +52,7 @@ Columns: Date · Payee · Category · Account · Amount · (actions). `min-w-[72
   - Assigned → colour-dot tint pill with the line name; clicking it (aria "Reassign {payee}") reopens the picker (button only when `canEnterData`, otherwise static span).
   - Unassigned → dashed **+ Assign** pill (aria "Assign {payee}") when `canEnterData`, else plain text "Unassigned".
 - Account cell: transfer rows show "{from} → {to}" with `—` for a missing name; ordinary rows show account name or "—".
-- Amount cell: income `+{money}` (brand green), expense `−{money}` (ink), transfer unsigned grey. Formatted from `t.amount` in `t.currency`. A row **waiting for its budget-currency amount** (`t.fxPending`, W08) instead shows its own figure as plain "{CODE} {number}" (`formatForeign`, e.g. "USD 12.50", so it never reads as budget money), the amber tag **"Needs {budgetCurrency} amount"** (title "In another currency. Not counted anywhere until you enter the amount in {X}.") and — only when `canEnterData` and the row is not split (a row on an account gets it too since the "Support them" follow-up) — an **Enter amount** button (aria "Enter amount in {X}: {payee || date}"). A confirmed row with `originalAmount`/`originalCurrency` shows the foreign figure as a small grey caption under the amount (title "Paid in {code}"). A counted row with `budgetAmount` (a row on a legacy account kept in another currency) shows its own amount in its own currency (e.g. "−£12.50") with a grey caption **"Counts as {€X}"** (title "The account keeps its {CODE} amount; the budget counts this"); the account register (`AccountDetailPage`) shows the same captions (there: "Counts as {€X} in the budget") and the same tag, but no Enter amount button.
+- Amount cell: income `+{money}` (brand green), expense `−{money}` (ink), transfer unsigned grey. Formatted from `t.amount` in `t.currency`. A row **waiting for its budget-currency amount** (`t.fxPending`, W08) instead shows its own figure as plain "{CODE} {number}" (`formatForeign`, e.g. "USD 12.50", so it never reads as budget money), the amber tag **"Needs {budgetCurrency} amount"** (title "In another currency. Not counted anywhere until you enter the amount in {X}.") and — only when `canEnterData` and the row is not split (a row on an account gets it too since the "Support them" follow-up) — an **Enter amount** button (aria "Enter amount in {X}: {payee || date}"). A confirmed row with `originalAmount`/`originalCurrency` shows the foreign figure as a small grey caption under the amount (title "Paid in {code}"). A counted row with `budgetAmount` (a row on a legacy account kept in another currency) shows its own amount in its own currency (e.g. "−£12.50") with a grey caption **"Counts as {€X}"** (title "The account keeps its {CODE} amount; the budget counts this"); the account register (`AccountDetailPage`) shows the same captions (there: "Counts as {€X} in the budget") and the same tag, its explanation behind an (i) after it instead of a title, but no Enter amount button.
 - **Enter amount modal** (`client/src/components/ConvertedAmountModal.tsx`): title "Amount in {X}"; body "{payee} was {CODE amount} on {date}. Enter what it cost in {X}. It isn’t counted anywhere until you confirm." plus, for a row on an account, " {accountName ?? 'Its account'} keeps its {CODE} amount; the budget counts yours."; input aria "Amount in {X}" (Enter confirms; a second Enter while the save is in flight is ignored); **Suggest** ("Suggesting…") calls `GET /transactions/conversion-suggestion` and fills the input (editable) — hint "Suggested from the European Central Bank reference rate: 1 {CODE} = {rate} {X}. Check it matches what you paid." or, with no rate, "No suggestion is available for {CODE} on this date. Enter the amount in {X} yourself."; **Cancel**; **Confirm amount** ("Saving…", disabled while the input is blank) → `PUT /transactions/{id}/converted-amount`, replaces the row and reloads jar ledgers. Client guard: "Enter the amount in {X}, greater than zero."; server refusals are shown in the modal's ErrorBanner (fallback "Could not save that amount.").
 - Row hover actions (visible on hover/focus, only when `canEnterData`):
   - **✎** "Edit transaction" — NOT rendered for transfers.
@@ -76,7 +76,8 @@ Columns: Date · Payee · Category · Account · Amount · (actions). `min-w-[72
 
 ### AccountDetailPage register (client/src/pages/AccountDetailPage.tsx)
 - Rows = transactions where `accountId === id || transferAccountId === id` (line 76-79).
-- Transfer rows are SIGNED by direction: `−` when this account is the source (`t.accountId === id`), `+` when destination (lines 173-176). Category cell shows "{from} → {to}" with **"(removed account)"** for a null name (line 154).
+- Transfer rows are SIGNED by direction: `−` when this account is the source (`t.accountId === id`), `+` when destination (`[data-tx-amount]`). Since the restyle (PR 11) the route `[data-tx-route]` names only the other account, after an arrow: "To {other}" on the source's page, "From {other}" on the destination's, with **"(removed account)"** for a null name. Status chips In transit / Returned / Pending review; a Returned transfer is struck through (it never moved the balance), and so is a row dated before the account's opening date (with "Before opening" and its (i)).
+- Rows are list items (`data-testid="tx-row"`) grouped by month, sorted by the date this account posts the row.
 - Empty state: "No transactions on this account yet."; missing account: "Account not found" / "It may have been deleted. Head back to your accounts."
 
 ### Analytics events (client/src/analytics/events.ts:29-34)
@@ -262,7 +263,7 @@ Server:
 Client:
 - client/src/pages/TransactionsPage.tsx
 - client/src/pages/AccountDetailPage.tsx
-- client/src/components/ConvertedAmountModal.tsx, client/src/components/FxPendingTag.tsx, client/src/lib/conversion.ts (W08)
+- client/src/components/ConvertedAmountModal.tsx, client/src/lib/conversion.ts (W08; `FxPendingTag.tsx` was removed in restyle PR 11)
 - client/src/lib/transactions.ts (buildItemOptions, transactionTypeLabel, signedAmountMinorFromAmount)
 - client/src/lib/money.ts (minor-unit engine, parseMinor, formatMoney)
 - client/src/types.ts (TransactionType = { Expense:0, Income:1, Transfer:2 })

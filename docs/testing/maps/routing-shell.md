@@ -19,7 +19,7 @@ All routes declared in `client/src/App.tsx`. Feature-flag-gated routes are **con
 | `/` | `bootstrapping ? AuthSplash : isAuthenticated ? DashboardPage : LandingPage` | Split by auth state (App.tsx:73-81) | Landing = public marketing page (CTAs `/login?register=1`, `/login`); splash prevents authed users flashing the landing |
 | `/transactions` | `TransactionsPage` | `RequireAuth` | |
 | `/accounts` | `AccountsPage` | `RequireAuth` + `features.accounts` (App.tsx:90-99) | Flag off ⇒ route unmounted ⇒ `*` redirect to `/` |
-| `/accounts/:id` | `AccountDetailPage` | `RequireAuth` + `features.accounts` | |
+| `/accounts/:id` | `AccountDetailPage` | `RequireAuth` + `features.accounts` | Way back: the top bar's "Back to Accounts" chevron link (AppShell `back`) |
 | `/jars` | `JarsPage` | `RequireAuth` + `features.jars` | |
 | `/people` | `PeoplePage` | `RequireAuth` + `features.householdAllocation` | People is always in nav (when flag on) regardless of solo/shared |
 | `/members` | `<Navigate to="/people" replace/>` | **Unconditionally mounted** (App.tsx:131) | Legacy redirect (old Members page) |
@@ -37,7 +37,7 @@ All routes declared in `client/src/App.tsx`. Feature-flag-gated routes are **con
 - `{isAuthenticated && !needsConsent && <Onboarding/>}` — onboarding deliberately waits for consent so the focus-trapped welcome can never sit under the blocking consent prompt.
 - `{isAuthenticated && <ConsentModal/>}` — z-index `z-[70]`, above onboarding's `z-[60]`.
 
-**AppShell page registrations** (`active` NavKey / sr-only `title`): Dashboard `budget`/"Budget"; Allocation `allocation`/"Income allocation" (both branches); AccountPage no active/no title (`maxWidth="4xl"`); Jars `jars`/"Jars"; Help `help`, no title (renders its own visible header); Accounts `accounts`/"Accounts"; Import `transactions`, no title; AccountDetail `accounts`/`account?.name ?? 'Account'`; People `people`/"People"; Transactions `transactions`/"Transactions"; Reports `reports`/"Reports".
+**AppShell page registrations** (`active` NavKey / sr-only `title`): Dashboard `budget`/"Budget"; Allocation `allocation`/"Income allocation" (both branches); AccountPage no active/no title (`maxWidth="4xl"`); Jars `jars`/"Jars"; Help `help`, no title (renders its own visible header); Accounts `accounts`/"Accounts"; Import `transactions`, no title; AccountDetail `accounts`/`account?.name ?? 'Account'`, with `back={{ to: '/accounts', label: 'Accounts' }}` (the top bar's 40px chevron link "Back to Accounts" before the title, in place of the logo on a phone; the only page with `back`, every other page keeps the logo); People `people`/"People"; Transactions `transactions`/"Transactions"; Reports `reports`/"Reports".
 
 ---
 
@@ -192,7 +192,7 @@ Active item gets `aria-current="page"` (filled marker in sidebar, filled pill in
 ## 6. Computed/derived values & money rules
 
 - **`isBalanced(m) = totalIncome(m) > 0 && remainingToBudget(m) === 0`** (`client/src/budgetModel.ts:105-106`, mirrors Domain `BudgetMonth.IsBalanced` — PR #172). `remainingToBudget = totalIncome − monthPlanned`, all integer minor units.
-- **Dashboard hero footnote** (DashboardPage.tsx:558-598): `empty = incomeMinor === 0 && allottedMinor === 0`; `balanced` → gold badge "Every {noun} has a job"; `empty` → "Plan your income, then give every {noun} a job"; `remaining < 0` → "{amount} over-budgeted — trim a line"; else "{amount} still to assign". The hero carries `data-tour="remaining-banner"` (tour step 3 anchor; `Hero` forwards rest props, Hero.tsx:35-39).
+- **Dashboard hero footnote** (DashboardPage.tsx:558-598): `empty = incomeMinor === 0 && allottedMinor === 0`; `balanced` → gold badge "Every {noun} has a job"; `empty` → "Plan your income, then give every {noun} a job"; `remaining < 0` → "{amount} over-budgeted — trim a line"; else "{amount} still to assign". The hero carries `data-tour="remaining-banner"` (tour step 3 anchor).
 - **Checklist progress**: step dones per §2; bar width = `(doneCount / 4) * 100%`.
 - **`initialsOf(name, email)`** (AppShell.tsx:12-16): first letters of the first two whitespace-separated words, uppercased; fallback = first char of email uppercased; fallback `'?'`.
 - **`currencyNoun(code)`** (`client/src/lib/money.ts:130-133`): ISO code → singular noun (EUR→euro, USD→dollar, …), unknown/empty → `'unit'`. Used in welcome, tour step 3, checklist, hero badge, Help, login tagline. Tour step count is invariant to the noun.
@@ -246,7 +246,7 @@ Client (all under `<local>\Documents\Projects\ZeroBudget\client\`):
 - `src/auth/AuthContext.tsx`
 - `src/lib/api.ts`, `src/lib/authChannel.ts`, `src/lib/env.ts`, `src/lib/returnUrl.ts`, `src/lib/money.ts` (currencyNoun/defaults excerpt)
 - `src/features/FeatureContext.tsx`, `src/features/HouseholdContext.tsx`, `src/features/MonthContext.tsx`
-- `src/components/AppShell.tsx`, `src/components/AppNav.tsx`, `src/components/TopBar.tsx`, `src/components/ThemeToggle.tsx`, `src/components/StagingBanner.tsx`, `src/components/ConsentModal.tsx`, `src/components/HouseholdSwitcher.tsx`, `src/components/Hero.tsx`
+- `src/components/AppShell.tsx`, `src/components/AppNav.tsx`, `src/components/TopBar.tsx`, `src/components/ThemeToggle.tsx`, `src/components/StagingBanner.tsx`, `src/components/ConsentModal.tsx`, `src/components/HouseholdSwitcher.tsx` (`Hero.tsx` was removed in restyle PR 11)
 - `src/onboarding/Onboarding.tsx`, `src/onboarding/OnboardingContext.tsx`, `src/onboarding/WelcomeDialog.tsx`, `src/onboarding/SpotlightTour.tsx`, `src/onboarding/tourSteps.tsx`, `src/onboarding/GettingStartedChecklist.tsx`, `src/onboarding/useDialogA11y.ts`
 - `src/analytics/AnalyticsProvider.tsx`, `src/analytics/analytics.ts`, `src/analytics/gtag.ts`, `src/analytics/consent.ts`, `src/analytics/events.ts`, `src/analytics/redact.ts`, `src/analytics/hash.ts`, `src/analytics/RouteAnalytics.tsx`, `src/analytics/ConsentBanner.tsx`, `src/analytics/index.ts`
 - `src/pages/HelpPage.tsx`, `src/pages/LoginPage.tsx`, `src/pages/AcceptInvitePage.tsx`, `src/pages/AccountPage.tsx`, `src/pages/AllocationPage.tsx` (solo guard), `src/pages/DashboardPage.tsx` (create-month heroes + balanced/empty hero), `src/pages/LandingPage.tsx` (link/banner grep)

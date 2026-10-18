@@ -15,7 +15,7 @@ Ground-truth feature inventory for QA test design. All paths relative to repo ro
 Notes:
 - `client/src/pages/AccountPage.tsx` (singular, route `/account`) is the **user profile/"My account" page** — NOT part of this subsystem. Do not confuse.
 - There is no per-account GET endpoint: `AccountDetailPage` fetches the full `GET /accounts` list and `find`s the id client-side (`AccountDetailPage.tsx:31-43`).
-- `AccountDetailPage` additionally fetches `GET /transactions` (full register, server-ordered date-descending — `GetTransactionsQueryHandler.cs:53`) and `GET /budget/current` (for category pill hues); both are `.catch(() => null)`-tolerant, so their failure never breaks the page.
+- `AccountDetailPage` additionally fetches `GET /transactions` (full register, server-ordered date-descending — `GetTransactionsQueryHandler.cs:53`), `GET /budget/current` (for category chip hues and which lines are jar lines) and, since the restyle (PR 11), `GET /accounts/reconciliation` (the account's row: what its jars hold, for the In jars tile — the same read-only endpoint the Accounts page uses). All three are tolerant, so their failure never breaks the page. The first two share the `Promise.all` with `/accounts` (the page shows "Loading…" until they answer); the reconciliation is asked for at the same time but never waited on: the balance and the list show without it and In jars joins them when it answers (a late answer for an account the page has left is dropped).
 
 ## 2. UI controls & user actions (exact visible labels)
 
@@ -63,18 +63,26 @@ Notes:
 
 ### AccountDetailPage (`client/src/pages/AccountDetailPage.tsx`)
 
-- Back link "‹ Accounts" → `/accounts`.
-- Hero: eyebrow = account name, amount = current balance in the account's currency (fallback `'EUR'` while account null), tiles "Type" (label) and "Transactions" (count of filtered rows).
-- Register table (min-width 520px, horizontally scrollable): columns Date / Payee / Category / Amount.
-  - Rows: every transaction where `t.accountId === id` **or** `t.transferAccountId === id` (line 77) — transfers into the account appear too.
-  - Date via `shortDate`; Payee falls back to "Transfer" for transfers, "—" otherwise.
-  - Category cell: for transfers, text "{accountName} → {transferAccountName}" with `(removed account)` fallback for either side (PR #168); for assigned tx, a colored pill with the budget line name; for unassigned, "—".
-  - Pill hues keyed by **budget line NAME** from `/budget/current` (Income → brand, Savings/Expense → indexed hues), with a deterministic name-hash fallback so lines not in the current month never render grey (lines 55-74; PR #168).
-  - Amount sign: transfers signed by direction — "−" when this account is the source (`t.accountId === id`), "+" when destination; income "+", expense "−" (lines 173-176). Transfer amounts render slate (muted), income brand-green, expense dark.
-  - **Amount currency**: each row formats with `t.currency` (the transaction's own stamped currency), not the account currency (line 176).
-  - Empty register row: "No transactions on this account yet."
-- Not-found state (id not in list): title "Account not found", description "It may have been deleted. Head back to your accounts."
-- Page is entirely read-only — no add/edit/delete/transfer affordances on the detail page.
+Restyle PR 11: the account's own page in the app frame, built from the shared pieces (KpiTile/KpiRow, the Accounts
+page's `TypeTile`/`HolderAvatars` in `client/src/components/accounts/AccountParts.tsx` and `accountJars` in
+`client/src/lib/accountJars.ts`, the Transactions row look from `client/src/components/transactions/TxParts.tsx`,
+StatusChip, InfoHint).
+
+- Top bar: `AppShell back={{ to: '/accounts', label: 'Accounts' }}` — a 40px chevron link named **"Back to Accounts"** → `/accounts` before the title (the account's name; "Account" while loading and when not found); on a phone it replaces the logo. The sidebar's "Accounts" stays the current page.
+- KPI row (`KpiRow onGrid`, on the body's three columns):
+  - Hero **"Balance"** with an (i) "About balance" (how the balance is worked out); value = current balance in the account's currency, accessible name "{name} balance: {money}" (or "not available"). "Not available" when `currentBalance` is null, with the reason under it: "Set an opening date to calculate the balance." (`openingDateMissing`) or "No balance before the opening date.". Lines under the number: "{inTransitOut + inTransitIn} in transit" when either is non-zero, and "{pendingReceiptTotal} pending review" when `pendingReceiptCount` > 0 (both as money in the account's currency).
+  - **"In jars"** (only when the account's reconciliation row has `backedJarCount > 0`): `backedJarsTotal`, the Accounts card's bar, and the rest with its (i): "€X not in jars" / "€X over" (red) / "Jars exceed account money" (`accountJars`, the Accounts card's figures). Without it the hero spans the row.
+- **Transactions** card (a region named by its h2 "Transactions" + count badge `data-testid="account-tx-count"`, shown only when there are rows):
+  - Rows: every transaction where `t.accountId === id` **or** `t.transferAccountId === id` — transfers into the account appear too — sorted newest-first by the date this account posts the row (the departure for the source, the receipt for the destination), grouped under one h3 per month ("October"; "December 2025" for another year — `monthHeading`).
+  - Each row (`data-testid="tx-row"`): date (`shortDate`), a tile icon (transfer, income, refund, jar line, else purchase), payee (falls back to "Transfer" for transfers, "—" otherwise), then: for a transfer the route `[data-tx-route]` — an arrow and "To {other}" / "From {other}" with `(removed account)` fallback; a split → "Split"; an assigned row → a coloured chip with the budget line name (a jar chip when the line has a `savingsId` and the account holds jars); unassigned → an "Unassigned" label. Status chips: **In transit**, **Returned** (red), **Pending review** (amber).
+  - Chip hues keyed by **budget line NAME** from `/budget/current` (Income → emerald, Savings/Expense → indexed hues, as on Transactions), with a deterministic name-hash fallback so lines not in the current month never render grey.
+  - Amount `[data-tx-amount]`: transfers signed by direction — "−" when this account is the source, "+" when destination; income "+", expense "−". Transfer amounts render slate (muted), income green (`text-ok`), expense dark. Each row formats with `t.currency` (the transaction's own stamped currency), not the account currency. Under it: "Needs {budget currency} amount" (amber tag, with an (i) after it "About {payee} on {date}: needs {X} amount" → "In another currency. Not counted anywhere until you enter the amount in {X}."; below 360px on a phone the tag and its (i) move to the row's second line), the foreign amount ("USD 25.00", title "Paid in USD") or "Counts as {money} in the budget" (on a phone these small lines wrap within 112px).
+  - Struck through (they never move the balance): a **Returned** transfer, and a row dated before the opening date (by this account's own leg; not a transfer that left before it and came back after it), which is muted and says **"Before opening"** with an (i) "About {payee} on {date}: before opening" → "Dated before the opening balance of {date}, which already includes it: kept as history, it doesn’t change the balance."
+  - Empty: "No transactions on this account yet." (no count badge: the line says it).
+  - Phone (< 700px): two lines a row — payee and amount; then the category or route, the date (once; after a route, "· {date}" wraps as one piece) and the status chip. A Split/Unassigned label gives way (truncates) when its line is short of room.
+- **Account details** card (a region named by its h2): the type icon and the type in words, the holders' avatars ("Held by …" for screen readers), "Opening balance" with "On {date}" when an opening date is set, then one row per recorded identifier (IBAN, BIC, Sort code, Account number). Values are 14px; a long one wraps at its own spaces. On a phone it comes after the transactions.
+- Not-found state (id not in list, or `GET /accounts` failed): title "Account not found", description "It may have been deleted. Head back to your accounts." Loading: "Loading…".
+- Page is entirely read-only — no add/edit/delete/transfer affordances; its only controls are the back link and the (i) hints.
 
 ### Related (balance-affecting) controls elsewhere
 - **Transfers** are recorded from TransactionsPage's add modal, mode select "Transfer" → title "Record a transfer": fields aria `Transfer date`/`Transfer amount`/`Transfer from account`/`Transfer to account`/`Transfer note` (placeholder "Transfer"), button "Record transfer". Client-side errors: "Enter a valid transfer amount greater than zero." and "A transfer needs two different accounts."; API failure → "Could not record that transfer." (`client/src/pages/TransactionsPage.tsx:146-178`). Analytics `transfer_created`.
@@ -172,7 +180,7 @@ Handler-thrown messages: "No authenticated user on the request." (Forbidden, 403
 - **Currency validator accepts any 3 letters** ("ZZZ" passes) — `Intl.NumberFormat` on the client will still render unknown ISO codes generically; not validated against a currency list by design (picker is a shortlist, engine accepts any code — `money.ts:63-68`).
 - **Recent auth-adjacent PRs (#169/#171)** don't change accounts logic but affect any long-lived accounts tab: silent-refresh races and cross-tab logout broadcast can interleave with the page's fetch effects; a genuinely dead session should land the login prompt, not a broken accounts view.
 - Reconciliation fetch is fire-and-forget on every `accounts` state change — after a delete the table refreshes because the array identity changes; a failure leaves stale rows silently.
-- Existing automated coverage: `client/src/pages/AccountsPage.test.tsx` (list/net hero, add, delete-confirm, cancel, empty state), `client/src/pages/AccountDetailPage.test.tsx` (hero + filtered register, not-found), `tests/AllotJar.Application.Tests/Application/AccountsTests.cs` (derivation, owner-scoping, order, delete-unlink), `tests/AllotJar.Application.Tests/Application/AccountReconciliationTests.cs` (backed total/float, unbacked account). InMemory provider — FK enforcement gaps are covered separately by `tests/AllotJar.IntegrationTests/` (add a case there for any new enforced-FK writer).
+- Existing automated coverage: `client/src/pages/AccountsPage.test.tsx` (list/net hero, add, delete-confirm, cancel, empty state), `client/src/pages/AccountDetailPage.test.tsx` (hero + filtered register, not-found, and since PR 11 the back link, Not available/in transit/pending lines, months, struck rows and their (i), In jars, routes, Account details, phone layout), `client/src/pages/AccountDetailPage.catalog.test.tsx` (ACCT-044 to ACCT-049, ACCT-051), `tests/AllotJar.Application.Tests/Application/AccountsTests.cs` (derivation, owner-scoping, order, delete-unlink), `tests/AllotJar.Application.Tests/Application/AccountReconciliationTests.cs` (backed total/float, unbacked account). InMemory provider — FK enforcement gaps are covered separately by `tests/AllotJar.IntegrationTests/` (add a case there for any new enforced-FK writer).
 
 ## 8. File index (read for this map)
 
@@ -202,6 +210,7 @@ Frontend:
 - `client/src/components/AppNav.tsx` (nav gating)
 - `client/src/pages/AccountsPage.tsx`
 - `client/src/pages/AccountDetailPage.tsx`
+- `client/src/components/accounts/AccountParts.tsx`, `client/src/lib/accountJars.ts` (shared with AccountsPage)
 - `client/src/pages/AccountPage.tsx` (profile page — out of scope, disambiguated)
 - `client/src/pages/TransactionsPage.tsx` (transfer form, partial)
 - `client/src/pages/JarsPage.tsx` ("Held in" funding-account select, partial)
@@ -213,7 +222,7 @@ Frontend:
 - `client/src/analytics/events.ts` (account_created / account_edited / transfer_created)
 
 Tests:
-- `client/src/pages/AccountsPage.test.tsx`, `client/src/pages/AccountDetailPage.test.tsx`
+- `client/src/pages/AccountsPage.test.tsx`, `client/src/pages/AccountDetailPage.test.tsx`, `client/src/pages/AccountDetailPage.catalog.test.tsx`
 - `client/src/pages/AccountsPage.catalog.test.tsx` (ACCT-005 other-currency account left out of totals; ACCT-018 no currency picker, POST uses the budget currency; ACCT-019 chip only on an other-currency account when `multiCurrency` is off)
 - `tests/AllotJar.Application.Tests/Application/AccountsTests.cs`, `tests/AllotJar.Application.Tests/Application/AccountReconciliationTests.cs`
 - `tests/AllotJar.Application.Tests/Transactions/ForeignAmountsTests.cs` (`A_new_account_must_be_in_the_budget_currency`, `A_jar_cannot_live_in_an_account_kept_in_another_currency`, `A_waiting_row_on_an_account_kept_in_another_currency_counts_its_confirmed_figure_and_the_balance_stays`, `A_statement_imported_onto_an_account_kept_in_another_currency_waits_and_can_be_confirmed`)

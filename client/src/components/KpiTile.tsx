@@ -90,9 +90,10 @@ export interface KpiTileProps extends Omit<HTMLAttributes<HTMLElement>, 'childre
   /**
    * A plain tile alone beside the hero: a slim strip across the narrow row. 'bar': the strip keeps
    * its sub-line and its bar (`extra`): the label at the left, the number and the sub-line at the
-   * right, the bar across the strip under them.
+   * right, the bar across the strip under them. 'bar-sub' (an account's In jars, restyle PR 11):
+   * two lines, the label and the number, then the bar and the sub-line at its right.
    */
-  strip?: boolean | 'bar'
+  strip?: boolean | 'bar' | 'bar-sub'
 }
 
 /** One tile of the KPI row. */
@@ -155,7 +156,10 @@ export function KpiTile({
       role="group"
       aria-labelledby={labelId}
       className={`${shape} border border-slate-200/70 bg-surface shadow-card has-[[role=tooltip]]:z-10 ${
-        strip === 'bar'
+        strip === 'bar-sub'
+          ? // Narrow: a two-line grid (the label and the number; the bar and the sub-line at its right).
+            'col-span-2 grid! grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3.5! gap-y-2.5! px-4 py-3.5 @min-[640px]:col-span-1 @min-[640px]:flex! @min-[640px]:items-stretch @min-[640px]:gap-2! @min-[640px]:px-6 @min-[640px]:py-[22px]'
+          : strip === 'bar'
           ? // Narrow: one line (the label, then the number and its sub-line at the right) over the bar.
             'col-span-2 flex-row! flex-wrap items-baseline gap-x-1.5! gap-y-2.5! px-4 py-3 @min-[640px]:col-span-1 @min-[640px]:flex-col! @min-[640px]:flex-nowrap @min-[640px]:items-stretch @min-[640px]:gap-2! @min-[640px]:px-6 @min-[640px]:py-[22px]'
           : strip
@@ -193,8 +197,8 @@ export function KpiTile({
         className={`leading-[1.1] font-bold tracking-[-0.025em] tabular-nums ${valueTone === 'bad' ? 'text-bad' : 'text-slate-900'} ${icon ? '@min-[720px]:pr-10' : ''} ${
           // A strip has half the row. A third of the row is narrow until about 850px (a 1,000px
           // window beside the sidebar): the number stays a size down there, so five figures fit.
-          strip === 'bar'
-            ? 'text-lg @min-[640px]:text-[30px]'
+          strip === 'bar' || strip === 'bar-sub'
+            ? `text-lg @min-[640px]:text-[30px] ${strip === 'bar-sub' ? 'justify-self-end' : ''}`
             : strip
               ? 'row-span-2 text-lg @min-[640px]:text-[30px]'
               : 'text-[22px] @min-[850px]:text-[30px]'
@@ -207,12 +211,18 @@ export function KpiTile({
           strip's bar takes a line of its own: under the number in a tile, across the foot of the
           narrow strip (its sub-line then sits beside the number). */}
       {(extra || sub) && (
-        <div className={`flex flex-wrap items-center gap-x-2.5 gap-y-1.5 ${strip === 'bar' ? '@max-[640px]:contents' : ''}`}>
-          {strip === 'bar' && extra ? <div className="basis-full @max-[640px]:order-3 @min-[640px]:mt-1.5 @min-[640px]:mb-0.5">{extra}</div> : extra}
+        <div className={`flex flex-wrap items-center gap-x-2.5 gap-y-1.5 ${strip === 'bar' || strip === 'bar-sub' ? '@max-[640px]:contents' : ''}`}>
+          {strip === 'bar' && extra ? (
+            <div className="basis-full @max-[640px]:order-3 @min-[640px]:mt-1.5 @min-[640px]:mb-0.5">{extra}</div>
+          ) : strip === 'bar-sub' && extra ? (
+            <div className="basis-full @min-[640px]:mt-1.5 @min-[640px]:mb-0.5">{extra}</div>
+          ) : (
+            extra
+          )}
           {sub && (
             <span
               className={`inline-flex items-center gap-1.5 text-[13px] ${subTone === 'ok' ? 'text-ok' : 'text-slate-500'} ${
-                strip === 'bar' ? '@max-[640px]:ml-auto @max-[640px]:text-xs' : ''
+                strip === 'bar' ? '@max-[640px]:ml-auto @max-[640px]:text-xs' : strip === 'bar-sub' ? '@max-[640px]:justify-self-end @max-[640px]:gap-1 @max-[640px]:text-xs' : ''
               }`}
             >
               {sub}

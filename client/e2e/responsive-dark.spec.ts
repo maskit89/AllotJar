@@ -325,23 +325,118 @@ test.describe('responsive — data tables scroll inside their own container (375
     expect(m.rowsPastCard, 'a row runs past the card').toBe(0)
   })
 
-  // UX-036 — the account-detail register at /accounts/:id (a parameterized route
-  // NOT in AUTHED_ROUTES, so the per-route sweeps never visit it). The fixture's
-  // 'acc0' account carries every mocked transaction, so the register renders a
-  // populated table (min-w-[520px]) that must scroll inside its own
-  // overflow-x-auto box while the document never scrolls sideways at 375 px.
-  test('the account-detail register scrolls inside its own container (UX-036)', async ({
+  // UX-036 — the account-detail register at /accounts/:id (a parameterized route NOT in
+  // AUTHED_ROUTES, so the per-route sweeps never visit it). The fixture's 'acc0' account carries
+  // every mocked transaction. Since the restyle (PR 11) the register is a list like Transactions,
+  // not a wide table: on a phone each row is two lines that truncate, so neither the page, nor the
+  // Transactions card, nor a row scrolls sideways, and the Account details card follows the list.
+  test('the account-detail register fits a phone with no sideways scroll (UX-036)', async ({
     page,
   }) => {
     await authedSetup(page, 'light')
     await page.goto('/accounts/acc0')
     await page.getByRole('heading', { level: 1 }).first().waitFor()
-    // The register rendered real rows (not the empty state) — the table's width
-    // pressure comes from actual content.
+    // The register rendered real rows (not the empty state): the width pressure comes from
+    // actual content.
     await page.getByText('Welbees Supermarket').waitFor()
-    const table = page.getByRole('table')
-    await table.waitFor()
-    await expectInnerScroller(table, '/accounts/acc0 register', true)
+    await expect(page.getByText('Welbees Supermarket')).toBeVisible()
+    await expect(page.getByRole('table')).toHaveCount(0)
+    const list = page.getByRole('region', { name: /^Transactions/ })
+    const details = page.getByRole('region', { name: 'Account details' })
+    await expect(list.getByTestId('tx-row').first()).toBeVisible()
+    await expect(details).toBeVisible()
+    const detailsEl = await details.elementHandle()
+    const m = await list.evaluate((card: HTMLElement, details) => {
+      const de = document.documentElement
+      const rows = Array.from(card.querySelectorAll<HTMLElement>('[data-testid="tx-row"]'))
+      return {
+        pageScrollW: de.scrollWidth,
+        pageClientW: de.clientWidth,
+        viewportW: window.innerWidth,
+        cardRight: card.getBoundingClientRect().right,
+        cardScrollW: card.scrollWidth,
+        cardClientW: card.clientWidth,
+        rows: rows.length,
+        // What shows of a row (its elements; an (i)'s invisible ::after hit area may reach past
+        // it, which the card's own scroll width above still guards).
+        contentPastRow: rows.flatMap((r) => {
+          const right = r.getBoundingClientRect().right
+          return Array.from(r.querySelectorAll<HTMLElement>('*')).filter((el) => el.getBoundingClientRect().right > right + 1)
+        }).length,
+        rowsPastCard: rows.filter((r) => r.getBoundingClientRect().right > card.getBoundingClientRect().right + 1).length,
+        detailsRight: details?.getBoundingClientRect().right ?? 0,
+        // On a phone the list comes first and the details card after it.
+        detailsBelowList: !!details && details.getBoundingClientRect().top >= card.getBoundingClientRect().bottom,
+      }
+    }, detailsEl)
+    expect(m.rows, 'the mocked rows render').toBeGreaterThan(5)
+    expect(m.pageScrollW, 'document overflows the viewport').toBeLessThanOrEqual(m.pageClientW + 1)
+    expect(m.cardRight, 'list card wider than the viewport').toBeLessThanOrEqual(m.viewportW + 1)
+    expect(m.cardScrollW, 'list card scrolls sideways').toBeLessThanOrEqual(m.cardClientW + 1)
+    expect(m.contentPastRow, "a row's content runs past the row").toBe(0)
+    expect(m.rowsPastCard, 'a row runs past the card').toBe(0)
+    expect(m.detailsRight, 'details card wider than the viewport').toBeLessThanOrEqual(m.viewportW + 1)
+    expect(m.detailsBelowList, 'the details card follows the list').toBe(true)
+  })
+
+  // UX-036 at the reflow width (320 px, WCAG 1.4.10) and at 360 px: on an account kept in another
+  // currency every row has its "Counts as … in the budget" line under the amount, which wraps in a
+  // capped width there; a row waiting for its euro amount has the "Needs EUR amount" tag and its (i)
+  // under the amount, or on the row's second line below 360 px. So the payee and the category chip
+  // beside them keep their room: no chip is cut to its dot, nothing of the middle column runs under
+  // the amount, and the page never scrolls sideways.
+  test('the account-detail rows keep their category readable beside long amount lines at 320 and 360 px (UX-036)', async ({
+    page,
+  }) => {
+    await authedSetup(page, 'light')
+    const gb = { id: 'gb', name: 'UK current', type: 0, currency: 'GBP', openingBalance: 500, currentBalance: 420, displayOrder: 2 }
+    const row = { bankReference: null, transferAccountId: null, transferAccountName: null, memberId: null, memberName: null, type: 0, accountId: 'gb', accountName: 'UK current', isSplit: false, splits: [] }
+    const rows = [
+      { ...row, id: 'g1', date: '2026-06-20', payee: 'Tesco Express', amount: 23.4, currency: 'GBP', budgetAmount: 27.15, budgetItemId: 'i-groc', budgetItemName: 'Groceries' },
+      { ...row, id: 'g2', date: '2026-06-19', payee: 'Kwik Fit Leeds', amount: 1162.4, currency: 'GBP', budgetAmount: 1350.12, budgetItemId: 'i-car', budgetItemName: 'Car service' },
+      { ...row, id: 'g3', date: '2026-06-18', payee: 'Pret A Manger', amount: 8.9, currency: 'GBP', budgetAmount: 10.33, budgetItemId: 'i-rent', budgetItemName: 'Rent' },
+      { ...row, id: 'g4', date: '2026-06-17', payee: 'Corner shop', amount: 18, currency: 'USD', fxPending: true, budgetItemId: 'i-groc', budgetItemName: 'Groceries' },
+    ]
+    await page.route('**/api/accounts', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([gb]) }),
+    )
+    await page.route('**/api/transactions', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
+    )
+    for (const width of [320, 360]) {
+      await page.setViewportSize({ width, height: 800 })
+      await page.goto('/accounts/gb')
+      await page.getByText('Tesco Express').waitFor()
+      await expect(page.getByText('Counts as €27.15 in the budget')).toBeVisible()
+      await expect(page.getByText('Needs EUR amount')).toBeVisible()
+      const m = await page.getByRole('region', { name: /^Transactions/ }).evaluate((card: HTMLElement) =>
+        Array.from(card.querySelectorAll<HTMLElement>('[data-testid="tx-row"]')).map((r) => {
+          const amount = r.querySelector<HTMLElement>('[data-tx-amount]')!.getBoundingClientRect()
+          // The row's truncating texts: the payee, then the category chip's name.
+          const [payee, chip] = Array.from(r.querySelectorAll<HTMLElement>('.truncate'))
+          const under = Array.from(r.querySelectorAll<HTMLElement>('.truncate, [data-tone]')).filter(
+            (el) => !el.closest('[data-tx-amount]') && el.getBoundingClientRect().right > amount.left + 1,
+          )
+          return {
+            name: payee?.textContent ?? '',
+            payeeShown: payee ? payee.clientWidth / payee.scrollWidth : 0,
+            chip: chip?.textContent ?? '',
+            chipShown: chip ? chip.clientWidth / chip.scrollWidth : 0,
+            under: under.length,
+          }
+        }),
+      )
+      const de = await page.evaluate(() => ({ scrollW: document.documentElement.scrollWidth, clientW: document.documentElement.clientWidth }))
+      expect(m, `${width}px: the rows render`).toHaveLength(4)
+      expect(de.scrollW, `${width}px: the page scrolls sideways`).toBeLessThanOrEqual(de.clientW + 1)
+      for (const r of m) {
+        expect(r.under, `${width}px ${r.name}: the middle column runs under the amount`).toBe(0)
+        // At 320 px a name may give a few letters to its ellipsis (most of it shows); at 360 px it
+        // shows whole.
+        expect(r.chipShown, `${width}px ${r.name}: its category chip ${r.chip} is cut`).toBeGreaterThanOrEqual(width === 320 ? 0.6 : 1)
+        expect(r.payeeShown, `${width}px ${r.name}: its payee is cut`).toBeGreaterThanOrEqual(width === 320 ? 0.6 : 1)
+      }
+    }
   })
 
   // UX-032 — the budget grid does NOT use an overflow-x scroller; its rows reflow
