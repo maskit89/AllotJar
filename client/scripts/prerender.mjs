@@ -3,10 +3,11 @@
 // After `vite build` emits the SPA into dist/, this script builds a tiny SSR
 // bundle of just the landing page, renders it to static HTML with
 // renderToStaticMarkup, and injects it into dist/index.html. The result: the
-// marketing copy (H1, value props, FAQ) is in the served HTML, so it is
-// crawlable and visible without running our JavaScript. On load, the SPA mounts
-// with createRoot and replaces the static markup — the static HTML carries no
-// React hydration markers, so there is no hydration mismatch.
+// landing copy (the H1 line, the sentence, the feature cards, the closing line)
+// is in the served HTML, so it is crawlable and visible without running our
+// JavaScript. On load, the SPA mounts with createRoot and replaces the static
+// markup — the static HTML carries no React hydration markers, so there is no
+// hydration mismatch.
 //
 // It is deliberately NON-FATAL: any failure here logs a warning and leaves the
 // CSR index.html intact, so a prerender problem can never break the production

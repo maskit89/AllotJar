@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -6,10 +6,12 @@ import { MemoryRouter } from 'react-router-dom'
 import type { BudgetMonthDto } from '../types'
 
 // Catalog coverage for docs/testing/cases/01-landing-public.md (LAND-*): the public
-// marketing landing page, its currency-aware tagline swap, the SSR-safe prerender
-// invariant, the `/` auth-branch (anonymous -> landing, signed in -> dashboard), the
-// public legal pages + LegalLayout title lifecycle, the analytics consent banner and
-// its accept/decline persistence, and the staging banner on the landing surface.
+// landing page in the sign-in pages' look (restyle PR 15: the room, one line, one primary,
+// the theme button, three feature cards, the closing line and the quiet footer), its
+// euro-always line, the SSR-safe prerender invariant, the `/` auth-branch (anonymous ->
+// landing, signed in -> dashboard), the public legal pages + LegalLayout title lifecycle,
+// the analytics consent banner and its accept/decline persistence, and the staging banner
+// on the landing surface.
 //
 // These complement the assertions in LegalPages.test.tsx (Privacy H1/contact/controller/GDPR
 // rights; Terms H1/Malta law/privacy link), StagingBanner.test.tsx (production build
@@ -122,7 +124,7 @@ function installGet() {
   })
 }
 
-/** Force the visitor's browser locale for the mount-only tagline-noun effect. */
+/** Force the visitor's browser locale (the landing's line must not follow it). */
 function withLocale(lang: string) {
   return vi.spyOn(navigator, 'language', 'get').mockReturnValue(lang)
 }
@@ -142,170 +144,166 @@ beforeEach(() => {
 // =============================================================================
 // Landing page — anonymous visit (LAND-001..004)
 // =============================================================================
-describe('LandingPage — anonymous hero, chrome & content', () => {
-  let langSpy: ReturnType<typeof withLocale>
-  beforeEach(() => {
-    // A Eurozone locale so the mount-only noun swap resolves deterministically to
-    // "euro" (jsdom's own default is en-US -> "dollar"); the swap itself is LAND-005.
-    langSpy = withLocale('de-DE')
-  })
-  afterEach(() => langSpy.mockRestore())
-
-  // LAND-001 — the full hero renders for an anonymous visitor: eyebrow, single H1,
-  // sub-copy, the free-to-start note, and the "Your jars" panel with three decorative
-  // jars carrying accessible labels and NO visible in-jar percent text.
-  it('LAND-001: renders the complete hero with the jars panel and accessible jar labels', () => {
+describe('LandingPage — the room, the card and the chrome', () => {
+  // LAND-001 — the hero for an anonymous visitor: exactly one H1 (the line, euro always), the
+  // one sentence, the free-to-start note, and the shelf's jars as decoration only (no figure,
+  // no labelled jars, no percent text: nothing on the page is an invented number).
+  it('LAND-001: renders the line, the sentence and the note; the jars are decoration', () => {
     render(<LandingPage />)
-
-    expect(
-      screen.getByText('Zero-based budgeting · crafted in Europe, at home anywhere'),
-    ).toBeInTheDocument()
 
     const headings = screen.getAllByRole('heading', { level: 1 })
     expect(headings).toHaveLength(1)
     expect(headings[0]).toHaveTextContent('Give every euro a job.')
 
     expect(
-      screen.getByText(/^AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere\./),
+      screen.getByText(
+        'Zero-based budgeting for households: plan the month to zero, with jars for the big bills and a budget you share.',
+      ),
     ).toBeInTheDocument()
     expect(screen.getByText('Free to start · No card required')).toBeInTheDocument()
 
-    // The "Your jars" panel.
-    expect(screen.getByText('Your jars')).toBeInTheDocument()
-    expect(screen.getByText('€2,480')).toBeInTheDocument()
-    expect(screen.getByText('set aside across 3 jars this year')).toBeInTheDocument()
-
-    // Three decorative jars, each exposed to assistive tech via an aria-label only.
-    expect(screen.getByRole('img', { name: 'Insurance: 90% funded' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'Holiday: 70% funded' })).toBeInTheDocument()
-    expect(screen.getByRole('img', { name: 'New car: 40% funded' })).toBeInTheDocument()
-
-    // No in-jar percentage is rendered as visible text (showPct={false}).
-    expect(screen.queryByText('90%')).not.toBeInTheDocument()
-    expect(screen.queryByText('70%')).not.toBeInTheDocument()
-    expect(screen.queryByText('40%')).not.toBeInTheDocument()
+    // The old hero's figure and labelled jars are gone; the glass jars carry no name.
+    expect(screen.queryByRole('img')).not.toBeInTheDocument()
+    expect(screen.queryByText(/€\s?\d/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/\d+%/)).not.toBeInTheDocument()
   })
 
-  // LAND-002 — the header logo + Primary nav and the footer chrome carry the right
-  // accessible names and hrefs (year is the current year; all links are plain <a>).
-  it('LAND-002: header logo, Primary nav and footer links have the right names and hrefs', () => {
+  // LAND-002 — the header (the wordmark home link, the Primary nav's quiet "Sign in", the theme
+  // button) and the quiet footer (the year, Privacy, Terms; no sign-in or register links there).
+  it('LAND-002: header wordmark, Primary nav, theme button and the quiet footer', () => {
     render(<LandingPage />)
 
-    const logo = screen.getByRole('link', { name: 'AllotJar home' })
-    expect(logo).toHaveAttribute('href', '/')
+    const header = screen.getByRole('banner')
+    expect(within(header).getByRole('link', { name: 'AllotJar home' })).toHaveAttribute('href', '/')
 
-    const primary = screen.getByRole('navigation', { name: 'Primary' })
+    const primary = within(header).getByRole('navigation', { name: 'Primary' })
     expect(within(primary).getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login')
-    expect(within(primary).getByRole('link', { name: 'Get started' })).toHaveAttribute(
-      'href',
-      '/login?register=1',
-    )
+    expect(within(primary).queryByRole('link', { name: /get started/i })).not.toBeInTheDocument()
 
+    // The theme button, as the sign-in page has: a toggle named "Dark mode", off in light mode.
+    const theme = within(header).getByRole('button', { name: 'Dark mode' })
+    expect(theme).toHaveAttribute('aria-pressed', 'false')
+
+    const footer = screen.getByRole('contentinfo')
     const year = new Date().getFullYear()
-    expect(
-      screen.getByText(new RegExp(`© ${year} AllotJar · Give every euro a job\\.`)),
-    ).toBeInTheDocument()
-
-    const footer = screen.getByRole('navigation', { name: 'Footer' })
-    expect(within(footer).getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
-    expect(within(footer).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
-    expect(within(footer).getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login')
-    expect(within(footer).getByRole('link', { name: 'Create account' })).toHaveAttribute(
-      'href',
-      '/login?register=1',
-    )
+    expect(within(footer).getByText(`© ${year} AllotJar`)).toBeInTheDocument()
+    const nav = within(footer).getByRole('navigation', { name: 'Footer' })
+    expect(within(nav).getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
+    expect(within(nav).getByRole('link', { name: 'Terms' })).toHaveAttribute('href', '/terms')
+    expect(within(nav).getAllByRole('link')).toHaveLength(2)
   })
 
-  // LAND-003 — every register CTA points at /login?register=1 and every sign-in CTA at
-  // /login; each is a plain anchor (works middle-click / new-tab, no JS state needed).
-  it('LAND-003: all register CTAs target the register tab and all sign-in CTAs the sign-in tab', () => {
-    render(<LandingPage />)
+  // LAND-003 — every CTA is a plain anchor to today's targets: "Create your free account" (the
+  // hero's and the closing line's) → /login?register=1, both "Sign in" links → /login. One
+  // primary (green) button per screen: the hero card holds one and the closing line the other,
+  // nothing else on the page is filled green.
+  it('LAND-003: the two register CTAs and the two sign-in links are plain anchors to the login tabs; one primary per screen', () => {
+    const { container } = render(<LandingPage />)
 
-    const registerCtas = screen.getAllByRole('link', {
-      name: /^(get started|create your free account|create account)$/i,
-    })
-    // Header "Get started", hero + closing-band "Create your free account", footer "Create account".
-    expect(registerCtas.length).toBeGreaterThanOrEqual(4)
+    const registerCtas = screen.getAllByRole('link', { name: 'Create your free account' })
+    expect(registerCtas).toHaveLength(2)
     registerCtas.forEach((cta) => {
       expect(cta).toHaveAttribute('href', '/login?register=1')
       expect(cta.tagName).toBe('A')
     })
+    expect(screen.queryByRole('link', { name: /^(get started|create account)$/i })).not.toBeInTheDocument()
 
-    const signInCtas = screen.getAllByRole('link', { name: /^sign in$/i })
-    expect(signInCtas.length).toBeGreaterThanOrEqual(2) // hero secondary + header + footer
-    signInCtas.forEach((cta) => {
-      expect(cta).toHaveAttribute('href', '/login')
-      expect(cta.tagName).toBe('A')
+    const signIns = screen.getAllByRole('link', { name: 'Sign in' })
+    expect(signIns).toHaveLength(2) // the header's and the one beside the primary
+    signIns.forEach((a) => {
+      expect(a).toHaveAttribute('href', '/login')
+      expect(a.tagName).toBe('A')
     })
+
+    const primaries = container.querySelectorAll('.bg-brand-600')
+    expect(primaries).toHaveLength(2)
+    expect(primaries[0].closest('.auth-card')).not.toBeNull()
+    expect(primaries[1].closest('.land-close')).not.toBeNull()
+    // "Sign in" beside the primary is a quiet link, not a second button.
+    expect(signIns[1].className).not.toMatch(/bg-brand/)
   })
 
-  // LAND-004 — the features, how-it-works and FAQ sections render with their exact
-  // headings and the expected counts of cards / steps / questions.
-  it('LAND-004: features (6), how-it-works (3 steps) and FAQ (5) render with exact headings', () => {
-    const { container } = render(<LandingPage />)
+  // LAND-004 — the three feature cards (one glyph, a short title, one line each), the one line of
+  // promises, and the closing line; the old six-card grid, the three steps and the FAQ are gone.
+  it('LAND-004: three feature cards, the promises line and the closing line; no steps, no FAQ', () => {
+    render(<LandingPage />)
 
-    expect(
-      screen.getByRole('heading', { name: 'Everything you need to budget with confidence' }),
-    ).toBeInTheDocument()
-    for (const title of [
-      'Zero-based budgeting',
+    const features = screen.getByRole('region', { name: 'What AllotJar does' })
+    const cards = within(features).getAllByRole('listitem')
+    expect(cards).toHaveLength(3)
+    const titles = ['Budget to zero', 'Jars for the big bills', 'Budget together']
+    const lines = [
+      'Plan the month until Remaining to budget reads zero.',
+      'Set a little aside each month for insurance, the car and the holiday.',
+      'One shared budget for everyone in your household.',
+    ]
+    cards.forEach((card, i) => {
+      expect(within(card).getByRole('heading', { level: 3, name: titles[i] })).toBeInTheDocument()
+      expect(within(card).getByText(lines[i])).toBeInTheDocument()
+      // One line each: the title and its line are the card's only text.
+      expect(card.textContent).toBe(titles[i] + lines[i])
+    })
+    expect(within(features).getByText('In your currency, the way you write it')).toBeInTheDocument()
+    expect(within(features).getByText('Your data is never sold.')).toBeInTheDocument()
+
+    expect(screen.getByRole('heading', { level: 2, name: 'Ready to give every euro a job?' })).toBeInTheDocument()
+
+    for (const gone of [
+      'Everything you need to budget with confidence',
+      'How AllotJar works',
+      'Frequently asked questions',
       'Sinking-fund jars',
-      'All your accounts',
-      'Reports & trends',
-      'Budget as a household',
-      'Private & secure',
+      'crafted in Europe',
     ]) {
-      expect(screen.getByRole('heading', { level: 3, name: title })).toBeInTheDocument()
+      expect(screen.queryByText(new RegExp(gone, 'i'))).not.toBeInTheDocument()
     }
+    expect(screen.queryByRole('list', { name: /faq/i })).not.toBeInTheDocument()
+  })
 
-    expect(screen.getByRole('heading', { name: 'How AllotJar works' })).toBeInTheDocument()
-    expect(screen.getByText('Three simple steps, every month.')).toBeInTheDocument()
-    const ol = container.querySelector('ol')
-    expect(ol).not.toBeNull()
-    expect(within(ol as HTMLElement).getAllByRole('listitem')).toHaveLength(3)
-    for (const step of ['Plan the month', 'Track as you spend', 'Adjust and save']) {
-      expect(screen.getByRole('heading', { level: 3, name: step })).toBeInTheDocument()
-    }
+  // The theme button works on the public page: a press turns dark mode on (the `.dark` class on
+  // <html>, persisted under zbb.theme) and the toggle reads pressed.
+  it('the theme button switches the page to dark mode and back', async () => {
+    const user = userEvent.setup()
+    render(<LandingPage />)
+    const theme = screen.getByRole('button', { name: 'Dark mode' })
 
-    expect(screen.getByRole('heading', { name: 'Frequently asked questions' })).toBeInTheDocument()
-    for (const q of [
-      'What is zero-based budgeting?',
-      'Can I use AllotJar outside Europe?',
-      'What makes AllotJar different?',
-      'Can I share my budget with my partner?',
-      'How much does AllotJar cost?',
-    ]) {
-      expect(screen.getByText(q)).toBeInTheDocument()
-    }
+    await user.click(theme)
+    expect(theme).toHaveAttribute('aria-pressed', 'true')
+    expect(document.documentElement.classList.contains('dark')).toBe(true)
+    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+
+    await user.click(theme)
+    expect(theme).toHaveAttribute('aria-pressed', 'false')
+    expect(document.documentElement.classList.contains('dark')).toBe(false)
+  })
+
+  // The skip link and the landmarks: one banner, one main (the skip link's target), one
+  // contentinfo, the Primary and Footer navs.
+  it('has the skip link and one of each landmark', () => {
+    render(<LandingPage />)
+    expect(screen.getByRole('link', { name: 'Skip to main content' })).toHaveAttribute('href', '#main-content')
+    expect(screen.getByRole('main')).toHaveAttribute('id', 'main-content')
+    expect(screen.getAllByRole('banner')).toHaveLength(1)
+    expect(screen.getAllByRole('contentinfo')).toHaveLength(1)
+    expect(screen.getAllByRole('navigation')).toHaveLength(2)
   })
 })
 
 // =============================================================================
-// Currency-aware copy — the mount-only tagline noun swap (LAND-005/006)
+// Euro always (LAND-005/006)
 // =============================================================================
-describe('LandingPage — currency-aware tagline noun', () => {
-  // LAND-005 — the visitor's locale swaps the tagline noun after mount, consistently
-  // across the H1, the closing-CTA heading and the footer tagline.
-  it('LAND-005: the browser locale swaps the noun across H1, closing CTA and footer', () => {
-    const cases = [
-      { lang: 'en-US', noun: 'dollar' },
-      { lang: 'en-GB', noun: 'pound' },
-      { lang: 'de-CH', noun: 'franc' },
-      { lang: 'en-IN', noun: 'rupee' },
-      { lang: 'pl-PL', noun: 'złoty' }, // unicode noun renders correctly
-    ]
-    for (const c of cases) {
-      const spy = withLocale(c.lang)
+describe('LandingPage — the line says euro whatever the browser locale', () => {
+  // LAND-005 — the app is euro-first: the line, the closing line and the footer never follow the
+  // visitor's locale (the sign-in page's noun swap is not on this page), so the prerendered HTML
+  // never changes after the SPA mounts and a UK visitor never reads "pound" here.
+  it('LAND-005: the H1 and the closing line read euro under every locale', () => {
+    for (const lang of ['en-US', 'en-GB', 'de-CH', 'en-IN', 'pl-PL', 'de-DE']) {
+      const spy = withLocale(lang)
       try {
         const view = render(<LandingPage />)
-        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent(`Give every ${c.noun} a job.`)
-        expect(
-          screen.getByRole('heading', { name: `Ready to give every ${c.noun} a job?` }),
-        ).toBeInTheDocument()
-        const year = new Date().getFullYear()
-        expect(
-          screen.getByText(new RegExp(`© ${year} AllotJar · Give every ${c.noun} a job\\.`)),
-        ).toBeInTheDocument()
+        expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Give every euro a job.')
+        expect(screen.getByRole('heading', { name: 'Ready to give every euro a job?' })).toBeInTheDocument()
+        expect(screen.queryByText(/give every (dollar|pound|franc|rupee|złoty) a job/i)).not.toBeInTheDocument()
         view.unmount()
       } finally {
         spy.mockRestore()
@@ -313,9 +311,9 @@ describe('LandingPage — currency-aware tagline noun', () => {
     }
   })
 
-  // LAND-006 — an unmapped region and a missing navigator.language both fall back to
-  // "euro"; the "unit" fallback of currencyNoun is never reachable from the landing.
-  it('LAND-006: an unmapped region (pt-PT) and an empty locale both fall back to euro, never "unit"', () => {
+  // LAND-006 — an unmapped region and a missing navigator.language change nothing either, and
+  // "unit" can never appear.
+  it('LAND-006: an unmapped region (pt-PT) and an empty locale read euro too, never "unit"', () => {
     for (const lang of ['pt-PT', '']) {
       const spy = withLocale(lang)
       try {
@@ -333,17 +331,25 @@ describe('LandingPage — currency-aware tagline noun', () => {
 // =============================================================================
 // Prerender / SSR safety (LAND-007 — the automatable core)
 // =============================================================================
-describe('LandingPage — SSR-safe prerender noun', () => {
-  // LAND-007 — renderToStaticMarkup (what scripts/prerender.mjs runs) stays euro-first
-  // regardless of the "visitor" locale, because the noun swap is a mount-only effect
-  // that never runs during static markup. (The full build/curl check is deferred to
-  // the prerender/e2e layer.)
-  it('LAND-007: static markup stays euro-first even under a US locale', () => {
+describe('LandingPage — SSR-safe prerender', () => {
+  // LAND-007 — renderToStaticMarkup (what scripts/prerender.mjs runs) carries the line (euro),
+  // the primary, the sign-in link, the theme button and the feature cards, whatever the
+  // "visitor" locale. (The full build check, that dist/index.html contains the line, belongs to
+  // the build/e2e layer.)
+  it('LAND-007: static markup holds the euro line, both CTAs, the theme button and the cards', () => {
     const spy = withLocale('en-US')
     try {
       const html = renderToStaticMarkup(<LandingPage />)
-      expect(html).toContain('Give every euro a job.')
-      expect(html).not.toContain('Give every dollar a job.')
+      expect(html).toContain('Give every <span class="gold-number">euro</span> a job.')
+      expect(html).not.toMatch(/Give every (dollar|pound)/)
+      expect(html).toContain('href="/login?register=1"')
+      expect(html).toContain('href="/login"')
+      expect(html).toContain('aria-label="Dark mode"')
+      expect(html).toContain('Jars for the big bills')
+      expect(html).toContain('Ready to give every euro a job?')
+      // Nothing reads window, document or navigator during render: the static render is
+      // the same as the client's first render.
+      expect(html).toBe(renderToStaticMarkup(<LandingPage />))
     } finally {
       spy.mockRestore()
     }
@@ -453,19 +459,15 @@ describe('Route `/` — auth-state branching', () => {
 
   // LAND-009 — an anonymous cold load lands on the marketing landing after the bootstrap
   // refresh resolves signed-out: no dashboard, no bounce to /login.
-  it('LAND-009: anonymous `/` renders the landing, not the login form or the dashboard', async () => {
+  it('LAND-009: anonymous `/` renders the landing, not the login form or the dashboard', { timeout: 15000 }, async () => {
     authState.token = null
-    const langSpy = withLocale('de-DE')
+    // A non-euro locale: the line still says euro (LAND-005).
+    const langSpy = withLocale('en-GB')
     try {
       renderApp('/')
-      expect(
-        await screen.findByText(
-          'Zero-based budgeting · crafted in Europe, at home anywhere',
-          {},
-          { timeout: 5000 },
-        ),
-      ).toBeInTheDocument()
+      expect(await screen.findByText('Free to start · No card required', {}, { timeout: 5000 })).toBeInTheDocument()
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Give every euro a job.')
+      expect(screen.getAllByRole('link', { name: 'Create your free account' })).toHaveLength(2)
       // Not the login form, not the dashboard.
       expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
       expect(screen.queryByLabelText('Planned amount for Rent')).not.toBeInTheDocument()
@@ -484,9 +486,7 @@ describe('Route `/` — auth-state branching', () => {
       await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }),
     ).toBeInTheDocument()
     // No landing content at any point once authed.
-    expect(
-      screen.queryByText('Zero-based budgeting · crafted in Europe, at home anywhere'),
-    ).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Create your free account' })).not.toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { level: 1, name: /give every \w+ a job/i }),
     ).not.toBeInTheDocument()

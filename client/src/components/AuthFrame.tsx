@@ -30,8 +30,12 @@ function ShelfJarAt({ jar, width, className = '' }: { jar: ShelfJar; width: numb
   )
 }
 
-/** The desktop room: the gradient, the glow and the quiet shelf, two jars each side of the card. */
-const RoomShelf = memo(function RoomShelf() {
+/**
+ * The desktop room: the gradient, the glow and the quiet shelf, two jars each side of the card.
+ * Exported for the public landing page (restyle PR 15), which draws the same room around its own
+ * header and card; the frame itself is unchanged.
+ */
+export const RoomShelf = memo(function RoomShelf() {
   return (
     <div className="auth-room" aria-hidden>
       <div className="auth-shelf">
@@ -49,8 +53,8 @@ const RoomShelf = memo(function RoomShelf() {
   )
 })
 
-/** The phone band's small shelf: the same four jars in a row. */
-const BandShelf = memo(function BandShelf() {
+/** The phone band's small shelf: the same four jars in a row (also used by the landing page). */
+export const BandShelf = memo(function BandShelf() {
   return (
     <div className="auth-pshelf" aria-hidden>
       <div className="auth-jars">

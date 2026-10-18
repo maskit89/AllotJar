@@ -1,85 +1,84 @@
 # Landing & Public Pages
 
-**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public marketing landing page at `/` (hero, tagline, CTAs, currency-aware copy), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the staging banner + staging signup data-loss consent, and the (retired) coming-soon page expectations. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
+**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public landing page at `/` (the sign-in pages' look since restyle PR 15: the green room, the line, one primary, the theme button, three feature cards, the closing line, the quiet footer; euro always), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the staging banner + staging signup data-loss consent, and the (retired) coming-soon page expectations. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
 
 **Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, empty `localStorage` (no `zbb.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **production** deployment `www.allotjar.com`/apex (built with `VITE_APP_ENV=production`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and/or the **staging** deployment `staging.allotjar.com` (built with `VITE_APP_ENV=staging`, NO GA measurement ID — analytics disabled; reachable only from allowlisted IPs via a Cloudflare WAF rule), and to a **local/default** build (`VITE_APP_ENV` unset, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) The coming-soon page was RETIRED at the 2026-07 GA cutover (`www`/apex now serve the production app); its source remains archived in `marketing/coming-soon/`.
 
 ## Landing page — anonymous visit
 
-### LAND-001 - Landing page renders the full hero for an anonymous visitor
+### LAND-001 - Landing page renders the hero for an anonymous visitor
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Clean anonymous browser (refresh cookie absent); default (non-staging) build or staging build.
 - **Steps:**
   1. Navigate to `/`.
   2. Wait for the page to settle (the auth bootstrap 401s).
-  3. Inspect the hero section.
+  3. Inspect the first screen.
 - **Expected:**
-  - Eyebrow text "Zero-based budgeting · crafted in Europe, at home anywhere".
-  - Exactly one `<h1>`: "Give every euro a job." (noun may swap per locale — see LAND-005).
-  - Hero sub-copy beginning "AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere."
-  - Note "Free to start · No card required".
-  - Right-hand "Your jars" panel: gold figure "€2,480", caption "set aside across 3 jars this year", three decorative jars Insurance/Holiday/New car with accessible labels "Insurance: 90% funded", "Holiday: 70% funded", "New car: 40% funded" and **no** visible in-jar percent text.
-- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — single H1; client/e2e/landing.spec.ts — H1 `/give every \S+ a job/i` + axe)
+  - The sign-in pages' green room across the top of the sage page (on a phone, the compact green band), the soft gold glow, and the shelf of four glass jars (two each side of the card on desktop, a small row of four in the band on a phone). The jars are decoration (no name, no figure, no percent text).
+  - Exactly one `<h1>`: "Give every euro a job." (euro always — see LAND-005).
+  - The off-white card with the gold hairline in front of the shelf holds one sentence "Zero-based budgeting for households: plan the month to zero, with jars for the big bills and a budget you share.", the page's one primary (green) button "Create your free account" with a quiet "Sign in" link beside it, and the muted note "Free to start · No card required".
+  - No invented figure anywhere ("€2,480", "set aside across 3 jars" are gone), no eyebrow, no "crafted in Europe" copy.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-001; client/e2e/landing.spec.ts — H1 "Give every euro a job." + axe, one primary on the first screen; client/e2e/mobile-layout.spec.ts — the line, the primary and Sign in on a phone's first screen)
 
 ### LAND-002 - Header and footer chrome and links
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Anonymous visitor on `/` (landing rendered).
 - **Steps:**
-  1. Inspect the header: logo link and `nav` with `aria-label="Primary"`.
+  1. Inspect the header (the room's top row): the wordmark link, the `nav` with `aria-label="Primary"`, the theme button.
   2. Scroll to the footer (`nav` with `aria-label="Footer"`).
   3. Click the logo link.
 - **Expected:**
-  - Header logo link has `aria-label="AllotJar home"`, `href="/"`; wordmark reads "AllotJar". Header nav contains "Sign in" → `/login` and the filled CTA "Get started" → `/login?register=1`.
-  - Footer shows "© 2026 AllotJar · Give every euro a job." (year = current year) and links: "Privacy" → `/privacy`, "Terms" → `/terms`, "Sign in" → `/login`, "Create account" → `/login?register=1`.
+  - Header logo link has `aria-label="AllotJar home"`, `href="/"`; wordmark reads "AllotJar" in the room's pale ink. The Primary nav holds one quiet link "Sign in" → `/login`; beside it the theme button (a toggle named "Dark mode", `aria-pressed`), as on the sign-in page. There is no filled "Get started" button in the header.
+  - Footer: one quiet line "© 2026 AllotJar · Privacy · Terms" (year = current year): "Privacy" → `/privacy`, "Terms" → `/terms`, nothing else (no sign-in or register links there).
   - Clicking the logo performs a plain `<a>` navigation back to `/` (full page load — landing uses no router links, by SSR design).
-- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — sign-in link)
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-002; client/e2e/landing.spec.ts — footer links, theme button)
 
-### LAND-003 - Every CTA lands on the correct login tab
+### LAND-003 - Every CTA lands on the correct login tab, one primary per screen
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Anonymous visitor on `/`.
 - **Steps:**
-  1. Click header "Get started".
-  2. Go back; click hero "Create your free account".
-  3. Go back; click hero "Sign in" (secondary CTA).
-  4. Go back; scroll to the closing CTA band "Ready to give every euro a job?" and click its "Create your free account".
-  5. Go back; click footer "Create account" and footer "Sign in".
+  1. Click the hero card's "Create your free account".
+  2. Go back; click the "Sign in" beside it.
+  3. Go back; scroll to the closing line "Ready to give every euro a job?" and click its "Create your free account".
+  4. Go back; click the header's "Sign in".
 - **Expected:**
-  - All "Get started" / "Create your free account" / "Create account" links go to `/login?register=1` and LoginPage opens with the **Create account** tab of the segmented control "Sign in or create an account" selected.
+  - Both "Create your free account" links go to `/login?register=1` and LoginPage opens with the **Create account** tab of the segmented control "Sign in or create an account" selected.
   - Both "Sign in" links go to `/login` with the **Sign in** tab selected.
   - No CTA requires JavaScript state — each is a plain `<a href>` (works middle-click/new-tab).
-- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — primary CTAs → registration tab)
+  - One primary (filled green) button per screen: the hero card's on the first screen, the closing line's below the fold; "Sign in" is a link everywhere (never a second button), and nothing else on the page is filled green or pure white.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-003; client/e2e/landing.spec.ts — the CTAs open the right tab, one primary in view)
 
-### LAND-004 - Marketing content sections render with exact headings
+### LAND-004 - Feature cards, the promises line and the closing line
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Anonymous visitor on `/`.
 - **Steps:**
-  1. Scroll through the features, how-it-works and FAQ sections.
+  1. Scroll under the room.
 - **Expected:**
-  - Features section heading "Everything you need to budget with confidence" with exactly 6 cards titled: "Zero-based budgeting", "Sinking-fund jars", "All your accounts", "Reports & trends", "Budget as a household", "Private & secure".
-  - How-it-works heading "How AllotJar works" + "Three simple steps, every month." with an ordered list of 3 steps: "1 Plan the month", "2 Track as you spend", "3 Adjust and save".
-  - FAQ heading "Frequently asked questions" with exactly 5 Q/As: "What is zero-based budgeting?", "Can I use AllotJar outside Europe?", "What makes AllotJar different?", "Can I share my budget with my partner?", "How much does AllotJar cost?".
-- **Automated:** Partial (client/src/pages/LandingPage.test.tsx — FAQ content for long-tail search)
+  - Three off-white feature cards in a row (stacked as rows on a phone), each one glyph in a tinted square, a short title and one line: "Budget to zero" — "Plan the month until Remaining to budget reads zero."; "Jars for the big bills" — "Set a little aside each month for insurance, the car and the holiday."; "Budget together" — "One shared budget for everyone in your household." The section's heading "What AllotJar does" is visually hidden.
+  - One muted line under them: "In your currency, the way you write it · Your data is never sold." (on a phone, the two promises on two lines).
+  - The closing line, an `<h2>` "Ready to give every euro a job?", with the same primary button under it.
+  - The old six-card grid, the three step cards and the five FAQ cards are gone, as are "Sinking-fund jars" and "Members" (the app's words are Jars and People).
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-004)
 
-## Currency-aware copy (locale noun swap)
+## Euro always (the line never follows the locale)
 
-### LAND-005 - Visitor locale swaps the tagline noun after mount
+### LAND-005 - The line says euro whatever the visitor's locale
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Anonymous browser with language set to `en-US` (e.g. Playwright `locale: 'en-US'`).
+- **Origin:** Restyle PR 15 — the app is euro-first; the old page's mount-only noun swap (a UK browser read "pound" three times, and the prerendered "euro" flipped after hydration) is gone
+- **Preconditions:** Anonymous browser with language set to `en-US` (e.g. Playwright `locale: 'en-US'`), then `en-GB`.
 - **Steps:**
   1. Navigate to `/` with JavaScript enabled.
-  2. Read the H1, the closing CTA heading and the footer tagline after the app mounts.
+  2. Read the H1 and the closing line after the app mounts.
 - **Expected:**
-  - H1 reads "Give every dollar a job." (US → USD → "dollar" via `REGION_CURRENCY` + `CURRENCY_NOUNS`).
-  - Closing CTA reads "Ready to give every dollar a job?" and footer reads "· Give every dollar a job." — all three use the same noun.
-  - Equivalent spot-checks: `en-GB` → "pound", `de-CH` → "franc", `en-IN` → "rupee", `pl-PL` → "złoty" (unicode noun renders correctly).
-- **Automated:** Partial (client/src/lib/money.test.ts — currencyNoun mapping + detectLocaleDefaults only; the landing swap itself is untested)
+  - H1 reads "Give every euro a job." and the closing line "Ready to give every euro a job?" under every locale (`en-US`, `en-GB`, `de-CH`, `en-IN`, `pl-PL`, …); "dollar", "pound", "franc", "rupee", "złoty" never appear on this page. The page's text is the same before and after the SPA mounts.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-005; client/e2e/landing.spec.ts — H1 "Give every euro a job." under the config's en-US locale)
 
-### LAND-006 - Unmapped or missing locale falls back to euro
+### LAND-006 - Unmapped or missing locale: still euro, never "unit"
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** Anonymous browser with (a) a locale whose region is not in `REGION_CURRENCY` (e.g. `pt-PT`), and (b) a context where `navigator.language` is empty/undefined.
@@ -87,20 +86,21 @@
   1. Load `/` under locale `pt-PT`; read the H1.
   2. Load `/` with `navigator.language` stubbed to `''`; read the H1.
 - **Expected:**
-  - Both cases keep "Give every euro a job." — unlisted regions and failed detection fall back to `EUR` → "euro". The "unit" fallback of `currencyNoun` is unreachable from detection (every `REGION_CURRENCY` value has a noun); no case may ever display "Give every unit a job." from the landing.
-- **Automated:** Partial (client/src/lib/money.test.ts — `unit` fallback + detection returns a supported currency)
+  - Both cases read "Give every euro a job."; no case may ever display "Give every unit a job." from the landing (the page never calls `currencyNoun`).
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-006)
 
 ### LAND-007 - Prerendered/crawled HTML always says "euro"
 - **Priority:** P2
 - **Type:** Regression
-- **Origin:** PR #117 — LandingPage must stay SSR-safe; the noun swap is a mount-only effect so `renderToStaticMarkup` output stays euro-first
+- **Origin:** PR #117 — LandingPage must stay SSR-safe (no `window`, `document` or `navigator` during render); restyle PR 15 — the line is euro always, so the static HTML is the client's first render
 - **Preconditions:** A production build (`npm run build` in `client/`, which runs `scripts/prerender.mjs`), or the deployed production host.
 - **Steps:**
-  1. Fetch `/` with JavaScript disabled (e.g. `curl -s https://www.allotjar.com/`) from any locale.
-  2. Search the raw HTML for the H1 text.
+  1. Check the build log for the line `prerender: injected landing page (N chars) into dist/index.html`.
+  2. Fetch `/` with JavaScript disabled (e.g. `curl -s https://www.allotjar.com/`) from any locale.
+  3. Search the raw HTML for the H1 text.
 - **Expected:**
-  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers — the swap only happens client-side after mount. Crawler-visible copy is deterministic and on-brand (euro-first).
-- **Automated:** No
+  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers, plus both "Create your free account" links, the "Sign in" links, the theme button (`aria-label="Dark mode"`) and the three feature cards. Crawler-visible copy is deterministic and on-brand (euro-first), and nothing changes after the SPA mounts.
+- **Automated:** Partial (client/src/pages/LandingPage.catalog.test.tsx LAND-007 — `renderToStaticMarkup` holds the line, the CTAs, the theme button and the cards, and equals a second render; the build's console line and dist/index.html are checked by hand)
 
 ## Route `/` auth branching & catch-all
 
@@ -219,10 +219,10 @@
 - **Origin:** PR #117 (accent `text-brand-600` must pair `dark:text-brand-500` on the dark background) and PR #120 (legal footer muted text must be `slate-500`, not `slate-400` at 2.55:1)
 - **Preconditions:** Anonymous browser; ability to switch OS/emulated color scheme.
 - **Steps:**
-  1. Load `/` in dark mode; inspect the hero eyebrow accent text ("Zero-based budgeting · crafted in Europe…").
+  1. Load `/` in dark mode; inspect the hero card's sentence and note, the "Sign in" link beside the primary, the feature cards' lines and the footer.
   2. Load `/privacy` and `/terms` in dark mode; inspect the footer "© 2026 AllotJar" and "Last updated" muted text.
 - **Expected:**
-  - The eyebrow renders in the brightened brand-500 green in dark mode (not the deep brand-600), meeting WCAG AA contrast against the dark background.
+  - The landing rides the warm tokens (restyle PR 15): the card and the feature cards are the dark `--color-card`, the muted lines `slate-500` of the inverted ramp, the "Sign in" link the brightened brand-500 green; the room's pale ink ("Sign in", the wordmark) and the gold word clear AA/3:1 on the green in both modes.
   - Legal muted text renders at slate-500 or better; an axe scan of both pages in both themes reports no A/AA contrast violations.
 - **Automated:** Yes (client/e2e/landing.spec.ts + client/e2e/legal.spec.ts — axe WCAG A/AA in light and dark)
 
@@ -276,7 +276,7 @@
   2. Search the HTML inside `<div id="root">`.
   3. Load the same URL with JS enabled and watch the console.
 - **Expected:**
-  - The static markup contains the full landing content: H1 "Give every euro a job.", all 6 feature card titles, the 5 FAQ questions, footer links — enough for crawlers and link scrapers.
+  - The static markup contains the full landing content: H1 "Give every euro a job.", the sentence, the three feature card titles and lines, the closing line, the footer links — enough for crawlers and link scrapers.
   - With JS on, `createRoot` (not `hydrateRoot`) replaces the static markup on mount: no React hydration-mismatch warnings in the console; the interactive landing (or splash → landing) appears seamlessly.
 - **Automated:** No
 
