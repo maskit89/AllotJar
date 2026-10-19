@@ -49,6 +49,20 @@ describe('Onboarding', () => {
     expect(await screen.findByRole('region', { name: 'Getting started' })).toBeInTheDocument()
   })
 
+  it('gives focus to the main content when the tour ends, as its opener is gone', async () => {
+    renderWithProviders(
+      <main id="main-content" tabIndex={-1}>
+        <OnboardingProvider>
+          <Onboarding />
+        </OnboardingProvider>
+      </main>,
+    )
+    fireEvent.click(await screen.findByRole('button', { name: 'Take the tour' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip tour' }))
+    expect(await screen.findByRole('region', { name: 'Getting started' })).toBeInTheDocument()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById('main-content')))
+  })
+
   it('skips cleanly, shows the checklist, and never auto-opens again', async () => {
     const { unmount } = renderApp()
     fireEvent.click(await screen.findByRole('button', { name: 'Skip for now' }))
