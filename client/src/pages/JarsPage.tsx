@@ -420,7 +420,7 @@ export function JarsPage() {
             <h2 id={gridHeadingId} className="sr-only">
               Your jars
             </h2>
-            <div ref={gridRef} className="dash-palette grid grid-cols-2 gap-4 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 @min-[1400px]:grid-cols-4 @min-[1800px]:grid-cols-5">
+            <div ref={gridRef} className="dash-palette grid grid-cols-2 gap-4 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 @min-[1400px]:grid-cols-4 @min-[1800px]:grid-cols-5 @min-[2200px]:grid-cols-6">
               {ordered.map(({ jar: f, index }) => (
                 <JarCard
                   key={f.id}
@@ -482,7 +482,7 @@ export function JarsPage() {
         <div className="@container">
           <section
             aria-labelledby={unallocatedHeadingId}
-            className={`${DASH_CARD} @min-[640px]:w-[calc((100%-24px)/2)] @min-[900px]:w-[calc((100%-48px)/3)]`}
+            className={`${DASH_CARD} @min-[640px]:w-[calc((100%-24px)/2)] @min-[900px]:w-[calc((100%-48px)/3)] @min-[1400px]:w-[calc((100%-72px)/4)] @min-[1800px]:w-[calc((100%-96px)/5)] @min-[2200px]:w-[calc((100%-120px)/6)]`}
           >
             <div className="flex items-center gap-1.5">
               <h2 id={unallocatedHeadingId} className={CARD_TITLE}>

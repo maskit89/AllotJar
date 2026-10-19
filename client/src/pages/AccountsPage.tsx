@@ -709,7 +709,7 @@ export function AccountsPage() {
           ) : (
             <div
               ref={gridRef}
-              className={`dash-palette grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 @min-[1400px]:grid-cols-4 @min-[1800px]:grid-cols-5 max-[699.98px]:flex max-[699.98px]:flex-col max-[699.98px]:gap-0 max-[699.98px]:rounded-[14px] max-[699.98px]:border max-[699.98px]:border-slate-200/70 max-[699.98px]:bg-surface max-[699.98px]:px-[18px] max-[699.98px]:py-0.5 max-[699.98px]:shadow-card`}
+              className={`dash-palette grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 @min-[1400px]:grid-cols-4 @min-[1800px]:grid-cols-5 @min-[2200px]:grid-cols-6 max-[699.98px]:flex max-[699.98px]:flex-col max-[699.98px]:gap-0 max-[699.98px]:rounded-[14px] max-[699.98px]:border max-[699.98px]:border-slate-200/70 max-[699.98px]:bg-surface max-[699.98px]:px-[18px] max-[699.98px]:py-0.5 max-[699.98px]:shadow-card`}
             >
               {accounts.map((a) => (
                 <AccountCard
@@ -736,7 +736,7 @@ export function AccountsPage() {
           <section
             data-testid="unreachable-accounts"
             aria-labelledby={unreachableHeadingId}
-            className={`${DASH_CARD} @min-[640px]:w-[calc((100%-24px)/2)] @min-[900px]:w-[calc((100%-48px)/3)]`}
+            className={`${DASH_CARD} @min-[640px]:w-[calc((100%-24px)/2)] @min-[900px]:w-[calc((100%-48px)/3)] @min-[1400px]:w-[calc((100%-72px)/4)] @min-[1800px]:w-[calc((100%-96px)/5)] @min-[2200px]:w-[calc((100%-120px)/6)]`}
           >
             <div className="flex items-center gap-1.5">
               <h2 id={unreachableHeadingId} className={CARD_TITLE}>
