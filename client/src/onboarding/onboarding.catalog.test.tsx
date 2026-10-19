@@ -120,10 +120,18 @@ function ReplayTrigger() {
 
 const KEY = 'zbb.onboarding:u-me'
 
-/** Opens an (i) (focus shows its popover, as a keyboard user reaches it) and returns the popover. */
+/**
+ * Opens an (i) (focus shows its popover, as a keyboard user reaches it) and returns the popover.
+ * On a busy CI runner the welcome dialog can still be settling when the (i) is focused (its own
+ * focus move, or a re-render that replaces the button), which blurs the (i) and closes the popover
+ * again (PR #359, CI run 986, twice): so it focuses the current button until the popover shows.
+ */
 async function openHint(scope: HTMLElement, label: string) {
-  act(() => within(scope).getByRole('button', { name: label }).focus())
-  return screen.findByRole('tooltip')
+  return waitFor(() => {
+    const button = within(scope.isConnected ? scope : document.body).getByRole('button', { name: label })
+    if (document.activeElement !== button) button.focus()
+    return screen.getByRole('tooltip')
+  })
 }
 const readRecord = () => JSON.parse(localStorage.getItem(KEY) || '{}')
 

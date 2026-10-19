@@ -75,7 +75,7 @@ export function TopBar({
 }) {
   return (
     <header data-tour="topbar" className="sticky top-0 z-30 bg-background/90 backdrop-blur-[10px]">
-      <div className="mx-auto flex h-[60px] max-w-[1240px] items-center gap-2.5 px-4 max-[359.98px]:gap-2 min-[900px]:h-[76px] min-[900px]:gap-3 min-[900px]:px-10">
+      <div className="mx-auto flex h-[60px] max-w-(--content-max) items-center gap-2.5 px-4 max-[359.98px]:gap-2 min-[900px]:h-[76px] min-[900px]:gap-3 min-[900px]:px-10">
         {back ? (
           // A link (the way back is a place, not an action), drawn as the bar's icon buttons are; it
           // sits half its padding into the gutter so the chevron lines up with the page's edge.
