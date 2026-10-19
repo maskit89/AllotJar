@@ -60,7 +60,7 @@ export function JarsCard({
   const ordered = byAttention(jars).map(({ jar, index }) => ({ jar, hue: hueForIndex(index), index }))
   const fit = Math.floor((width + GAP) / (CELL + GAP))
   // Nothing laid out yet (or in tests): three to a shelf.
-  const perRow = width === 0 ? 3 : Math.min(6, Math.max(fit, width >= MIN_THREE ? 3 : 2))
+  const perRow = width === 0 ? 3 : Math.min(8, Math.max(fit, width >= MIN_THREE ? 3 : 2))
   const shelves: (typeof ordered)[] = []
   for (let i = 0; i < ordered.length; i += perRow) shelves.push(ordered.slice(i, i + perRow))
   const cell = `calc((100% - ${(perRow - 1) * GAP}px) / ${perRow})`

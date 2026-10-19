@@ -27,8 +27,9 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * `halves`: the hero and one tile on two equal columns from 640px (the People page's person cards,
  * with the same 24px gap), instead of the hero half again as wide as the tile.
  * `wide`: the grid below adds columns on a wide screen, and the row follows it: with `onGrid`
- * four columns from 1400px (the hero and the tile two each) and five from 1800px (the hero three);
- * with `thirds` four and five columns, the hero over two and three.
+ * four columns from 1400px (the hero and the tile two each), five from 1800px (the hero three) and
+ * six from 2200px (the hero four); with `thirds` four, five and six columns, the hero over all but
+ * the two tiles.
  */
 export function KpiRow({
   tiles,
@@ -64,9 +65,9 @@ export function KpiRow({
   const wider = !wide
     ? ''
     : thirds && tiles > 0
-        ? '@min-[1400px]:grid-cols-4 @min-[1400px]:[&>:first-child]:col-span-2 @min-[1800px]:grid-cols-5 @min-[1800px]:[&>:first-child]:col-span-3'
+        ? '@min-[1400px]:grid-cols-4 @min-[1400px]:[&>:first-child]:col-span-2 @min-[1800px]:grid-cols-5 @min-[1800px]:[&>:first-child]:col-span-3 @min-[2200px]:grid-cols-6 @min-[2200px]:[&>:first-child]:col-span-4'
         : onGrid
-          ? '@min-[1400px]:grid-cols-4 @min-[1400px]:*:col-span-2 @min-[1800px]:grid-cols-5 @min-[1800px]:[&>:first-child]:col-span-3'
+          ? '@min-[1400px]:grid-cols-4 @min-[1400px]:*:col-span-2 @min-[1800px]:grid-cols-5 @min-[1800px]:[&>:first-child]:col-span-3 @min-[2200px]:grid-cols-6 @min-[2200px]:[&>:first-child]:col-span-4'
           : ''
   return (
     <div className={`@container ${className}`}>

@@ -121,17 +121,21 @@ function ReplayTrigger() {
 const KEY = 'zbb.onboarding:u-me'
 
 /**
- * Opens an (i) (focus shows its popover, as a keyboard user reaches it) and returns the popover.
- * On a busy CI runner the welcome dialog can still be settling when the (i) is focused (its own
- * focus move, or a re-render that replaces the button), which blurs the (i) and closes the popover
- * again (PR #359, CI run 986, twice): so it focuses the current button until the popover shows.
+ * The welcome dialog, once its effects have run. It can be in the DOM before then (it opens after
+ * the session loads, outside act), and until then it has not taken focus or its Escape listener:
+ * focusing its (i) first lets the late focus move close the popover, and an Escape sent first does
+ * nothing (PR #359: ONBD-001, ONBD-005 and ONBD-003 each failed this way on a busy runner).
  */
+async function findDialog() {
+  const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
+  await waitFor(() => expect(dialog.contains(document.activeElement)).toBe(true), { timeout: 5000 })
+  return dialog
+}
+
+/** Opens an (i) (focus shows its popover, as a keyboard user reaches it) and returns the popover. */
 async function openHint(scope: HTMLElement, label: string) {
-  return waitFor(() => {
-    const button = within(scope.isConnected ? scope : document.body).getByRole('button', { name: label })
-    if (document.activeElement !== button) button.focus()
-    return screen.getByRole('tooltip')
-  })
+  act(() => within(scope).getByRole('button', { name: label }).focus())
+  return screen.findByRole('tooltip')
 }
 const readRecord = () => JSON.parse(localStorage.getItem(KEY) || '{}')
 
@@ -155,7 +159,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   it('ONBD-001: welcome auto-opens with owner copy, bullets, controls and nothing persisted yet', { timeout: 15000 }, async () => {
     renderOnboarding()
 
-    const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
+    const dialog = await findDialog()
     expect(dialog).toHaveAttribute('aria-modal', 'true')
     expect(within(dialog).getByRole('heading', { name: 'Welcome to AllotJar' })).toBeInTheDocument()
 
@@ -190,7 +194,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     await screen.findByText(/joined a shared household budget/, {}, { timeout: 5000 })
     expect(screen.getByRole('heading', { name: 'Welcome to AllotJar' })).toBeInTheDocument()
     // Member bullets replace the owner set, behind the (i).
-    const about = await openHint(screen.getByRole('dialog'), 'About AllotJar')
+    const about = await openHint(await findDialog(), 'About AllotJar')
     expect(about).toHaveTextContent(/See the month.s plan and where money goes/)
     expect(about).toHaveTextContent(/record spending as it happens/i)
     expect(about).toHaveTextContent('Watch jars fill toward shared goals')
@@ -209,7 +213,7 @@ describe('Onboarding — catalog (ONBD)', () => {
 
     for (const dismiss of dismissals) {
       const { unmount } = renderOnboarding()
-      const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
+      const dialog = await findDialog()
       dismiss(dialog)
 
       expect(await screen.findByRole('region', { name: 'Getting started' }, { timeout: 5000 })).toBeInTheDocument()
@@ -235,7 +239,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     expect(document.activeElement).toBe(trigger)
 
     fireEvent.click(trigger)
-    const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
+    const dialog = await findDialog()
     fireEvent.keyDown(dialog, { key: 'Escape' })
 
     await waitFor(() => expect(document.activeElement).toBe(trigger), { timeout: 5000 })
@@ -552,7 +556,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     renderOnboarding()
 
     // The welcome line uses the dollar noun.
-    const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
+    const dialog = await findDialog()
     expect(within(dialog).getByText('A budget that gives every dollar a job.')).toBeInTheDocument()
     expect(within(dialog).queryByText(/euro/)).not.toBeInTheDocument()
 
@@ -575,7 +579,7 @@ describe('Onboarding — catalog (ONBD)', () => {
     localStorage.setItem('zbb.currency', 'XYZ')
     meData = { ...ME, preferredCurrency: 'XYZ' }
     renderOnboarding()
-    const dialog = await screen.findByRole('dialog', {}, { timeout: 5000 })
+    const dialog = await findDialog()
     expect(within(dialog).getByText('A budget that gives every unit a job.')).toBeInTheDocument()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Take the tour' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Next' }, { timeout: 5000 }))

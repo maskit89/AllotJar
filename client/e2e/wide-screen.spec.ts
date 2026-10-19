@@ -3,13 +3,14 @@ import { AUTHED_ROUTES, authedSetup } from './mocks'
 
 /**
  * Wide-screen guard. The content column is 1240px wide until the screen leaves 80px either side of
- * it, then grows with the screen up to 2160px (`--content-max`, index.css), and the Jars and
- * Accounts grids add a fourth column from 1400px and a fifth from 1800px. A laptop keeps the
- * 1240px column and three columns.
+ * it, then grows with the screen up to 3440px (`--content-max`, index.css), and the Jars and
+ * Accounts grids add a fourth column from 1400px, a fifth from 1800px and a sixth from 2200px.
+ * A laptop keeps the 1240px column and three columns.
  */
 
-async function open(page: Page, path: string) {
+async function open(page: Page, path: string, stub?: () => Promise<void>) {
   await authedSetup(page, 'light')
+  await stub?.() // registered after the mocks, so it wins
   await page.goto(path)
   await page.getByRole('heading', { level: 1 }).first().waitFor()
   await page.waitForLoadState('networkidle')
@@ -35,7 +36,8 @@ for (const { width, column, cols } of [
   { width: 1440, column: 1192, cols: 3 }, // the sidebar leaves 1192px: the column fills it
   { width: 1920, column: 1512, cols: 4 }, // 1920 - 248 - 160
   { width: 2560, column: 2152, cols: 5 },
-  { width: 3840, column: 2160, cols: 5 }, // capped
+  { width: 3840, column: 3432, cols: 6 }, // a 4K screen at 100% scaling
+  { width: 5120, column: 3440, cols: 6 }, // capped
 ]) {
   test.describe(`a ${width}px-wide screen`, () => {
     test.use({ viewport: { width, height: 1000 } })
@@ -49,8 +51,22 @@ for (const { width, column, cols } of [
     })
 
     test(`the Jars and Accounts grids lay out ${cols} columns`, async ({ page }) => {
-      await open(page, '/jars')
+      // One jar-backed account's ledger, so the Unallocated card shows (the mocks hold none).
+      const ledger = () => page.route('**/api/jars/ledger', (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify([
+            { accountId: 'acc1', accountName: 'Savings Joint', currency: 'EUR', asOf: '2026-06-20', accountBalance: 5000, unallocated: 4470, positiveAllocations: 570, hasBackingDeficit: false, unreconciledAllocations: 0, requiresReview: false, jars: [{ jarId: 'f1', name: 'Home insurance', balance: 120, isArchived: false }] },
+          ]),
+        }),
+      )
+      await open(page, '/jars', ledger)
       expect(await gridColumns(page, 'Your jars')).toBe(cols)
+      // The Unallocated card under the jars stays as wide as one of their columns.
+      const card = await page.locator('[data-jar-id]').first().boundingBox()
+      const unallocated = await page.locator('section', { has: page.getByRole('heading', { name: 'Unallocated', exact: true }) }).boundingBox()
+      expect(Math.abs(unallocated!.width - card!.width)).toBeLessThanOrEqual(1)
       await open(page, '/accounts')
       expect(await gridColumns(page, 'Your accounts')).toBe(cols)
     })
