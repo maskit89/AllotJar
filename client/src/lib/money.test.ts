@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, afterEach, vi } from 'vitest'
 import {
   fromAmount,
   toAmount,
@@ -346,10 +346,21 @@ describe('currencyNoun — the tagline noun', () => {
 })
 
 describe('detectLocaleDefaults — browser-locale guess', () => {
-  it('returns a supported currency + a known format key', () => {
+  it('returns the euro + a known format key', () => {
     const { currency, numberFormat } = detectLocaleDefaults()
-    expect(currency).toMatch(/^[A-Z]{3}$/)
+    expect(currency).toBe('EUR')
     expect(NUMBER_FORMAT_OPTIONS.map((o) => o.value)).toContain(numberFormat)
+  })
+
+  it('preselects the euro whatever the browser locale', () => {
+    for (const lang of ['en-US', 'en-GB', 'de-CH', 'ja-JP', 'en-IN']) {
+      const spy = vi.spyOn(navigator, 'language', 'get').mockReturnValue(lang)
+      try {
+        expect(detectLocaleDefaults().currency).toBe('EUR')
+      } finally {
+        spy.mockRestore()
+      }
+    }
   })
 })
 
