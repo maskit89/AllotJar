@@ -97,7 +97,6 @@ function loadWorker({ online = true } = {}) {
     addEventListener: (type: string, cb: (event: unknown) => void) => (handlers[type] = cb),
     skipWaiting: vi.fn(async () => {}),
     clients: { claim: vi.fn(async () => {}) },
-    registration: { navigationPreload: { enable: vi.fn(async () => {}) } },
   }
   const ResponseStub = { error: () => 'network error response' }
   new Function('self', 'caches', 'fetch', 'Request', 'Response', swSource)(self, caches, network, FakeRequest, ResponseStub)
@@ -109,11 +108,10 @@ function loadWorker({ online = true } = {}) {
   }
 
   /** Dispatches a fetch; resolves to what the worker answered, or 'not handled'. */
-  async function request(path: string, init: { method?: string; mode?: string; preload?: unknown } = {}) {
+  async function request(path: string, init: { method?: string; mode?: string } = {}) {
     let answer: Promise<unknown> | undefined
     handlers.fetch({
       request: new FakeRequest(path, init),
-      preloadResponse: Promise.resolve(init.preload),
       respondWith: (p: Promise<unknown>) => (answer = p),
     })
     return answer ? await answer : 'not handled'
@@ -130,11 +128,10 @@ describe('public/sw.js: what the service worker answers', () => {
     expect(sw.self.skipWaiting).toHaveBeenCalled()
   })
 
-  it('drops older caches, turns on navigation preload and takes over open pages when it activates', async () => {
+  it('drops older caches and takes over open pages when it activates', async () => {
     const sw = loadWorker()
     await sw.lifecycle('activate')
     expect(sw.deleted).toEqual(['allotjar-offline-v0', 'something-else'])
-    expect(sw.self.registration.navigationPreload.enable).toHaveBeenCalled()
     expect(sw.self.clients.claim).toHaveBeenCalled()
   })
 
@@ -159,12 +156,6 @@ describe('public/sw.js: what the service worker answers', () => {
     const sw = loadWorker()
     await sw.lifecycle('install')
     expect(await sw.request('/jars', { mode: 'navigate' })).toBe(`network response for ${ORIGIN}/jars`)
-  })
-
-  it('uses the navigation preload when the browser started one', async () => {
-    const sw = loadWorker()
-    expect(await sw.request('/', { mode: 'navigate', preload: 'preloaded page' })).toBe('preloaded page')
-    expect(sw.network).not.toHaveBeenCalled()
   })
 
   it('shows the offline page only when the network fails', async () => {

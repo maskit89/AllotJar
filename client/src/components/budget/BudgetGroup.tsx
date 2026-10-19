@@ -273,7 +273,7 @@ export function BudgetGroup({
           </div>
         )}
         {adding && onAddItem && (
-          <div className="flex items-center gap-2 py-2.5 not-first:border-t not-first:border-line">
+          <div data-entry className="flex items-center gap-2 py-2.5 not-first:border-t not-first:border-line">
             <input
               type="text"
               autoFocus

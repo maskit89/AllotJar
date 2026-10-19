@@ -569,7 +569,7 @@ export function AccountsPage() {
     return (
       // The native date picker's icon and the holders' tick boxes follow the theme (on this page
       // only: the app has no colour scheme of its own yet).
-      <div className="flex flex-col gap-3 [color-scheme:light] dark:[color-scheme:dark]" onKeyDown={onKeyDown}>
+      <div data-entry className="flex flex-col gap-3 [color-scheme:light] dark:[color-scheme:dark]" onKeyDown={onKeyDown}>
         <div className="grid grid-cols-2 gap-x-3 gap-y-2.5">
           <div className="col-span-2 flex flex-col gap-1">
             <span aria-hidden className={CAPTION}>

@@ -295,7 +295,7 @@ export function BudgetCard(props: BudgetCardProps) {
 
       {/* A new spending or savings group, at the end of the card. */}
       {canWrite && addingGroup && (
-        <div className="mt-[22px] flex flex-wrap items-center gap-2 border-t border-line pt-4">
+        <div data-entry className="mt-[22px] flex flex-wrap items-center gap-2 border-t border-line pt-4">
           <input
             type="text"
             autoFocus

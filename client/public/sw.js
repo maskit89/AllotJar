@@ -1,7 +1,7 @@
 // AllotJar's service worker. It makes the site installable as an app and shows /offline.html
 // when a page can't be reached. It deliberately does nothing else: it never answers or stores
 // /api requests (every figure comes from the server), the app's scripts and styles, or other
-// sites (fonts, analytics, Google sign-in), so nobody ever runs a stale copy out of a cache.
+// sites (fonts, analytics, Google sign-in), so no stale copy of the app is ever served from a cache.
 // The worker's own fetches would also fall under the site's CSP, whose connect-src doesn't
 // list Google Fonts, which is one more reason to leave other sites' requests alone.
 //
@@ -33,8 +33,6 @@ self.addEventListener('activate', (event) => {
     (async () => {
       const names = await caches.keys()
       await Promise.all(names.filter((name) => name !== CACHE).map((name) => caches.delete(name)))
-      // Start the network request for a page load while the worker wakes up.
-      if (self.registration.navigationPreload) await self.registration.navigationPreload.enable()
       await self.clients.claim()
     })(),
   )
@@ -55,9 +53,9 @@ self.addEventListener('fetch', (event) => {
   if (request.mode !== 'navigate') return
   event.respondWith(
     (async () => {
+      // No navigation preload: it would also run for the /api navigations skipped above, and
+      // the browser would then fetch those twice.
       try {
-        const preloaded = await event.preloadResponse
-        if (preloaded) return preloaded
         return await fetch(request)
       } catch {
         return (await caches.match(OFFLINE_PAGE)) || Response.error()

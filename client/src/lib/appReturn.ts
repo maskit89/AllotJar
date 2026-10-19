@@ -35,11 +35,35 @@ const ENTRY_FIELD =
   'input:not([type="checkbox"]):not([type="radio"]):not([type="button"]):not([type="submit"]):not([type="reset"]), textarea, select'
 
 /**
- * True while the person is part-way through entering something: a field has the focus, or a
- * dialog (a form, a confirmation, an open popover) is up. Nothing may reload under them then.
+ * True while the person is part-way through entering something: a field has the focus, a
+ * dialog (a form, a confirmation, an open popover) is up, or an inline editor is open (marked
+ * `data-entry`: a transaction's or an account's editor, a new budget line or group), whatever
+ * has the focus. Nothing may reload under them then.
  */
 export function isMidEntry(doc: Document = document): boolean {
   const active = doc.activeElement
   if (active instanceof HTMLElement && (active.isContentEditable || active.matches(ENTRY_FIELD))) return true
-  return doc.querySelector('[role="dialog"], [role="alertdialog"]') !== null
+  return doc.querySelector('[role="dialog"], [role="alertdialog"], [data-entry]') !== null
+}
+
+// The built app's one entry script (Vite names it by its content hash).
+const ENTRY_SCRIPT = /<script[^>]*type="module"[^>]*src="(\/assets\/[^"]+\.js)"/
+
+/**
+ * True when the server now has a newer build than the one running: index.html (never cached,
+ * web.config) names a different entry script. An installed app is resumed for days, so after a
+ * deploy it would otherwise keep saving through the old forms. False when it can't tell (the dev
+ * server, no network, an unexpected page), so a failed check never forces a reload.
+ */
+export async function hasNewerBuild(doc: Document = document, fetchPage: typeof fetch = fetch): Promise<boolean> {
+  const running = doc.querySelector<HTMLScriptElement>('script[type="module"][src^="/assets/"]')?.getAttribute('src')
+  if (!running) return false
+  try {
+    const response = await fetchPage('/index.html', { cache: 'no-store' })
+    if (!response.ok) return false
+    const served = ENTRY_SCRIPT.exec(await response.text())?.[1]
+    return !!served && served !== running
+  } catch {
+    return false
+  }
 }

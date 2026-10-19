@@ -4,8 +4,9 @@ import { MemoryRouter } from 'react-router-dom'
 
 // A page reads its figures when it opens, and a phone usually resumes the installed app rather
 // than starting it afresh. Coming back after a while remounts the figure page (App.tsx), as a
-// fresh start would, so it reads its figures again; never part-way through an entry, never on
-// a page with unsaved work outside a dialog (Import's review), never offline.
+// fresh start would, so it reads its figures again, or reloads the app fully when a newer build
+// has been deployed; never part-way through an entry (a focused field, a dialog, an inline
+// editor marked data-entry), never on Import's review or the account settings, never offline.
 //
 // The REAL App routing tree with the pages stubbed (the App.catalog.test.tsx set-up); the
 // stubs count their mounts, and a second mount is the page reading its figures again.
@@ -89,6 +90,13 @@ function awayFor(minutes: number) {
   })
 }
 
+/** Lets the new-build check and any remount it leads to finish, so a "not reloaded" holds. */
+async function settle() {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  })
+}
+
 describe('coming back to the app reloads the figures on screen', () => {
   beforeEach(() => {
     for (const key of Object.keys(mounts)) delete mounts[key]
@@ -100,6 +108,8 @@ describe('coming back to the app reloads the figures on screen', () => {
   afterEach(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     Object.defineProperty(navigator, 'onLine', { value: true, configurable: true })
+    document.head.querySelectorAll('script[src^="/assets/"]').forEach((el) => el.remove())
+    vi.unstubAllGlobals()
     vi.restoreAllMocks()
   })
 
@@ -118,6 +128,7 @@ describe('coming back to the app reloads the figures on screen', () => {
   it('leaves the page as it is after a short absence (checking the bank app)', async () => {
     await openAt('/', 'DashboardPage')
     awayFor(9)
+    await settle()
     expect(mounts.DashboardPage).toBe(1)
   })
 
@@ -126,6 +137,7 @@ describe('coming back to the app reloads the figures on screen', () => {
     const dialog = document.body.appendChild(document.createElement('div'))
     dialog.setAttribute('role', 'dialog')
     awayFor(60)
+    await settle()
     expect(mounts.DashboardPage).toBe(1)
     dialog.remove()
   })
@@ -135,6 +147,7 @@ describe('coming back to the app reloads the figures on screen', () => {
     const field = document.body.appendChild(document.createElement('input'))
     field.focus()
     awayFor(60)
+    await settle()
     expect(mounts.DashboardPage).toBe(1)
     field.remove()
   })
@@ -143,18 +156,51 @@ describe('coming back to the app reloads the figures on screen', () => {
     await openAt('/', 'DashboardPage')
     Object.defineProperty(navigator, 'onLine', { value: false, configurable: true })
     awayFor(60)
+    await settle()
     expect(mounts.DashboardPage).toBe(1)
   })
 
   it("never reloads Import's review", async () => {
     await openAt('/import', 'ImportPage')
     awayFor(60)
+    await settle()
     expect(mounts.ImportPage).toBe(1)
   })
 
   it('never reloads the account settings', async () => {
     await openAt('/account', 'AccountPage')
     awayFor(60)
+    await settle()
     expect(mounts.AccountPage).toBe(1)
+  })
+
+  it('never reloads under an open inline editor, even with the focus on its checkbox', async () => {
+    await openAt('/', 'DashboardPage')
+    const editor = document.body.appendChild(document.createElement('div'))
+    editor.setAttribute('data-entry', '')
+    const jar = editor.appendChild(document.createElement('input'))
+    jar.type = 'checkbox'
+    jar.focus()
+    awayFor(60)
+    await settle()
+    expect(mounts.DashboardPage).toBe(1)
+    editor.remove()
+  })
+
+  it('loads the new version when one was deployed while the app was away', async () => {
+    const entry = document.head.appendChild(document.createElement('script'))
+    entry.type = 'module'
+    entry.src = '/assets/index-old111.js'
+    const fetchPage = vi.fn(async () => new Response('<script type="module" crossorigin src="/assets/index-new222.js"></script>'))
+    vi.stubGlobal('fetch', fetchPage)
+    const reload = vi.fn()
+    vi.stubGlobal('location', { ...window.location, reload })
+
+    await openAt('/', 'DashboardPage')
+    awayFor(30)
+
+    await waitFor(() => expect(reload).toHaveBeenCalledTimes(1))
+    expect(fetchPage).toHaveBeenCalledWith('/index.html', { cache: 'no-store' })
+    expect(mounts.DashboardPage).toBe(1)
   })
 })

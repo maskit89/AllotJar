@@ -150,7 +150,8 @@ function focusTarget(id: string, targets: string[], order: TransactionDto[]): HT
   )
 }
 
-/** An inline editor's panel, inside the list card under (or in place of) its row. */
+/** An inline editor's panel, inside the list card under (or in place of) its row. Each panel
+ *  carries `data-entry`, so coming back to the app never reloads the page under it (appReturn). */
 const EDITOR_PANEL = 'rounded-xl border border-slate-200/70 bg-surface-2 p-3 dark:bg-foreground/[0.03]'
 
 /**
@@ -1572,7 +1573,7 @@ export function TransactionsPage() {
   function legEditorFor(t: TransactionDto) {
     const legPending = t.transferStatus === 'PendingReview'
     return (
-      <div className={`relative z-10 col-span-full mt-2.5 mb-1 flex flex-col gap-2.5 ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'leg')}>
+      <div data-entry className={`relative z-10 col-span-full mt-2.5 mb-1 flex flex-col gap-2.5 ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'leg')}>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-2 text-[13px] font-semibold text-slate-700">
             {legPending ? 'Departure date' : 'Receipt date'}
@@ -1632,7 +1633,7 @@ export function TransactionsPage() {
     const isRefund = !!t.refundOfTransactionId
     const hasRefunds = (t.refundCount ?? 0) > 0
     return (
-      <div className={`my-2 flex flex-wrap items-center gap-2 ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'edit')}>
+      <div data-entry className={`my-2 flex flex-wrap items-center gap-2 ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'edit')}>
         <Input type="date" autoFocus value={eDate} aria-label="Edit date" onChange={(e) => setEDate(e.target.value)} className={`${FIELD} text-slate-700`} />
         <Input type="text" value={ePayee} aria-label="Edit payee" placeholder="Payee" onChange={(e) => setEPayee(e.target.value)} className={`${FIELD} min-w-32 flex-1`} />
         <Input
@@ -1750,7 +1751,7 @@ export function TransactionsPage() {
   function refundEditorFor(t: TransactionDto) {
     const name = t.payee || t.date
     return (
-      <div className={`mt-1 mb-3 flex flex-wrap items-center gap-2 text-sm ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'refund')}>
+      <div data-entry className={`mt-1 mb-3 flex flex-wrap items-center gap-2 text-sm ${EDITOR_PANEL}`} onKeyDown={escapeCloses(t, 'refund')}>
         <span className="text-[13px] font-semibold text-slate-700">Refund of</span>
         <Select
           autoFocus
@@ -1790,7 +1791,7 @@ export function TransactionsPage() {
     const totalMinor = fromAmount(t.amount)
     const remainderMinor = totalMinor - sumMinor(splitRows.map((r) => parseMinor(r.amount) ?? 0))
     return (
-      <div ref={setSplitPanel} className={`mt-1 mb-3 space-y-3 ${EDITOR_PANEL} p-3.5`} onKeyDown={escapeCloses(t, 'split')}>
+      <div ref={setSplitPanel} data-entry className={`mt-1 mb-3 space-y-3 ${EDITOR_PANEL} p-3.5`} onKeyDown={escapeCloses(t, 'split')}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           {/* An h3: the editor sits under its day's h2. */}
           <h3 className="text-sm font-semibold text-slate-900">

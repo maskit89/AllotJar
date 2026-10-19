@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
-import { isMidEntry, useOnReturn } from './appReturn'
+import { hasNewerBuild, isMidEntry, useOnReturn } from './appReturn'
 
 /** Hides or shows the page as a phone does when the app goes to the background and back. */
 function setVisibility(state: 'hidden' | 'visible') {
@@ -11,6 +11,7 @@ function setVisibility(state: 'hidden' | 'visible') {
 afterEach(() => {
   Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
   document.body.innerHTML = ''
+  document.head.innerHTML = ''
 })
 
 describe('useOnReturn: the page coming back on screen', () => {
@@ -86,5 +87,55 @@ describe('isMidEntry: someone part-way through entering something', () => {
     expect(isMidEntry()).toBe(true)
     document.body.innerHTML = '<div role="alertdialog" aria-label="Delete?"></div>'
     expect(isMidEntry()).toBe(true)
+  })
+})
+
+describe('isMidEntry: an inline editor left open', () => {
+  it('is true while an editor marked data-entry is open, even with the focus on its checkbox or Save', () => {
+    document.body.innerHTML =
+      '<div data-entry><input type="text" aria-label="Amount" value="42.50" /><input type="checkbox" aria-label="Groceries" /><button>Save</button></div>'
+    expect(isMidEntry()).toBe(true)
+    document.querySelector<HTMLInputElement>('[type="checkbox"]')!.focus()
+    expect(isMidEntry()).toBe(true)
+    document.querySelector('button')!.focus()
+    expect(isMidEntry()).toBe(true)
+  })
+})
+
+describe('hasNewerBuild: has a newer version been deployed since this page loaded?', () => {
+  const page = (entry: string) => `<!doctype html><html><head><script type="module" crossorigin src="${entry}"></script></head></html>`
+  const serve = (body: string, ok = true) => vi.fn(async () => ({ ok, text: async () => body }) as unknown as Response)
+
+  function running(entry: string) {
+    document.head.innerHTML = `<script type="module" crossorigin src="${entry}"></script>`
+  }
+
+  it('is false when the server still serves the same build, and asks past every cache', async () => {
+    running('/assets/index-aaa111.js')
+    const fetchPage = serve(page('/assets/index-aaa111.js'))
+    expect(await hasNewerBuild(document, fetchPage)).toBe(false)
+    expect(fetchPage).toHaveBeenCalledWith('/index.html', { cache: 'no-store' })
+  })
+
+  it('is true when the server serves a different build', async () => {
+    running('/assets/index-aaa111.js')
+    expect(await hasNewerBuild(document, serve(page('/assets/index-bbb222.js')))).toBe(true)
+  })
+
+  it('is false, without asking, when this page has no built entry script (the dev server)', async () => {
+    document.head.innerHTML = '<script type="module" src="/src/main.tsx"></script>'
+    const fetchPage = serve(page('/assets/index-bbb222.js'))
+    expect(await hasNewerBuild(document, fetchPage)).toBe(false)
+    expect(fetchPage).not.toHaveBeenCalled()
+  })
+
+  it('is false when the check fails or the answer is not the app page', async () => {
+    running('/assets/index-aaa111.js')
+    expect(await hasNewerBuild(document, serve(page('/assets/index-bbb222.js'), false))).toBe(false)
+    expect(await hasNewerBuild(document, serve('<html>maintenance</html>'))).toBe(false)
+    const offline = vi.fn(async () => {
+      throw new TypeError('Failed to fetch')
+    })
+    expect(await hasNewerBuild(document, offline)).toBe(false)
   })
 })
