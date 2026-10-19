@@ -98,7 +98,7 @@ Rendered inside `AppShell active="reports" title="Reports"`.
 
 ### 2.2 LandingPage (client/src/pages/LandingPage.tsx)
 
-All navigation is plain `<a>` (no router) - required for SSR-safety.
+Navigation is `PublicLink` (components/PublicHeader.tsx): a plain `<a href>` in the prerendered HTML (no router, required for SSR-safety) and a router `Link` once the app is running, so the sign-in page opens in place with no reload.
 
 - `StagingBanner` at top (only when `VITE_APP_ENV === 'staging'`): role="status", text
   `Staging · test data, may be reset`

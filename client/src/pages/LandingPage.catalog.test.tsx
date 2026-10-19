@@ -524,6 +524,32 @@ describe('Route `/` — auth-state branching', () => {
     }
   })
 
+  // Sign in and Create your free account switch to the sign-in page in place (router links once
+  // the app runs; the prerendered HTML keeps plain hrefs, LAND-007): no reload, no boot splash.
+  it('Sign in and Create your free account open the sign-in page without a reload', { timeout: 15000 }, async () => {
+    authState.token = null
+    const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
+    try {
+      const user = userEvent.setup()
+      const { unmount } = renderApp('/')
+      const main = await screen.findByRole('main', {}, { timeout: 5000 })
+      await user.click(within(main).getByRole('link', { name: 'Sign in' }))
+      expect(await screen.findByLabelText('Password')).toBeInTheDocument()
+      expect(screen.queryByText('Free to start · No card required')).not.toBeInTheDocument()
+      // The new page starts at the top.
+      expect(scroll).toHaveBeenCalledWith(0, 0)
+      unmount()
+
+      renderApp('/')
+      await user.click((await screen.findAllByRole('link', { name: 'Create your free account' }, { timeout: 5000 }))[0])
+      // Register mode: the form's submit reads Create account.
+      const buttons = await screen.findAllByRole('button', { name: 'Create account' })
+      expect(buttons.some((b) => b.getAttribute('type') === 'submit')).toBe(true)
+    } finally {
+      scroll.mockRestore()
+    }
+  })
+
   // LAND-008 — a signed-in visit to `/` renders the dashboard (month view), never the
   // marketing landing.
   it('LAND-008: authenticated `/` renders the dashboard and never the landing', { timeout: 15000 }, async () => {

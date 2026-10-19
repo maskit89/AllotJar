@@ -32,7 +32,7 @@
 - **Expected:**
   - Header logo link has `aria-label="AllotJar home"`, `href="/"`; wordmark reads "AllotJar" in the room's pale ink. The Primary nav holds one quiet link "Sign in" → `/login`; beside it the theme button (a toggle named "Dark mode", `aria-pressed`), as on the sign-in page. There is no filled "Get started" button in the header.
   - Footer: one quiet line "© 2026 AllotJar · Privacy · Terms" (year = current year): "Privacy" → `/privacy`, "Terms" → `/terms`, nothing else (no sign-in or register links there).
-  - Clicking the logo performs a plain `<a>` navigation back to `/` (full page load — landing uses no router links, by SSR design).
+  - Clicking the logo goes back to `/` in place, with no reload. The landing's links are plain `<a href>` in the prerendered HTML and in-app links once the app is running (`PublicLink`), so "Sign in" and "Create your free account" also open the sign-in page without a reload or the boot splash.
 - **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-002; client/e2e/landing.spec.ts — footer links, theme button)
 
 ### LAND-003 - Every CTA lands on the correct login tab, one primary per screen

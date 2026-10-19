@@ -89,4 +89,15 @@ test.describe('public landing page', () => {
     await expect(page.getByLabel('Password')).toBeVisible()
     await expect(page.getByLabel('First name')).toHaveCount(0)
   })
+
+  test('Sign in opens the login page in place, without reloading the page', async ({ page }) => {
+    await signedOut(page, 'light')
+    await page.goto('/')
+    // A marker on the window survives an in-app page switch and is lost on a reload.
+    await page.evaluate(() => ((window as unknown as { stayed?: boolean }).stayed = true))
+    await page.getByRole('link', { name: 'Sign in' }).last().click()
+    await expect(page).toHaveURL(/\/login$/)
+    await expect(page.getByLabel('Password')).toBeVisible()
+    expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true)
+  })
 })
