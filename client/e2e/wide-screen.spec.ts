@@ -184,3 +184,31 @@ for (const width of [1440, 1920, 2560, 3840]) {
     })
   })
 }
+
+// A five-figure average on the narrowest row that shares the right card's width between two tiles
+// (a 1428px screen): the label wraps beside its (i) instead of the number widening the tile's
+// column and pushing the (i) in under the tile's icon.
+test.describe('Reports on a 1428px-wide screen', () => {
+  test.use({ viewport: { width: 1428, height: 900 } })
+  test('a five-figure average keeps its (i) inside the tile', async ({ page }) => {
+    await open(page, '/reports', () =>
+      page.route(/\/api\/reports\/trends(\?.*)?$/, (route) =>
+        mockApi({
+          request: () => route.request(),
+          fulfill: ({ body, ...rest }: { body: string }) => {
+            const trends = JSON.parse(body)
+            trends.totalSpent = 37037.01 // €12,345.67 a month over three months
+            return route.fulfill({ ...rest, body: JSON.stringify(trends) })
+          },
+        } as unknown as Route),
+      ),
+    )
+    const tile = page.getByRole('group', { name: 'Avg monthly spend' })
+    await expect(tile).toContainText('€12,345.67')
+    const { iconLeft, hintRight } = await tile.evaluate((el) => ({
+      iconLeft: el.querySelector(':scope > span[aria-hidden]')!.getBoundingClientRect().left,
+      hintRight: el.querySelector('button')!.getBoundingClientRect().right,
+    }))
+    expect(hintRight).toBeLessThanOrEqual(iconLeft)
+  })
+})
