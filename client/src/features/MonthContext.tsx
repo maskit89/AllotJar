@@ -1,5 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from 'react'
 import { EVENTS, track } from '../analytics'
+import { isMidEntry, useOnReturn } from '../lib/appReturn'
 import { currentMonth } from '../lib/dates'
 
 const MONTH_NAMES = [
@@ -48,6 +49,19 @@ export function useMonth(): MonthState {
 
 export function MonthProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState(nowMonth)
+
+  // Coming back in a new month (a phone resumes the installed app rather than starting it
+  // afresh) moves a view that was on the current month on to the new one, as a fresh start
+  // would. A month picked on purpose stays, and nothing moves under an entry being made.
+  const lastCurrent = useRef(nowMonth())
+  useOnReturn(() => {
+    const was = lastCurrent.current
+    const now = nowMonth()
+    if (now.year === was.year && now.month === was.month) return
+    if (isMidEntry()) return
+    lastCurrent.current = now
+    setView((v) => (v.year === was.year && v.month === was.month ? now : v))
+  })
 
   const goPrev = useCallback(() => {
     track(EVENTS.monthNavigated, { direction: 'prev' })

@@ -20,7 +20,8 @@ All vector files live in `brand/`. Pre-rendered raster files live in `brand/png/
 | `allotjar-favicon.svg` | **Favicon** — simplified flat mark, no padding. | Browser tab icon (`<link rel="icon">`). |
 | `allotjar-lockup.svg` | **Horizontal lockup** — flat mark + "AllotJar" wordmark ("Jar" in green). | Light backgrounds: site header, email signature, docs, footers. |
 | `allotjar-lockup-reversed.svg` | Lockup for **dark** backgrounds. | Dark site header, dark email, video end-cards. |
-| `brand/png/*` | Raster renders of the above at common sizes (app icon 1024/512/180, favicon 32/16, mark 512, flat 256). | Anywhere SVG isn't accepted: app stores, social, OG images, Slack, etc. |
+| `brand/png/*` | Raster renders of the above at common sizes (app icon 1024/512/192/180, favicon 32/16, mark 512, flat 256). | Anywhere SVG isn't accepted: app stores, social, OG images, Slack, etc. |
+| `brand/png/allotjar-app-icon-maskable-512.png` / `-180.png` | The app icon with the tile's corners squared off (made by `client/scripts/make-pwa-icons.mjs` from `allotjar-app-icon.svg`). The jar already sits inside the central safe zone. | Platforms that cut their own shape: Android's maskable icon (web app manifest) and the iPhone home screen (`apple-touch-icon`). |
 
 > The wordmark in the lockup SVGs is **live text** set in Hanken Grotesk. It renders correctly only where that font is available. For a portable, pixel-exact wordmark, **convert the text to outlines** in your vector tool before shipping (or use a PNG export).
 

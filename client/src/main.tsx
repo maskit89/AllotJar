@@ -8,6 +8,7 @@ import { FeatureProvider } from './features/FeatureContext'
 import { HouseholdProvider } from './features/HouseholdContext'
 import { OnboardingProvider } from './onboarding/OnboardingContext'
 import { AnalyticsProvider } from './analytics/AnalyticsProvider'
+import { registerServiceWorker } from './lib/serviceWorker'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
@@ -26,3 +27,5 @@ createRoot(document.getElementById('root')!).render(
     </BrowserRouter>
   </StrictMode>,
 )
+
+registerServiceWorker()
