@@ -1057,10 +1057,12 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             )}
 
             {/* The jars first in the page (a phone reads them before the budget); from 940px
-                wide they stand in the right-hand column, which stays in view (sticky).
+                wide they stand in the right-hand column, which stays in view (sticky). The budget's
+                column stops at 1080px (reached at 1800px wide), a comfortable width for its rows;
+                the jars take the rest of a wide screen, and alone the budget stops at `--list-max`.
                 `dash-palette` (index.css): the cards' category hues follow the approved palette. */}
             <div className="dash-palette @container">
-              <div className="grid gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @min-[940px]:items-start">
+              <div className="grid gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)] @min-[940px]:items-start @min-[1800px]:grid-cols-[minmax(0,1080px)_minmax(0,1fr)]">
                 {showJars && (
                   <JarsCard
                     jars={jars}
@@ -1070,7 +1072,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     className="@min-[940px]:sticky @min-[940px]:top-[92px] @min-[940px]:col-start-2 @min-[940px]:row-start-1"
                   />
                 )}
-                <div className={`min-w-0 ${showJars ? '@min-[940px]:col-start-1 @min-[940px]:row-start-1' : '@min-[940px]:col-span-2'}`}>
+                <div className={`min-w-0 ${showJars ? '@min-[940px]:col-start-1 @min-[940px]:row-start-1' : '@min-[940px]:col-span-2 @min-[940px]:max-w-(--list-max)'}`}>
                   <BudgetCard
                     month={month}
                     today={today}

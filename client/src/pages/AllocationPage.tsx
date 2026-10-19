@@ -642,7 +642,7 @@ export function AllocationPage() {
   // this route directly gets a friendly nudge to add members rather than an empty engine.
   if (!householdLoading && !isShared) {
     return (
-      <AppShell active="allocation" title="Allocation">
+      <AppShell list active="allocation" title="Allocation">
         <EmptyState
           icon={<AllocationIcon className="h-6 w-6" />}
           title="Add people first"
@@ -907,7 +907,7 @@ export function AllocationPage() {
   })()
 
   return (
-    <AppShell active="allocation" title="Allocation" month actions={desktop ? allocateButton || undefined : undefined}>
+    <AppShell list active="allocation" title="Allocation" month actions={desktop ? allocateButton || undefined : undefined}>
       {ready && preview && (
         <KpiRow tiles={2}>
           <KpiTile
