@@ -26,12 +26,16 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * own span, as the Account detail page does).
  * `halves`: the hero and one tile on two equal columns from 640px (the People page's person cards,
  * with the same 24px gap), instead of the hero half again as wide as the tile.
+ * `wide`: the grid below adds columns on a wide screen, and the row follows it: with `onGrid`
+ * four columns from 1400px (the hero and the tile two each) and five from 1800px (the hero three);
+ * with `thirds` four and five columns, the hero over two and three.
  */
 export function KpiRow({
   tiles,
   onGrid = false,
   thirds = false,
   halves = false,
+  wide = false,
   children,
   className = '',
 }: {
@@ -39,6 +43,7 @@ export function KpiRow({
   onGrid?: boolean
   thirds?: boolean
   halves?: boolean
+  wide?: boolean
   children: ReactNode
   className?: string
 }) {
@@ -56,9 +61,16 @@ export function KpiRow({
         ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]'
         : // The hero alone (the Help page, restyle PR 13): across the whole row at every width.
           '@min-[640px]:[&>:first-child]:col-span-2'
+  const wider = !wide
+    ? ''
+    : thirds && tiles > 0
+        ? '@min-[1400px]:grid-cols-4 @min-[1400px]:[&>:first-child]:col-span-2 @min-[1800px]:grid-cols-5 @min-[1800px]:[&>:first-child]:col-span-3'
+        : onGrid
+          ? '@min-[1400px]:grid-cols-4 @min-[1400px]:*:col-span-2 @min-[1800px]:grid-cols-5 @min-[1800px]:[&>:first-child]:col-span-3'
+          : ''
   return (
     <div className={`@container ${className}`}>
-      <div className={`grid grid-cols-2 gap-3 @min-[640px]:gap-6 ${cols}`}>{children}</div>
+      <div className={`grid grid-cols-2 gap-3 @min-[640px]:gap-6 ${cols} ${wider}`}>{children}</div>
     </div>
   )
 }

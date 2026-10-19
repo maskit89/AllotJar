@@ -334,7 +334,7 @@ export function JarsPage() {
     <AppShell active="jars" title="Jars" actions={desktop ? moveButton || undefined : undefined}>
       {/* No jars (or none could be loaded): nothing to sum, so no KPI row of zeros above the empty card. */}
       {(loading || jars.length > 0) && (
-        <KpiRow tiles={1} onGrid>
+        <KpiRow tiles={1} onGrid wide>
           <KpiTile
             hero
             label="Total saved"
@@ -420,7 +420,7 @@ export function JarsPage() {
             <h2 id={gridHeadingId} className="sr-only">
               Your jars
             </h2>
-            <div ref={gridRef} className="dash-palette grid grid-cols-2 gap-4 @min-[640px]:gap-6 @min-[900px]:grid-cols-3">
+            <div ref={gridRef} className="dash-palette grid grid-cols-2 gap-4 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 @min-[1400px]:grid-cols-4 @min-[1800px]:grid-cols-5">
               {ordered.map(({ jar: f, index }) => (
                 <JarCard
                   key={f.id}

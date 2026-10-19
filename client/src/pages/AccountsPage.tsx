@@ -658,7 +658,7 @@ export function AccountsPage() {
       {/* No accounts (or none could be loaded): nothing to add up, so no KPI row above the empty
           card. With no jar figures the hero takes the whole row. */}
       {ready && accounts.length > 0 && (
-        <KpiRow tiles={jarFigures ? 2 : 0} thirds>
+        <KpiRow tiles={jarFigures ? 2 : 0} thirds wide>
           <KpiTile
             hero
             label="Total balance"
@@ -709,7 +709,7 @@ export function AccountsPage() {
           ) : (
             <div
               ref={gridRef}
-              className={`dash-palette grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 max-[699.98px]:flex max-[699.98px]:flex-col max-[699.98px]:gap-0 max-[699.98px]:rounded-[14px] max-[699.98px]:border max-[699.98px]:border-slate-200/70 max-[699.98px]:bg-surface max-[699.98px]:px-[18px] max-[699.98px]:py-0.5 max-[699.98px]:shadow-card`}
+              className={`dash-palette grid grid-cols-1 gap-4 @min-[640px]:grid-cols-2 @min-[640px]:gap-6 @min-[900px]:grid-cols-3 @min-[1400px]:grid-cols-4 @min-[1800px]:grid-cols-5 max-[699.98px]:flex max-[699.98px]:flex-col max-[699.98px]:gap-0 max-[699.98px]:rounded-[14px] max-[699.98px]:border max-[699.98px]:border-slate-200/70 max-[699.98px]:bg-surface max-[699.98px]:px-[18px] max-[699.98px]:py-0.5 max-[699.98px]:shadow-card`}
             >
               {accounts.map((a) => (
                 <AccountCard
