@@ -7,7 +7,8 @@ import { resetApiMocks } from '../../test/apiMock'
 import { renderWithProviders } from '../../test/render'
 import { jar } from '../../test/fixtures/jars'
 import { setMoneyFormat } from '../../lib/money'
-import { DismissCycleModal, nextCycleDeadline } from './DismissCycleModal'
+import { nextCycleDeadline } from '../../lib/jarStatus'
+import { DismissCycleModal } from './DismissCycleModal'
 
 describe('nextCycleDeadline (as JarSchedule.NextCycleDeadline, rule 62)', () => {
   it('steps from the anchor, so a month clamped once is not clamped again', () => {
@@ -29,7 +30,7 @@ describe('nextCycleDeadline (as JarSchedule.NextCycleDeadline, rule 62)', () => 
 describe('DismissCycleModal', () => {
   beforeEach(() => {
     resetApiMocks()
-    setMoneyFormat('EUR', 'en-GB')
+    setMoneyFormat('en-GB')
   })
 
   const render = (overrides: Parameters<typeof jar>[0]) =>
