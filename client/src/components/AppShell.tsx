@@ -56,7 +56,7 @@ export function AppShell({
    * the top bar is as on every other page.
    */
   back?: { to: string; label: string }
-  // Kept for call-site compatibility; the frame uses one 1240px column.
+  // Kept for call-site compatibility; the frame uses one column (`--content-max`, index.css).
   maxWidth?: '4xl' | '5xl'
   children: ReactNode
 }) {
@@ -134,7 +134,7 @@ export function AppShell({
         </div>
         <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
           <TopBar title={title} month={month} actions={desktop ? actions : undefined} back={back} />
-          <div className="mx-auto flex w-full max-w-[1240px] flex-col gap-4 px-4 pt-1 pb-[calc(var(--tabbar-h)+32px)] min-[900px]:gap-6 min-[900px]:px-10 min-[900px]:pb-14">
+          <div className="mx-auto flex w-full max-w-(--content-max) flex-col gap-4 px-4 pt-1 pb-[calc(var(--tabbar-h)+32px)] min-[900px]:gap-6 min-[900px]:px-10 min-[900px]:pb-14">
             {actions && !desktop && <div className="flex justify-end gap-2.5">{actions}</div>}
             <VerifyEmailBanner />
             <SharingReviewBanner />

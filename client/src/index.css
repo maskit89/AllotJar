@@ -183,6 +183,12 @@
     --sidebar-w: 248px;
   }
 }
+/* The app's content column (AppShell and its top bar): 1240px wide until the screen leaves 80px
+   either side of that, then it grows with the screen, keeping those 80px, up to 2160px (a 2560px
+   screen). The pages' container queries add columns as it widens. */
+:root {
+  --content-max: clamp(1240px, calc(100vw - var(--sidebar-w, 0px) - 160px), 2160px);
+}
 
 /* Enables `dark:` utilities to key off a `.dark` class on <html>. */
 @custom-variant dark (&:where(.dark, .dark *));
