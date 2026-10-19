@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes, useLocation, useSearchParams } from 'react-router-dom'
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { safeInternalPath } from './lib/returnUrl'
+import { isMidEntry, RELOAD_AFTER_MS, useOnReturn } from './lib/appReturn'
 import { useAuth } from './auth/AuthContext'
 import { JarLogo } from './components/Jar'
 import { ConsentModal } from './components/ConsentModal'
@@ -65,6 +66,9 @@ function RequireAuth({ children }: { children: JSX.Element }) {
   return <Navigate to={`/login${suffix}`} replace />
 }
 
+/** The pages that show figures and hold no unsaved work outside a dialog (not Import's review). */
+const FIGURE_PAGE = /^\/(transactions|jars|accounts(\/[^/]+)?|reports|allocation)?\/?$/
+
 /** An already-signed-in visit to /login honours ?returnUrl= (e.g. back to an invite link). */
 function AuthedLoginRedirect() {
   const [params] = useSearchParams()
@@ -85,6 +89,19 @@ export default function App() {
     if (wasPending.current && !mustChangePassword) setRoutesEpoch((n) => n + 1)
     wasPending.current = mustChangePassword
   }, [mustChangePassword])
+
+  // A page reads its figures when it opens, and a phone usually resumes the installed app rather
+  // than starting it afresh. So when someone comes back after a while, remount the page as a
+  // fresh start would, and it reads its figures again (a partner's changes included). Only the
+  // figure pages, never part-way through an entry (a focused field or an open dialog, so nothing
+  // typed is lost; inline edits save on blur anyway) and never offline, where the figures already
+  // on screen beat a page that can't load.
+  const { pathname } = useLocation()
+  useOnReturn((awayMs) => {
+    if (!isAuthenticated || awayMs < RELOAD_AFTER_MS || !FIGURE_PAGE.test(pathname)) return
+    if (navigator.onLine === false || isMidEntry()) return
+    setRoutesEpoch((n) => n + 1)
+  })
 
   return (
     <MonthProvider>
