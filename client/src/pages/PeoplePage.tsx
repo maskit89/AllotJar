@@ -6,6 +6,7 @@ import { AppShell } from '../components/AppShell'
 import { Button, EmptyState, ErrorBanner, Input, Select, SegmentedControl } from '../components/ui'
 import { KpiRow, KpiTile } from '../components/KpiTile'
 import { InfoHint } from '../components/InfoHint'
+import { Notice } from '../components/Notice'
 import { StatusChip } from '../components/StatusChip'
 import { MemberAvatar } from '../components/MemberAvatar'
 import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../components/RowActions'
@@ -1277,27 +1278,28 @@ export function PeoplePage() {
           )}
 
           {invited && !invited.emailSent && (
-            <div
+            // One line on the warn tone; what to do next is behind its (i).
+            <Notice
               role="alert"
-              className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 dark:border-amber-500/30 dark:bg-amber-500/10"
-            >
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">
-                {invited.method === 'direct' ? 'Login created, but the email failed' : 'Invite saved, but the email failed'}
-              </p>
-              <p className="mt-1 text-xs text-amber-800 dark:text-amber-200/80">
-                {invited.method === 'direct' ? (
+              tone="warn"
+              className="mt-4"
+              hintLabel="About the failed email"
+              hint={
+                invited.method === 'direct' ? (
                   <>
-                    We couldn't email <span className="font-medium">{invited.email}</span> their link. When they sign
-                    in with the temporary password, they can ask for it again with "Email me the link".
+                    We couldn't email <span className="font-medium">{invited.email}</span> their link. When they sign in
+                    with the temporary password, they can ask for it again with "Email me the link".
                   </>
                 ) : (
                   <>
-                    We couldn't email <span className="font-medium">{invited.email}</span> their link. Use "Send
-                    again" in their More actions menu (⋯) to try once more.
+                    We couldn't email <span className="font-medium">{invited.email}</span> their link. Use "Send again"
+                    in their More actions menu (⋯) to try once more.
                   </>
-                )}
-              </p>
-            </div>
+                )
+              }
+            >
+              {invited.method === 'direct' ? 'Login created, but the email failed' : 'Invite saved, but the email failed'}
+            </Notice>
           )}
         </Modal>
       )}

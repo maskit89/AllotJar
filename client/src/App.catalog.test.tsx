@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, waitFor, act } from '@testing-library/react'
+import { render, screen, waitFor, act, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import userEvent from '@testing-library/user-event'
 
@@ -193,6 +193,27 @@ describe('SESS: App route guards & cross-tab sign-out', () => {
       expect(screen.getByTestId('loc').textContent).toBe(path) // no bounce while bootstrapping
       view.unmount()
     }
+  })
+
+  // Restyle PR 20 — the splash is the frame's warm page, quiet: the wordmark and a slim loading
+  // line, both decoration; it is announced once, as "Loading…".
+  it('the bootstrap splash: the wordmark on the warm page, announced as "Loading…"', () => {
+    authState.token = null
+    authState.bootstrapping = true
+
+    const view = renderApp('/')
+    const status = screen.getByRole('status')
+    expect(status).toHaveClass('splash')
+    expect(status).toHaveAttribute('aria-live', 'polite')
+    expect(within(status).getByText('Loading…')).toHaveClass('sr-only')
+    const mark = status.querySelector('.splash-mark')!
+    expect(mark).toHaveAttribute('aria-hidden')
+    expect(mark).toHaveTextContent('AllotJar')
+    expect(mark.querySelector('svg')).not.toBeNull()
+    expect(mark.querySelector('.splash-line')).not.toBeNull()
+    // No old grey spinner.
+    expect(status.querySelector('.animate-spin')).toBeNull()
+    view.unmount()
   })
 
   // SESS-024 — a sign-out broadcast from another tab clears this signed-in tab's state,

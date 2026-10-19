@@ -82,11 +82,16 @@ describe('Forgot password in the frame', () => {
     await user.click(screen.getByRole('button', { name: 'Email me a reset link' }))
 
     const status = await screen.findByRole('status')
-    expect(within(status).getByRole('heading', { level: 1, name: 'Check your inbox' })).toBeInTheDocument()
+    // "Check your inbox" leads the panel and takes focus (which reads it); the live region holds
+    // only the line under it, so the title is announced once (#352 P3-2).
+    const title = screen.getByRole('heading', { level: 1, name: 'Check your inbox' })
+    expect(title.compareDocumentPosition(status) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(status).not.toContainElement(title)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
     expect(within(status).getByText('owner@example.com')).toBeInTheDocument()
     expect(status).toHaveTextContent('If an account exists for owner@example.com')
     expect(screen.queryByText(/Check your spam folder/)).not.toBeInTheDocument()
-    await user.hover(within(status).getByRole('button', { name: 'If nothing arrives' }))
+    await user.hover(screen.getByRole('button', { name: 'If nothing arrives' }))
     expect(screen.getByRole('tooltip')).toHaveTextContent(
       'No email after a few minutes? Check your spam folder, or try again.',
     )

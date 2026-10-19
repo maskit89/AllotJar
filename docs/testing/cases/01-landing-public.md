@@ -99,8 +99,8 @@
   2. Fetch `/` with JavaScript disabled (e.g. `curl -s https://www.allotjar.com/`) from any locale.
   3. Search the raw HTML for the H1 text.
 - **Expected:**
-  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers, plus both "Create your free account" links, the "Sign in" links, the theme button (`aria-label="Dark mode"`) and the three feature cards. Crawler-visible copy is deterministic and on-brand (euro-first), and nothing changes after the SPA mounts.
-- **Automated:** Partial (client/src/pages/LandingPage.catalog.test.tsx LAND-007 — `renderToStaticMarkup` holds the line, the CTAs, the theme button and the cards, and equals a second render; the build's console line and dist/index.html are checked by hand)
+  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers, plus both "Create your free account" links, the "Sign in" links, the theme button (`aria-label="Dark mode"`) and the three feature cards. Crawler-visible copy is deterministic and on-brand (euro-first), and nothing changes after the SPA mounts. The static theme button is neutral (restyle PR 20, #351 P3-1): no `aria-pressed` and both icons, the moon `dark:hidden` and the sun `hidden dark:block`, so the page's `.dark` class (theme-init.js) shows the right one and a dark visitor's first paint never shows the light state; once mounted the button reads the theme (`aria-pressed`, one icon).
+- **Automated:** Partial (client/src/pages/LandingPage.catalog.test.tsx LAND-007 — `renderToStaticMarkup` holds the line, the CTAs, the theme button and the cards, and equals a second render; "the theme button before mount" — the neutral static button, the same markup whatever the stored theme, and the mounted state; the build's console line and dist/index.html are checked by hand)
 
 ## Route `/` auth branching & catch-all
 
@@ -113,7 +113,7 @@
   2. Hard-reload the browser on `/` (cold load — in-memory access token gone, cookie present).
 - **Expected:**
   - Step 1: DashboardPage renders (month view), no landing content.
-  - Step 2: while `refreshSession()` runs, the `AuthSplash` spinner shows (`role="status"`, sr-only "Loading…"); when the refresh succeeds the dashboard renders. The marketing landing never flashes at any point (the splash exists precisely to prevent it).
+  - Step 2: while `refreshSession()` runs, the `AuthSplash` shows (the quiet warm page with the wordmark and a slim loading line, `role="status"`, sr-only "Loading…"; restyle PR 20); when the refresh succeeds the dashboard renders. The marketing landing never flashes at any point (the splash exists precisely to prevent it).
 - **Automated:** Partial (client/e2e/a11y.spec.ts — authed `/` renders the dashboard for the axe scan; no explicit no-flash assertion)
 
 ### LAND-009 - Anonymous cold load: splash then landing on refresh 401
@@ -183,8 +183,8 @@
   4. Inspect the legal header and footer; press the theme button.
 - **Expected:**
   - Step 1: tab title becomes "Privacy Policy — AllotJar". Step 2: "Terms of Service — AllotJar". Step 3: title restored to the SPA default (unmount effect restores the previous title).
-  - Header (restyle PR 16: the landing page's header row, `PublicHeader`): the brand link `aria-label="AllotJar home"` → `/`, the `Primary` nav's one "Sign in" link → `/login`, and the round **Dark mode** button (`aria-pressed`), which turns dark mode on for the page and keeps it across a reload and on the other legal page. Footer `nav aria-label="Footer"` (`PublicFooter`, the landing's): "© {year} AllotJar", "Privacy", "Terms" — no "Home" (the wordmark is the way home) and no second "Sign in". A "Skip to main content" link whose target takes focus. No app shell, no month bar; the staging build's banner above the header, as on the landing.
-- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-013 — the title lifecycle, the header and footer; client/src/pages/LegalPages.test.tsx; client/src/components/PublicHeader.test.tsx — the landing and a legal page draw the same header row and footer; client/e2e/legal.spec.ts — the theme button, the skip link)
+  - Header (restyle PR 16: the landing page's header row, `PublicHeader`): the brand link `aria-label="AllotJar home"` → `/`, the `Primary` nav's one "Sign in" link → `/login`, and the round **Dark mode** button (`aria-pressed`), which turns dark mode on for the page and keeps it across a reload and on the other legal page; on the sage it wears a hairline ring, which in dark mode takes the fields' edge (softened) so it reads at 3:1 or more against the page (restyle PR 20, #352 P3-3). Footer `nav aria-label="Footer"` (`PublicFooter`, the landing's): "© {year} AllotJar", "Privacy", "Terms" — no "Home" (the wordmark is the way home) and no second "Sign in". A "Skip to main content" link whose target takes focus. No app shell, no month bar; the staging build's banner above the header, as on the landing.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-013 — the title lifecycle, the header and footer; client/src/pages/LegalPages.test.tsx; client/src/components/PublicHeader.test.tsx — the landing and a legal page draw the same header row and footer; client/e2e/legal.spec.ts — the theme button, the skip link, the dark ring's 3:1)
 
 ### LAND-014 - Legal pages access variants: signed in, case-variant path, cold deep link
 - **Priority:** P2

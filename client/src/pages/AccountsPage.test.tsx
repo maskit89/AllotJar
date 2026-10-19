@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { Route, Routes, useLocation } from 'react-router-dom'
 import type { AccountDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
@@ -397,5 +398,48 @@ describe('AccountsPage', () => {
     renderPage()
 
     expect(await screen.findByText(/No accounts yet/, {}, { timeout: 5000 })).toBeInTheDocument()
+  })
+})
+
+// #344 P3-3: a card's link hands its account's line of the reconciliation to the account's page.
+describe('AccountsPage — the reconciliation handed to the account’s page', () => {
+  beforeEach(() => resetApiMocks())
+
+  function StateProbe() {
+    const state = useLocation().state
+    return <pre data-testid="state">{JSON.stringify(state ?? null)}</pre>
+  }
+
+  const renderWithDetail = () =>
+    renderWithProviders(
+      <Routes>
+        <Route path="/" element={<AccountsPage />} />
+        <Route path="/accounts/:id" element={<StateProbe />} />
+      </Routes>,
+      { route: '/' },
+    )
+
+  it('passes the account’s line once the reconciliation has answered', { timeout: 15000 }, async () => {
+    const line = { accountId: 'a1', accountName: 'Everyday', currentBalance: 250, backedJarsTotal: 100, backedJarCount: 1, float: 150 }
+    mockGet.mockImplementation((url: string) =>
+      Promise.resolve({ data: url === '/accounts' ? accounts() : url === '/accounts/reconciliation' ? [line] : [] }),
+    )
+    const user = userEvent.setup()
+    renderWithDetail()
+    await screen.findByText('Everyday', {}, { timeout: 5000 })
+    await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/accounts/reconciliation'))
+    await user.click(screen.getByRole('link', { name: 'View Everyday' }))
+    expect(JSON.parse((await screen.findByTestId('state')).textContent!)).toEqual({ reconciliation: { accountId: 'a1', line } })
+  })
+
+  it('passes nothing when the reconciliation failed, so the account’s page reads it itself', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) =>
+      url === '/accounts/reconciliation' ? Promise.reject(new Error('403')) : Promise.resolve({ data: url === '/accounts' ? accounts() : [] }),
+    )
+    const user = userEvent.setup()
+    renderWithDetail()
+    await screen.findByText('Everyday', {}, { timeout: 5000 })
+    await user.click(screen.getByRole('link', { name: 'View Visa' }))
+    expect((await screen.findByTestId('state')).textContent).toBe('null')
   })
 })

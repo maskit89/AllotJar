@@ -9,7 +9,7 @@ import { MiniBar, StatusChip } from '../components/StatusChip'
 import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../components/RowActions'
 import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
 import { HolderAvatars, TypeTile } from '../components/accounts/AccountParts'
-import { accountJars } from '../lib/accountJars'
+import { accountJars, reconState } from '../lib/accountJars'
 import { Modal } from '../components/Modal'
 import { AccountsIcon, JarNavIcon } from '../components/icons'
 import { useAuth } from '../auth/AuthContext'
@@ -111,6 +111,9 @@ export function AccountsPage() {
   // Whether the reconciliation has answered (or failed) once. The page waits for it under
   // Loading…, so the KPI row and the cards' jar lines show in their final shape from the start.
   const [reconReady, setReconReady] = useState(false)
+  // Whether a reconciliation answer is on screen (not only tried): then a card's link hands its
+  // account's line to the account's page (router state, #344 P3-3), which reads it itself otherwise.
+  const [reconOk, setReconOk] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [savingId, setSavingId] = useState<string | null>(null)
@@ -217,6 +220,7 @@ export function AccountsPage() {
         if (seq < reconShown.current) return
         reconShown.current = seq
         setReconciliation(Array.isArray(data) ? data : [])
+        setReconOk(true)
       })
       .catch(() => {})
       .finally(() => setReconReady(true))
@@ -712,6 +716,7 @@ export function AccountsPage() {
                   key={a.id}
                   account={a}
                   recon={reconById.get(a.id)}
+                  reconOk={reconOk}
                   members={members}
                   budgetCurrency={budgetCurrency}
                   multiCurrency={multiCurrency}
@@ -999,6 +1004,7 @@ function noteLines(
 function AccountCard({
   account: a,
   recon,
+  reconOk,
   members,
   budgetCurrency,
   multiCurrency,
@@ -1009,6 +1015,8 @@ function AccountCard({
   account: AccountDto
   /** The account's line of the reconciliation, once it has answered. */
   recon: AccountReconciliationDto | undefined
+  /** A reconciliation answer is on screen: the link hands `recon` to the account's page. */
+  reconOk: boolean
   members: HouseholdMemberDto[]
   budgetCurrency: string
   multiCurrency: boolean
@@ -1177,6 +1185,7 @@ function AccountCard({
           <h3 aria-labelledby={nameId} className={`max-w-full min-w-0 text-base leading-[1.25] font-[650] tracking-[-0.01em] text-slate-900 max-[699.98px]:text-sm`}>
             <Link
               to={`/accounts/${a.id}`}
+              state={reconOk ? reconState(a.id, recon) : undefined}
               aria-label={`View ${a.name}`}
               className={`inline-flex max-w-full min-w-0 items-center gap-[3px] align-top after:absolute after:inset-0 after:rounded-2xl after:content-[''] focus-visible:outline-none! focus-visible:after:outline-2 focus-visible:after:outline-offset-2 focus-visible:after:outline-ring focus-visible:after:outline-solid max-[699.98px]:after:rounded-none`}
             >

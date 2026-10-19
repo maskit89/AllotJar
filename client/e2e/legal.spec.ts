@@ -94,3 +94,39 @@ test.describe('the legal pages in the warm look', () => {
     await expect(page.getByRole('main')).toBeFocused()
   })
 })
+
+// #352 P3-3: on the dark sage the theme button's ring reads as a ring (3:1 against the page around
+// it, the non-text contrast bar), not the light page's hairline that all but vanished there.
+test('the legal pages’ theme button ring reads in dark mode', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('zbb.theme', 'dark'))
+  await page.route('**/api/**', mockApi)
+  await page.goto('/privacy')
+  await page.getByRole('heading', { level: 1, name: 'Privacy Policy' }).waitFor()
+  await expect(page.locator('html')).toHaveClass(/dark/)
+  const theme = page.getByRole('banner').getByRole('button', { name: 'Dark mode' })
+  const { ring, page: bg } = await theme.evaluate((el) => {
+    // The inset ring's colour as the browser resolves it, and the page's background.
+    const probe = document.createElement('span')
+    probe.style.color = getComputedStyle(el).boxShadow.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? ''
+    document.body.append(probe)
+    const ring = getComputedStyle(probe).color
+    probe.remove()
+    return { ring, page: getComputedStyle(document.body).backgroundColor }
+  })
+  const rgb = (c: string): [number, number, number, number] => {
+    const srgb = c.match(/color\(srgb ([\d.]+) ([\d.]+) ([\d.]+)(?: \/ ([\d.]+))?\)/)
+    if (srgb) return [+srgb[1] * 255, +srgb[2] * 255, +srgb[3] * 255, srgb[4] === undefined ? 1 : +srgb[4]]
+    const m = c.match(/rgba?\(([\d.]+),\s*([\d.]+),\s*([\d.]+)(?:,\s*([\d.]+))?\)/)!
+    return [+m[1], +m[2], +m[3], m[4] === undefined ? 1 : +m[4]]
+  }
+  const [r, g, b, a] = rgb(ring)
+  const [pr, pg, pb] = rgb(bg)
+  // The ring composited over the page.
+  const over = [r * a + pr * (1 - a), g * a + pg * (1 - a), b * a + pb * (1 - a)]
+  const lum = ([x, y, z]: number[]) => {
+    const f = (v: number) => ((v /= 255) <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * f(x) + 0.7152 * f(y) + 0.0722 * f(z)
+  }
+  const [hi, lo] = [lum(over), lum([pr, pg, pb])].sort((p, q) => q - p)
+  expect((hi + 0.05) / (lo + 0.05), `ring ${ring} on ${bg}`).toBeGreaterThanOrEqual(3)
+})

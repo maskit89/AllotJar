@@ -1323,6 +1323,100 @@ html {
   }
 }
 
+/* The boot splash (restyle PR 20, App.tsx AuthSplash): the signed-out frame's warm page, quiet: the
+   sage deepening into the same floor as under the sign-in card, the wordmark in the brand ink (as on
+   the legal pages' sage) and a slim loading line under it. The mark fades in after a beat, so a
+   quick session restore never flashes it. */
+.splash {
+  position: relative;
+  isolation: isolate;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px 12vh;
+  background: var(--color-background);
+  --splash-floor: color-mix(in srgb, var(--color-background) 90%, #1f6b4d);
+  --splash-glow: color-mix(in srgb, var(--color-background) 84%, #1f6b4d);
+}
+.dark .splash {
+  --splash-floor: color-mix(in srgb, var(--color-background) 88%, #1f6b4d);
+  --splash-glow: color-mix(in srgb, var(--color-background) 80%, #1f6b4d);
+}
+.splash::before {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  inset: 45% 0 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60% 70% at 50% 100%, var(--splash-glow), transparent 70%),
+    linear-gradient(180deg, transparent, var(--splash-floor) 70%);
+}
+.splash-mark {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 22px;
+  animation: splash-in 0.45s ease-out 0.25s both;
+}
+.splash-brand {
+  --accent: var(--color-brand-600);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.dark .splash-brand {
+  --accent: var(--color-brand-500);
+}
+.splash-name {
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--color-foreground);
+}
+.splash-name span {
+  color: var(--color-brand-600);
+}
+.dark .splash-name span {
+  color: var(--color-brand-500);
+}
+/* The loading line: a short brand segment gliding along a hairline track. */
+.splash-line {
+  position: relative;
+  display: block;
+  width: 72px;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--color-track);
+}
+.splash-line > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--color-brand-600);
+  animation: splash-glide 1.2s ease-in-out infinite;
+}
+.dark .splash-line > span {
+  background: var(--color-brand-500);
+}
+@keyframes splash-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes splash-glide {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
 /* The sign-in card's quiet switch (SegmentedControl `fill`): the selected pill's hairline edge, the
    fields' own 3:1 border colour, under its soft lift. */
 .seg-fill-on {
@@ -1884,6 +1978,11 @@ html {
 .legal .auth-theme:hover {
   color: var(--color-foreground);
   background: var(--color-card);
+}
+/* Dark: the hairline ring of the light page all but vanishes on the dark sage (about 1.5:1), so the
+   ring takes the fields' edge, softened, and reads at 3:1 or more (#352 P3-3). */
+.dark .legal .auth-theme {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-input) 70%, transparent);
 }
 .legal-main {
   flex: 1;

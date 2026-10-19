@@ -366,6 +366,39 @@ describe('LandingPage — SSR-safe prerender', () => {
   })
 })
 
+// #351 P3-1: the prerendered page does not know the visitor's theme, so its theme button carries
+// no state and lets the page's `.dark` class pick the icon; the mounted app reads the theme.
+describe('LandingPage — the theme button before mount', () => {
+  it('is neutral in the static markup: no aria-pressed, both icons, each shown by the page’s theme class', () => {
+    const html = renderToStaticMarkup(<LandingPage />)
+    const button = html.match(/<button[^>]*aria-label="Dark mode"[^>]*>.*?<\/button>/)?.[0]
+    expect(button).toBeDefined()
+    expect(button).not.toContain('aria-pressed')
+    expect(button).toMatch(/<svg[^>]*class="[^"]*lucide-moon[^"]*dark:hidden[^"]*"/)
+    expect(button).toMatch(/<svg[^>]*class="[^"]*lucide-sun[^"]*hidden[^"]*dark:block[^"]*"/)
+    // Whatever the stored theme: the static render never reads it.
+    localStorage.setItem('zbb.theme', 'dark')
+    try {
+      expect(renderToStaticMarkup(<LandingPage />)).toBe(html)
+    } finally {
+      localStorage.removeItem('zbb.theme')
+    }
+  })
+
+  it('reads the theme once mounted (one icon, aria-pressed)', () => {
+    localStorage.setItem('zbb.theme', 'dark')
+    try {
+      render(<LandingPage />)
+      const theme = screen.getByRole('button', { name: 'Dark mode' })
+      expect(theme).toHaveAttribute('aria-pressed', 'true')
+      expect(theme.querySelectorAll('svg')).toHaveLength(1)
+      expect(theme.querySelector('svg')).toHaveClass('lucide-sun')
+    } finally {
+      localStorage.removeItem('zbb.theme')
+    }
+  })
+})
+
 // =============================================================================
 // Staging banner on the landing surface (LAND-033)
 // =============================================================================

@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { AUTHED_ROUTES, authedSetup, mockApi } from './mocks'
 
 /**
@@ -20,6 +20,36 @@ async function signedOutLogin(page: Page) {
   await page.route('**/api/**', mockApi)
   await page.goto('/login')
   await page.getByLabel('Email').waitFor()
+}
+
+/** Every animation under `target` has finished (a11y.spec.ts's approach: a cancelled one counts). */
+async function animationsSettled(target: Locator) {
+  await target.evaluate((el) =>
+    Promise.allSettled(el.getAnimations({ subtree: true }).map((a) => a.finished)).then(() => undefined),
+  )
+}
+
+/** The page's layout is final: the web font has swapped in (a late swap moves every box). */
+async function fontsSettled(page: Page) {
+  await page.evaluate(() => document.fonts.ready.then(() => undefined))
+}
+
+/**
+ * `target` has the focus, as `toBeFocused` asserts it (the document's active element, in a focused
+ * document). The page's own focus is polled first: under a loaded parallel run the headless window
+ * can lose the browser's focus for a moment (document.hasFocus() false, so toBeFocused reads
+ * "inactive" while the page put focus in the right place); the page is then brought back to the
+ * front before the full assertion runs.
+ */
+async function expectFocused(page: Page, target: Locator) {
+  await expect
+    .poll(async () => {
+      const s = await target.evaluate((el) => ({ active: el === document.activeElement, doc: document.hasFocus() }))
+      if (s.active && !s.doc) await page.bringToFront()
+      return s.active
+    })
+    .toBe(true)
+  await expect(target).toBeFocused()
 }
 
 // ---------------------------------------------------------------------------
@@ -233,24 +263,32 @@ test('the account menu shows its focus outline to the keyboard, not the mouse', 
   await authedSetup(page, 'light')
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
+  // The mouse goes to measured points: measure only once the font has swapped in and nothing moves.
+  await fontsSettled(page)
 
   const trigger = page.getByRole('button', { name: /account menu/i })
+  await trigger.hover({ trial: true }) // visible and stable
   const box = (await trigger.boundingBox())!
   await page.mouse.move(box.x + 40, box.y + box.height / 2)
   await page.mouse.down()
   await page.mouse.up()
   const menu = page.getByRole('menu')
   await expect(menu).toBeVisible()
+  // The menu has finished opening and sits where it stays before its item is measured.
+  await animationsSettled(menu)
 
-  const look = (item: import('@playwright/test').Locator) =>
+  const look = (item: Locator) =>
     item.evaluate((el) => {
       const cs = getComputedStyle(el)
       return { focused: el === document.activeElement, color: cs.outlineColor, bg: cs.backgroundColor }
     })
   const signOut = menu.getByRole('menuitem', { name: 'Sign out' })
+  await signOut.hover({ trial: true }) // visible and stable
   const box2 = (await signOut.boundingBox())!
   await page.mouse.move(box2.x + 60, box2.y + box2.height / 2, { steps: 4 })
   await expect.poll(async () => (await look(signOut)).focused).toBe(true)
+  // The highlight's colours have settled (no transition caught half-way) before they are read.
+  await animationsSettled(menu)
   const hovered = await look(signOut)
   expect(hovered.color, 'no outline under the mouse').toBe('rgba(0, 0, 0, 0)')
   expect(hovered.bg, 'the quiet highlight').not.toBe('rgba(0, 0, 0, 0)')
@@ -259,6 +297,7 @@ test('the account menu shows its focus outline to the keyboard, not the mouse', 
   const darkMode = menu.getByRole('menuitemcheckbox', { name: 'Dark mode' })
   await page.keyboard.press('ArrowUp')
   await expect.poll(async () => (await look(darkMode)).focused).toBe(true)
+  await animationsSettled(menu)
   expect((await look(darkMode)).color, 'the ring colour for the keyboard').not.toBe('rgba(0, 0, 0, 0)')
 })
 
@@ -630,6 +669,7 @@ test('an account\'s ⋯ works from the keyboard and gives focus back after the e
   await authedSetup(page, 'light')
   await page.goto('/accounts')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
+  await fontsSettled(page)
 
   const more = page.getByRole('button', { name: 'Joint Current: more actions' })
   expect(await more.evaluate((el) => el.tagName)).toBe('BUTTON')
@@ -640,46 +680,48 @@ test('an account\'s ⋯ works from the keyboard and gives focus back after the e
   await more.focus()
   await page.keyboard.press('Enter')
   const menu = page.getByRole('menu')
-  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Edit Joint Current' }))
   await page.keyboard.press('ArrowDown')
-  await expect(menu.getByRole('menuitem', { name: 'Delete Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Delete Joint Current' }))
   await page.keyboard.press('Escape')
   await expect(menu).toHaveCount(0)
-  await expect(more).toBeFocused()
+  await expectFocused(page, more)
 
   // Edit: the editor opens in the card with focus on the name; Escape closes it, focus on the ⋯.
   await page.keyboard.press('Enter')
-  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Edit Joint Current' }))
   await page.keyboard.press('Enter')
-  await expect(page.getByLabel('Name for Joint Current')).toBeFocused()
+  await expectFocused(page, page.getByLabel('Name for Joint Current'))
   await page.keyboard.press('Escape')
   await expect(page.getByLabel('Name for Joint Current')).toHaveCount(0)
-  await expect(more).toBeFocused()
+  await expectFocused(page, more)
 
   // Delete: the confirm dialog; Escape gives focus back to the ⋯.
   await page.keyboard.press('Enter')
-  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Edit Joint Current' }))
   await page.keyboard.press('End')
-  await expect(menu.getByRole('menuitem', { name: 'Delete Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Delete Joint Current' }))
   await page.keyboard.press('Enter')
   const dialog = page.getByRole('dialog', { name: 'Delete Joint Current?' })
   await dialog.waitFor()
+  await animationsSettled(dialog)
   await page.keyboard.press('Escape')
   await expect(dialog).toHaveCount(0)
-  await expect(more).toBeFocused()
+  await expectFocused(page, more)
 
   // Confirmed: the card goes and focus moves on to the next card's ⋯.
   await page.keyboard.press('Enter')
-  await expect(menu.getByRole('menuitem', { name: 'Edit Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Edit Joint Current' }))
   await page.keyboard.press('End')
-  await expect(menu.getByRole('menuitem', { name: 'Delete Joint Current' })).toBeFocused()
+  await expectFocused(page, menu.getByRole('menuitem', { name: 'Delete Joint Current' }))
   await page.keyboard.press('Enter')
   await dialog.waitFor()
+  await animationsSettled(dialog)
   const confirm = dialog.getByRole('button', { name: 'Confirm delete Joint Current' })
   await confirm.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('link', { name: 'View Joint Current', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Savings Joint: more actions' })).toBeFocused()
+  await expectFocused(page, page.getByRole('button', { name: 'Savings Joint: more actions' }))
 })
 
 // On a phone an account's ⋯ opens its actions in a bottom sheet titled with the account's name;

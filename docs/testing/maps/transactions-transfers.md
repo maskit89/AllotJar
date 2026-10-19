@@ -48,7 +48,7 @@ Columns: Date · Payee · Category · Account · Amount · (actions). `min-w-[72
 - Category cell, in priority order:
   - Transfer → `Badge tone="brand"` **Transfer** (no assign affordance at all).
   - Split → `Badge tone="violet"` **Split** + slice summary text: `{lineName ?? 'Unassigned'}{ (MemberName)} {money}` joined by " · ".
-  - Row in assigning state (`assigningId`) and `canEnterData` → autofocus select "Unassigned" + ALL lines (unfiltered optgroups — income tx can be pointed at expense lines and vice versa; server accepts, see §7). Change saves via assign; blur cancels.
+  - Row in assigning state (`assigningId`) and `canEnterData` → autofocus select "Unassigned" + ALL lines (unfiltered optgroups — income tx can be pointed at expense lines and vice versa; server accepts, see §7). The select is a `CommitSelect` (`client/src/components/CommitSelect.tsx`, #350 P3-1): a pointer choice saves via assign; the keyboard can arrow through the options without saving (Chrome fires `change` on each arrow of a closed select), and Enter or blur saves the option it rests on; Escape cancels; blur with the value unchanged closes with no call.
   - Assigned → colour-dot tint pill with the line name; clicking it (aria "Reassign {payee}") reopens the picker (button only when `canEnterData`, otherwise static span).
   - Unassigned → dashed **+ Assign** pill (aria "Assign {payee}") when `canEnterData`, else plain text "Unassigned".
 - Account cell: transfer rows show "{from} → {to}" with `—` for a missing name; ordinary rows show account name or "—".

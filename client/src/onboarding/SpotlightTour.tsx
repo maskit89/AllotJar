@@ -103,6 +103,14 @@ export function SpotlightTour() {
   const docked = useMediaQuery('(max-width: 699.98px)')
 
   useDialogA11y(dialogRef, endTour)
+  // The tour opens with nothing focused (the welcome that started it has closed), so the hook above
+  // has nothing to give focus back to: on the way out it goes to the main content, not <body>.
+  useEffect(
+    () => () => {
+      if (!document.activeElement || document.activeElement === document.body) document.getElementById('main-content')?.focus()
+    },
+    [],
+  )
 
   const measure = useCallback(() => {
     if (!step.selector) {
@@ -144,8 +152,11 @@ export function SpotlightTour() {
     const target = shown.find((el) => onScreen(el.getBoundingClientRect())) ?? shown[0]
     if (!target) return
     const r = target.getBoundingClientRect()
-    const cardTop = docked ? (dialogRef.current?.getBoundingClientRect().top ?? window.innerHeight) : window.innerHeight
-    const covered = r.top < cardTop && r.bottom > cardTop - PAD
+    const card = docked ? dialogRef.current?.getBoundingClientRect() : undefined
+    const cardTop = card?.top ?? window.innerHeight
+    const cardBottom = card?.bottom ?? window.innerHeight
+    // Any overlap with the card counts, a target wholly under it included; the tab bar sits below it.
+    const covered = r.bottom > cardTop - PAD && r.top < cardBottom
     if (onScreen(r) && !covered) return
     const still = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
     target.scrollIntoView?.({ block: 'center', behavior: still ? 'auto' : 'smooth' })

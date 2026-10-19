@@ -36,15 +36,15 @@ function jar(over: Partial<JarDto> = {}): JarDto {
 
 describe('jarStatusChip', () => {
   it('chips the attention and celebration states', () => {
-    expect(jarStatusChip('Behind')).toEqual({ label: 'Behind', tone: 'amber' })
-    expect(jarStatusChip('Overspent')).toEqual({ label: 'Overspent', tone: 'rose' })
-    expect(jarStatusChip('FullyFunded')).toEqual({ label: 'Funded', tone: 'teal' })
-    expect(jarStatusChip('Unscheduled')).toEqual({ label: 'Needs a plan', tone: 'amber' })
+    expect(jarStatusChip('Behind')).toEqual({ label: 'Behind', tone: 'warn' })
+    expect(jarStatusChip('Overspent')).toEqual({ label: 'Overspent', tone: 'bad' })
+    expect(jarStatusChip('FullyFunded')).toEqual({ label: 'Funded', tone: 'ok' })
+    expect(jarStatusChip('Unscheduled')).toEqual({ label: 'Needs a plan', tone: 'warn' })
   })
 
   it('calls out a missed recurring deadline (rule 20) and a cycle funded late (rule 57)', () => {
-    expect(jarStatusChip('DeadlineMissed')).toEqual({ label: 'Deadline missed', tone: 'rose' })
-    expect(jarStatusChip('FundedLate')).toEqual({ label: 'Funded late', tone: 'amber' })
+    expect(jarStatusChip('DeadlineMissed')).toEqual({ label: 'Deadline missed', tone: 'bad' })
+    expect(jarStatusChip('FundedLate')).toEqual({ label: 'Funded late', tone: 'warn' })
   })
 
   it('flags an unavailable balance with a neutral chip (rule 67)', () => {

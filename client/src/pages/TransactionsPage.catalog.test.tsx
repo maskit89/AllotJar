@@ -8,7 +8,7 @@
 // MemoryRouter + AuthProvider, explicit async timeouts) mirror it exactly.
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 
@@ -490,6 +490,53 @@ describe('TransactionsPage catalog — inline assign picker', () => {
       expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-groceries' }),
     )
     expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toBeInTheDocument()
+  })
+
+  // #350 P3-1 — the keyboard arrows through the picker (Chrome fires change on a closed select for
+  // each arrow): the select stays open, and Enter assigns the line it shows, with one request.
+  it('arrows through the picker from the keyboard and assigns on Enter, once', { timeout: 15000 }, async () => {
+    mockLoad([tx({ payee: 'Tesco', budgetItemId: null })])
+    mockPut.mockResolvedValue({ data: tx({ payee: 'Tesco', budgetItemId: 'i-internet', budgetItemName: 'Internet' }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Assign Tesco', hidden: false }, { timeout: 5000 }))
+    const select = (await screen.findByLabelText('Assign Tesco', {}, { timeout: 5000 })) as HTMLSelectElement
+    for (const value of ['i-groceries', 'i-internet']) {
+      fireEvent.keyDown(select, { key: 'ArrowDown' })
+      fireEvent.change(select, { target: { value } })
+    }
+    expect(screen.getByRole('combobox', { name: 'Assign Tesco' })).toBe(select)
+    expect(select.value).toBe('i-internet')
+    expect(mockPut).not.toHaveBeenCalled()
+    fireEvent.keyDown(select, { key: 'Enter' })
+    fireEvent.keyDown(select, { key: 'Enter' })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-internet' }))
+    expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toHaveTextContent('Internet')
+    expect(mockPut).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaving the picker after arrowing assigns the line it shows; Escape leaves it unassigned', { timeout: 15000 }, async () => {
+    mockLoad([tx({ payee: 'Tesco', budgetItemId: null })])
+    mockPut.mockResolvedValue({ data: tx({ payee: 'Tesco', budgetItemId: 'i-groceries', budgetItemName: 'Groceries' }) })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Assign Tesco', hidden: false }, { timeout: 5000 }))
+    let select = (await screen.findByLabelText('Assign Tesco', {}, { timeout: 5000 })) as HTMLSelectElement
+    fireEvent.keyDown(select, { key: 'ArrowDown' })
+    fireEvent.change(select, { target: { value: 'i-groceries' } })
+    fireEvent.keyDown(select, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('combobox', { name: 'Assign Tesco' })).not.toBeInTheDocument())
+    expect(mockPut).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Assign Tesco', hidden: false }))
+    select = (await screen.findByLabelText('Assign Tesco', {}, { timeout: 5000 })) as HTMLSelectElement
+    fireEvent.keyDown(select, { key: 'ArrowDown' })
+    fireEvent.change(select, { target: { value: 'i-groceries' } })
+    fireEvent.blur(select)
+    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-groceries' }))
+    expect(mockPut).toHaveBeenCalledTimes(1)
   })
 
   // TX-031 — reassign an already-assigned transaction to a different line.

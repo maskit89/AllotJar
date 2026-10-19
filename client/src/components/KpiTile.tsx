@@ -211,7 +211,7 @@ export function KpiTile({
           // A strip has half the row. A third of the row is narrow until about 850px (a 1,000px
           // window beside the sidebar): the number stays a size down there, so five figures fit.
           strip === 'bar' || strip === 'bar-sub'
-            ? `text-lg @min-[640px]:text-[30px] ${strip === 'bar-sub' ? 'justify-self-end' : ''}`
+            ? `text-lg @min-[640px]:text-[30px]${strip === 'bar-sub' ? ' justify-self-end' : ''}`
             : strip
               ? 'row-span-2 text-lg @min-[640px]:text-[30px]'
               : 'text-[22px] @min-[850px]:text-[30px]'

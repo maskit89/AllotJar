@@ -65,17 +65,17 @@ export function jarStatusChip(status: string): JarStatusChip | null {
     case 'Completed':
       return { label: 'Completed', tone: 'neutral' }
     case 'DeadlineMissed':
-      return { label: 'Deadline missed', tone: 'rose' }
+      return { label: 'Deadline missed', tone: 'bad' }
     case 'FundedLate':
-      return { label: 'Funded late', tone: 'amber' }
+      return { label: 'Funded late', tone: 'warn' }
     case 'Behind':
-      return { label: 'Behind', tone: 'amber' }
+      return { label: 'Behind', tone: 'warn' }
     case 'Overspent':
-      return { label: 'Overspent', tone: 'rose' }
+      return { label: 'Overspent', tone: 'bad' }
     case 'Unscheduled':
-      return { label: 'Needs a plan', tone: 'amber' }
+      return { label: 'Needs a plan', tone: 'warn' }
     case 'FullyFunded':
-      return { label: 'Funded', tone: 'teal' }
+      return { label: 'Funded', tone: 'ok' }
     default:
       return null
   }
@@ -83,12 +83,11 @@ export function jarStatusChip(status: string): JarStatusChip | null {
 
 /** How a jar chip reads in the restyle's status tones (StatusChip), on the Dashboard shelf and the Jars page. */
 export const JAR_CHIP_TONE: Record<BadgeTone, ChipTone> = {
-  rose: 'bad',
-  amber: 'warn',
-  teal: 'ok',
+  bad: 'bad',
+  warn: 'warn',
+  ok: 'ok',
   brand: 'ok',
   neutral: 'neutral',
-  violet: 'neutral',
 }
 
 /**

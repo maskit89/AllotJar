@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Link, Route, Routes } from 'react-router-dom'
-import type { AccountDto, AccountReconciliationDto, BudgetMonthDto, TransactionDto } from '../types'
+import type { AccountDto, AccountReconciliationDto, BudgetMonthDto, JarAccountLedgerDto, TransactionDto } from '../types'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
 import { mockGet } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AccountDetailPage } from './AccountDetailPage'
+import { reconFromState, reconState } from '../lib/accountJars'
 
 function account(): AccountDto {
   return { id: 'a1', name: 'Everyday Current', type: 0, currency: 'EUR', openingBalance: 2000, currentBalance: 2140, displayOrder: 0 }
@@ -75,7 +76,13 @@ describe('AccountDetailPage', () => {
 
     expect(await screen.findByRole('heading', { name: 'Account details' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('IBAN')).toBeInTheDocument()
-    expect(screen.getByText('MT84MALT011000012345MTLCAST001S')).toBeInTheDocument()
+    // In groups of four, as banks print it (#344 P3-5), spaced by a margin, so the text (what a copy
+    // gives) is the stored value.
+    const iban = screen.getByText('IBAN').nextElementSibling as HTMLElement
+    expect(iban.textContent).toBe('MT84MALT011000012345MTLCAST001S')
+    expect(Array.from(iban.querySelectorAll('[data-iban] > span'), (g) => g.textContent)).toEqual([
+      'MT84', 'MALT', '0110', '0001', '2345', 'MTLC', 'AST0', '01S',
+    ])
     expect(screen.getByText('BIC')).toBeInTheDocument()
     expect(screen.getByText('VALLMTMT')).toBeInTheDocument()
     // Null / blank identifiers are simply not listed.
@@ -203,6 +210,8 @@ interface Loads {
   transactions?: TransactionDto[]
   recon?: AccountReconciliationDto[] | 'fail'
   month?: BudgetMonthDto | null
+  /** GET /jars/ledger: which jars each account holds. */
+  ledger?: JarAccountLedgerDto[]
 }
 
 function mockLoads(l: Loads = {}) {
@@ -211,9 +220,17 @@ function mockLoads(l: Loads = {}) {
     if (url === '/transactions') return Promise.resolve({ data: l.transactions ?? [] })
     if (url === '/accounts/reconciliation') return l.recon === 'fail' ? Promise.reject(new Error('boom')) : Promise.resolve({ data: l.recon ?? [] })
     if (url === '/budget/current') return Promise.resolve({ data: l.month ?? {} })
+    if (url === '/jars/ledger') return Promise.resolve({ data: l.ledger ?? [] })
     return Promise.resolve({ data: {} })
   })
 }
+
+/** An account's line of GET /jars/ledger holding the given jars. */
+const ledgerOf = (accountId: string, jarIds: string[]): JarAccountLedgerDto => ({
+  accountId, accountName: accountId, currency: 'EUR', asOf: '2026-07-01', accountBalance: 2140, unallocated: 1840,
+  positiveAllocations: 300, hasBackingDeficit: false, unreconciledAllocations: 0,
+  jars: jarIds.map((jarId) => ({ jarId, name: jarId, balance: 150, isArchived: false })),
+} as JarAccountLedgerDto)
 
 const recon = (over: Partial<AccountReconciliationDto> = {}): AccountReconciliationDto => ({
   accountId: 'a1', accountName: 'Everyday Current', currentBalance: 2140, backedJarsTotal: 300, backedJarCount: 2, float: 1840, ...over,
@@ -380,7 +397,8 @@ describe('AccountDetailPage — the restyled page', () => {
       'March two',
       'Late receipt',
     ])
-    expect(screen.getByRole('heading', { level: 2, name: 'Transactions 5' })).toBeInTheDocument()
+    // "Transactions, 5" to the ear (#344 P3-6), not "Transactions 5".
+    expect(screen.getByRole('heading', { level: 2, name: 'Transactions, 5' })).toBeInTheDocument()
     expect(screen.getByTestId('account-tx-count')).toHaveTextContent('5')
   })
 
@@ -554,18 +572,43 @@ describe('AccountDetailPage — the restyled page', () => {
 
   it('shows a payment from a jar’s line as a jar chip in an account that holds jars', { timeout: 15000 }, async () => {
     const rows = [tx({ id: 'j', payee: 'Ryanair', budgetItemId: 'bi1', budgetItemName: 'Holiday' }), tx({ id: 'p', payee: 'Vodafone', budgetItemId: 'bi0', budgetItemName: 'Phone' })]
-    mockLoads({ month: monthWithJar(), recon: [recon()], transactions: rows })
+    // The Holiday jar (j1) sits in this account (GET /jars/ledger, as Transactions reads it).
+    mockLoads({ month: monthWithJar(), recon: [recon()], transactions: rows, ledger: [ledgerOf('a1', ['j1'])] })
     const { unmount } = renderPage()
-    const jar = (await screen.findByText('Holiday', {}, { timeout: 5000 })).parentElement!
+    await waitFor(() => expect(screen.getByText('Holiday').parentElement).not.toHaveAttribute('style'))
     // The outline jar chip (no colour fill), as on Transactions.
-    expect(jar).not.toHaveAttribute('style')
     expect(screen.getByText('Phone').parentElement).toHaveAttribute('style')
     unmount()
 
     // The jars aren't in this account: the plain category chip.
-    mockLoads({ month: monthWithJar(), recon: [], transactions: rows })
+    mockLoads({ month: monthWithJar(), recon: [], transactions: rows, ledger: [] })
     renderPage()
     expect((await screen.findByText('Holiday', {}, { timeout: 5000 })).parentElement).toHaveAttribute('style')
+  })
+
+  // #344 P3-2: the chip agrees with Transactions: this account holds jars, but not that one.
+  it('shows the plain chip for a jar’s line when that jar sits in another account', { timeout: 15000 }, async () => {
+    const rows = [tx({ id: 'j', payee: 'Ryanair', budgetItemId: 'bi1', budgetItemName: 'Holiday' })]
+    mockLoads({ month: monthWithJar(), recon: [recon()], transactions: rows, ledger: [ledgerOf('a1', ['j9']), ledgerOf('a2', ['j1'])] })
+    renderPage()
+    expect(await screen.findByText('In jars', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.getByText('Holiday').parentElement).toHaveAttribute('style')
+    expect(mockGet).toHaveBeenCalledWith('/jars/ledger')
+  })
+
+  it('shows the jar chip before the jars’ figures answer (it needs only the jar ledger)', { timeout: 15000 }, async () => {
+    const rows = [tx({ id: 'j', payee: 'Ryanair', budgetItemId: 'bi1', budgetItemName: 'Holiday' })]
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [account()] })
+      if (url === '/transactions') return Promise.resolve({ data: rows })
+      if (url === '/budget/current') return Promise.resolve({ data: monthWithJar() })
+      if (url === '/jars/ledger') return Promise.resolve({ data: [ledgerOf('a1', ['j1'])] })
+      if (url === '/accounts/reconciliation') return new Promise(() => {})
+      return Promise.resolve({ data: [] })
+    })
+    renderPage()
+    await screen.findByText('Ryanair', {}, { timeout: 5000 })
+    await waitFor(() => expect(screen.getByText('Holiday').parentElement).not.toHaveAttribute('style'))
   })
 
   it('shows a foreign payment’s own amount and what an account in another currency counts in the budget', { timeout: 15000 }, async () => {
@@ -702,5 +745,175 @@ describe('AccountDetailPage — the restyled page', () => {
     await act(async () => answers[1]({ data: [recon({ accountId: 'a2', accountName: 'Rainy Day', backedJarsTotal: 75 })] }))
     expect(await screen.findByText('In jars')).toBeInTheDocument()
     expect(screen.getByText('€75.00')).toBeInTheDocument()
+  })
+})
+
+// ---- Restyle PR 20: the #344 follow-ups ---------------------------------------------------------
+
+describe('AccountDetailPage — the #344 follow-ups', () => {
+  beforeEach(() => mockGet.mockReset())
+  afterEach(() => vi.unstubAllGlobals())
+
+  // #344 P3-1: a transfer that left before the opening date and came back after it moved the
+  // balance by +amount on its return (ActualAccountLedger.cs): it shows that way.
+  it('lists a transfer that left before the opening date and came back after it on its return date, as money in', { timeout: 15000 }, async () => {
+    const year = new Date().getUTCFullYear()
+    mockLoads({
+      accounts: [{ ...account(), openingDate: `${year}-05-01` }],
+      transactions: [
+        tx({ id: 'back', type: 2, payee: 'To Pot', amount: 75, date: `${year}-04-20`, transferAccountId: 'a2', transferAccountName: 'Pot', departedOn: `${year}-04-20`, receivedOn: null, returnedOn: `${year}-05-10`, transferStatus: 'Returned' }),
+        tx({ id: 'apr', date: `${year}-04-12`, payee: 'April bill', amount: 20 }),
+      ],
+    })
+    const user = userEvent.setup()
+    renderPage()
+    const row = rowOf(await screen.findByText('To Pot', {}, { timeout: 5000 }))
+    // Under May, the month it came back, on its return date.
+    const may = screen.getByRole('heading', { level: 3, name: 'May' }).nextElementSibling as HTMLElement
+    expect(may).toContainElement(row)
+    expect(within(row).getByText('May 10')).toBeInTheDocument()
+    // Money in, not struck through, not "Before opening", with the Returned chip.
+    const amount = within(row).getByText(/75\.00/)
+    expect(amount.textContent).toBe('+€75.00')
+    expect(amount.className).not.toContain('line-through')
+    expect(within(row).queryByText('Before opening')).not.toBeInTheDocument()
+    expect(within(row).getByText('Returned').closest('[data-tone]')).toHaveAttribute('data-tone', 'bad')
+    // Its (i) names both dates.
+    await user.hover(within(row).getByRole('button', { name: /^About To Pot on May 10: returned$/ }))
+    const tip = await screen.findByRole('tooltip')
+    expect(tip).toHaveTextContent(`Left on Apr 20, ${year}, before the opening balance of May 1, ${year}, and came back on May 10, ${year}: the return adds it to the balance.`)
+    // The April row is untouched.
+    const april = rowOf(screen.getByText('April bill'))
+    expect(within(april).getByText('Before opening')).toBeInTheDocument()
+  })
+
+  it('keeps an ordinary sent-back transfer struck where it left, with no (i)', { timeout: 15000 }, async () => {
+    mockLoads({
+      accounts: [{ ...account(), openingDate: '2026-01-01' }],
+      transactions: [tx({ id: 'out', type: 2, payee: 'Sent back', amount: 150, date: '2026-06-12', transferAccountId: 'a2', transferAccountName: 'Rainy Day', departedOn: '2026-06-12', returnedOn: '2026-06-15', transferStatus: 'Returned' })],
+    })
+    renderPage()
+    const row = rowOf(await screen.findByText('Sent back', {}, { timeout: 5000 }))
+    expect(within(row).getByText(/150\.00/).textContent).toBe('−€150.00')
+    expect(within(row).getByText(/150\.00/).className).toContain('line-through')
+    expect(within(row).getByText('Jun 12')).toBeInTheDocument()
+    expect(within(row).queryByRole('button', { name: /returned$/ })).not.toBeInTheDocument()
+  })
+
+  // #344 P3-3: an in-app open from Accounts hands over the account's line of the reconciliation.
+  it('uses the reconciliation the Accounts page hands over, and reads it itself on a direct open', { timeout: 15000 }, async () => {
+    mockLoads({ recon: [recon({ backedJarsTotal: 999 })] })
+    const user = userEvent.setup()
+    const { unmount } = renderWithProviders(
+      <Routes>
+        <Route path="/accounts" element={<Link to="/accounts/a1" state={reconState('a1', recon())}>View</Link>} />
+        <Route path="/accounts/:id" element={<AccountDetailPage />} />
+      </Routes>,
+      { route: '/accounts' },
+    )
+    await user.click(screen.getByRole('link', { name: 'View' }))
+    expect(await screen.findByText('In jars', {}, { timeout: 5000 })).toBeInTheDocument()
+    // The handed-over figure (300), not a fresh read (999), and no second reconciliation read.
+    expect(screen.getByText('€300.00')).toBeInTheDocument()
+    expect(mockGet).not.toHaveBeenCalledWith('/accounts/reconciliation')
+    expect(screen.queryByTestId('in-jars-pending')).not.toBeInTheDocument()
+    unmount()
+
+    // Opened directly (or reloaded): the page reads the reconciliation.
+    mockGet.mockClear()
+    renderPage()
+    expect(await screen.findByText('€999.00', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(mockGet).toHaveBeenCalledWith('/accounts/reconciliation')
+  })
+
+  it('reads the reconciliation itself when the handed-over state is for another account, or comes back with Back', { timeout: 15000 }, async () => {
+    mockLoads({ recon: [recon({ backedJarsTotal: 999 })] })
+    renderWithProviders(
+      <Routes>
+        <Route path="/accounts/:id" element={<AccountDetailPage />} />
+      </Routes>,
+      // A history entry with state (as after a reload or Back): its navigation is a POP, not a PUSH.
+      { route: '/accounts/a1' },
+    )
+    expect(await screen.findByText('€999.00', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(reconFromState(reconState('a2', recon({ accountId: 'a2' })), 'a1', true)).toBeNull()
+    expect(reconFromState(reconState('a1', recon()), 'a1', false)).toBeNull()
+    expect(reconFromState(reconState('a1', undefined), 'a1', true)).toEqual({ line: null })
+  })
+
+  // #344 P3-6: the In jars tile's room is kept while its figures load, so the list does not move.
+  it('keeps the In jars tile’s room while the reconciliation loads, then the tile takes it', { timeout: 15000 }, async () => {
+    let answer!: (v: unknown) => void
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [account()] })
+      if (url === '/transactions') return Promise.resolve({ data: [tx()] })
+      if (url === '/accounts/reconciliation') return new Promise((r) => (answer = r))
+      if (url === '/jars/ledger') return Promise.resolve({ data: [ledgerOf('a1', ['j1'])] })
+      return Promise.resolve({ data: {} })
+    })
+    renderPage()
+    await screen.findByLabelText(/^Everyday Current balance:/, {}, { timeout: 5000 })
+    const pending = screen.getByTestId('in-jars-pending')
+    // Hidden from screen readers, no words or figures of its own, the real tile's shape.
+    expect(pending).toHaveAttribute('aria-hidden', 'true')
+    expect(screen.queryByText('In jars')).not.toBeInTheDocument()
+    expect(pending.className).toContain('col-span-2')
+    // The hero keeps to its column beside it, as it will beside the tile.
+    expect(screen.getByLabelText(/^Everyday Current balance:/).closest('section')!.className).not.toContain('col-span-2!')
+    await act(async () => answer({ data: [recon()] }))
+    expect(await screen.findByText('In jars')).toBeInTheDocument()
+    expect(screen.queryByTestId('in-jars-pending')).not.toBeInTheDocument()
+    expect(screen.getByRole('group', { name: 'In jars' }).className.trim()).toBe(pending.className.replace(' animate-pulse', '').trim())
+  })
+
+  it('keeps no room when the jar ledger says the account holds no jar', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') return Promise.resolve({ data: [account()] })
+      if (url === '/transactions') return Promise.resolve({ data: [tx()] })
+      if (url === '/accounts/reconciliation') return new Promise(() => {})
+      if (url === '/jars/ledger') return Promise.resolve({ data: [ledgerOf('a2', ['j1'])] })
+      return Promise.resolve({ data: {} })
+    })
+    renderPage()
+    await screen.findByLabelText(/^Everyday Current balance:/, {}, { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByTestId('in-jars-pending')).not.toBeInTheDocument())
+    expect(screen.getByLabelText(/^Everyday Current balance:/).closest('section')!.className).toContain('col-span-2!')
+  })
+
+  it('a failed reconciliation leaves no tile and no kept room', { timeout: 15000 }, async () => {
+    mockLoads({ recon: 'fail', ledger: [ledgerOf('a1', ['j1'])], transactions: [tx()] })
+    renderPage()
+    await screen.findByLabelText(/^Everyday Current balance:/, {}, { timeout: 5000 })
+    await waitFor(() => expect(screen.queryByTestId('in-jars-pending')).not.toBeInTheDocument())
+    expect(screen.queryByText('In jars')).not.toBeInTheDocument()
+  })
+
+  it('reads Loading…, not the previous account’s name, on an in-app change of account', { timeout: 15000 }, async () => {
+    let second!: (v: unknown) => void
+    let calls = 0
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/accounts') {
+        calls++
+        const data = [account(), { ...account(), id: 'a2', name: 'Rainy Day' }]
+        return calls === 1 ? Promise.resolve({ data }) : new Promise((r) => (second = () => r({ data })))
+      }
+      return Promise.resolve({ data: [] })
+    })
+    const user = userEvent.setup()
+    renderWithProviders(
+      <>
+        <Routes>
+          <Route path="/accounts/:id" element={<AccountDetailPage />} />
+        </Routes>
+        <Link to="/accounts/a2">Open Rainy Day</Link>
+      </>,
+      { route: '/accounts/a1' },
+    )
+    expect(await screen.findByRole('heading', { level: 1, name: 'Everyday Current' }, { timeout: 5000 })).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: 'Open Rainy Day' }))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Loading…' })).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { level: 1, name: 'Everyday Current' })).not.toBeInTheDocument()
+    await act(async () => second(undefined))
+    expect(await screen.findByRole('heading', { level: 1, name: 'Rainy Day' })).toBeInTheDocument()
   })
 })

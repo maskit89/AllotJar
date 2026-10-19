@@ -1,5 +1,6 @@
 import { Fragment, memo, type ReactNode } from 'react'
 import { ArrowLeftRight, CalendarCheck, Pencil, Plus, ReceiptText, ShoppingBag, Split, Trash2, Undo2, Wallet } from 'lucide-react'
+import { CommitSelect } from '../CommitSelect'
 import { InfoHint } from '../InfoHint'
 import { StatusChip } from '../StatusChip'
 import { ActionSheet, RowMenu, type RowAction } from '../RowActions'
@@ -28,7 +29,8 @@ export type TxRowEvent =
       type: 'edit' | 'edit-transfer' | 'split' | 'refund' | 'not-refund' | 'leg' | 'delete' | 'assign' | 'assign-escape' | 'assign-blur' | 'fx'
       t: TransactionDto
     }
-  | { type: 'assign-pick'; t: TransactionDto; budgetItemId: string | null }
+  /** A line chosen in the revealed select; `blur`: chosen by leaving the select (focus stays where it went). */
+  | { type: 'assign-pick'; t: TransactionDto; budgetItemId: string | null; blur?: boolean }
   | { type: 'sheet'; t: TransactionDto; open: boolean }
 
 /** What every row shares; the page keeps it one object (memoised) so the rows can skip a render. */
@@ -389,16 +391,19 @@ export const TxRow = memo(function TxRow({ t, phone, ctx, dayId, saving, assigni
     )
   } else if (assigning && rowEditable) {
     category = (
-      <select
+      // Arrow keys move the choice; Enter, leaving the select or a pointer choice commits it, and
+      // Escape closes it unchanged (#350 P3-1). A commit with no change only closes it.
+      <CommitSelect
         autoFocus
-        value={t.budgetItemId ?? ''}
+        initial={t.budgetItemId ?? ''}
         disabled={saving}
         aria-label={`Assign ${t.payee || 'transaction'}`}
-        onChange={(e) => dispatch({ type: 'assign-pick', t, budgetItemId: e.target.value || null })}
-        onBlur={() => dispatch({ type: 'assign-blur', t })}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') dispatch({ type: 'assign-escape', t })
-        }}
+        onCommit={(value, how) =>
+          (value || null) === (t.budgetItemId ?? null)
+            ? dispatch({ type: how === 'blur' ? 'assign-blur' : 'assign-escape', t })
+            : dispatch({ type: 'assign-pick', t, budgetItemId: value || null, blur: how === 'blur' })
+        }
+        onCancel={() => dispatch({ type: 'assign-escape', t })}
         className="relative z-10 h-8 w-56 max-w-full rounded-lg border border-input bg-surface px-2 text-sm text-slate-700 focus:border-brand-600 focus:ring-2 focus:ring-brand-500/40 focus:outline-none focus-visible:outline-none! disabled:opacity-50"
       >
         <option value="">Unassigned</option>
@@ -411,7 +416,7 @@ export const TxRow = memo(function TxRow({ t, phone, ctx, dayId, saving, assigni
             ))}
           </optgroup>
         ))}
-      </select>
+      </CommitSelect>
     )
   } else if (rowEditable) {
     // One button whichever way it looks, so focus stays on it when a save turns one into the other.

@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from 'react'
 import { Moon, Sun } from 'lucide-react'
 import { useTheme } from '../lib/theme'
 import { cn } from '../lib/utils'
@@ -11,20 +12,46 @@ import { cn } from '../lib/utils'
  */
 export function ThemeButton({ className = '' }: { className?: string }) {
   const { isDark, setMode } = useTheme()
+  const mounted = useMounted()
   const Icon = isDark ? Sun : Moon
   return (
     <button
       type="button"
       aria-label="Dark mode"
-      aria-pressed={isDark}
+      // In the prerendered landing page (the static render, before the app mounts) the theme is not
+      // known: the button carries no state, and the page's own `.dark` class (set by theme-init.js
+      // before the first paint) shows the right icon, so a dark visitor never sees the light state
+      // flip (#351 P3-1). Mounted, it reads the theme as before.
+      aria-pressed={mounted ? isDark : undefined}
       onClick={() => setMode(isDark ? 'light' : 'dark')}
       className={cn(
         'grid size-10 shrink-0 place-items-center rounded-full text-slate-500 transition hover:bg-surface hover:text-slate-900',
         className,
       )}
     >
-      <Icon className="size-[18px]" strokeWidth={1.8} aria-hidden />
+      {mounted ? (
+        <Icon className="size-[18px]" strokeWidth={1.8} aria-hidden />
+      ) : (
+        <>
+          <Moon className="size-[18px] dark:hidden" strokeWidth={1.8} aria-hidden />
+          <Sun className="hidden size-[18px] dark:block" strokeWidth={1.8} aria-hidden />
+        </>
+      )}
     </button>
+  )
+}
+
+const noSubscribe = () => () => {}
+/**
+ * False in a static render (renderToStaticMarkup, the landing prerender: React takes the server
+ * snapshot), true in the app, from its first render on (createRoot takes the client snapshot), so
+ * the app's own first render is unchanged and there is no effect or second render.
+ */
+function useMounted(): boolean {
+  return useSyncExternalStore(
+    noSubscribe,
+    () => true,
+    () => false,
   )
 }
 

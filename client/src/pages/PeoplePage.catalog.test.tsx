@@ -917,9 +917,41 @@ describe('PeoplePage — catalog (PPL)', () => {
 
     const alert = await dialog.findByRole('alert', {}, { timeout: 5000 })
     expect(alert).toHaveTextContent('Invite saved, but the email failed')
+    // One line on the warn tone (restyle PR 20); how to retry is behind its (i).
+    expect(alert).toHaveAttribute('data-tone', 'warn')
+    expect(alert).toHaveTextContent(/^Invite saved, but the email failed$/)
+    await user.hover(within(alert).getByRole('button', { name: 'About the failed email' }))
     // The menu is named in words, as its button is ("Sam: more actions"); the glyph is only for the eye.
-    expect(alert).toHaveTextContent(/Use "Send again" in their More actions menu \(⋯\) to try once more/)
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/We couldn't email sam@x\.eu their link\./)
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/Use "Send again" in their More actions menu \(⋯\) to try once more/)
     expect(dialog.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  // The same for a login created with a temporary password: the (i) names the prompt's button as it
+  // reads now ("Email me the link", #353 P3-2).
+  it('INV-008: a direct login whose email failed says so, and the (i) names "Email me the link"', { timeout: 15000 }, async () => {
+    membersData = [member({ id: 'm2', name: 'Sam', incomeSharePct: 1 })]
+    membershipsData = []
+    mockPost.mockResolvedValue({ data: { membership: membership({ id: 'mem9', email: 'sam@x.eu' }), emailSent: false } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await cardsShown()
+    await personAction(user, 'Sam', 'Invite to sign in')
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+
+    await user.type(dialog.getByLabelText('Invitee email'), 'sam@x.eu')
+    await user.click(dialog.getByRole('button', { name: 'Set a temporary password' }))
+    await user.type(dialog.getByLabelText('Temporary password'), 'longenough1')
+    await user.click(dialog.getByRole('button', { name: 'Create login' }))
+
+    const alert = await dialog.findByRole('alert', {}, { timeout: 5000 })
+    expect(alert).toHaveTextContent(/^Login created, but the email failed$/)
+    expect(alert).toHaveAttribute('data-tone', 'warn')
+    await user.hover(within(alert).getByRole('button', { name: 'About the failed email' }))
+    expect(screen.getByRole('tooltip')).toHaveTextContent(/they can ask for it again with "Email me the link"\./)
+    expect(screen.getByRole('tooltip')).not.toHaveTextContent(/again"/)
   })
 
   // PPL-045 — invite client-side guards: empty email, then a <8-char temp password; neither POSTs.
