@@ -387,7 +387,7 @@
 - **Steps:**
   1. Hover the Holiday row and click **✕** (aria "Remove Holiday this month", title "Skip this month's contribution, or archive the jar"). 2. Send `DELETE /api/budget/items/{holidayLineId}` directly.
 - **Expected:**
-  - 1: no optimistic removal and no DELETE. A dialog "Remove Holiday from September 2026?" explains that the line is a jar's monthly contribution and can't just be deleted, loads `GET /budget/items/{id}/skip-preview` and shows the server's preview ("Skipping September 2026 spreads this month's €150.00 over the months that are left:" with each later month's amount — the same planner that will replant them, rule 61), then offers **Skip this month** (BUDG-060), **Archive the jar** (BUDG-061) and Cancel.
+  - 1: no optimistic removal and no DELETE. A sheet dialog "Skip Holiday this month" (restyle PR 18; why the line is a jar's monthly contribution and can't just be deleted sits behind its title's (i) "About skipping a month") loads `GET /budget/items/{id}/skip-preview` and shows the server's preview ("Skipping September 2026 spreads this month's €150.00 over the months that are left:" with each later month's amount — the same planner that will replant them, rule 61), in a compact panel, then offers Cancel and the one primary **Skip this month** (BUDG-060), with the quiet **Archive jar** at the footer's left (BUDG-061).
   - 2: 400 "Holiday is a jar's monthly contribution. Skip this month's contribution, or archive the jar to stop future ones."; the line and the jar are untouched.
 - **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-034; CCategoriesLinesCoverageTests `DeleteSavingsLine_IsRefused_TheLineAndItsJarStay`; JarLifecycleW04Tests `Rule60_AJarsLine_CannotBeDeletedFromAMonth_TheChoiceIsSkipOrArchive`; jar-lifecycle journey)
 
@@ -682,12 +682,12 @@
   - 3: `PUT /budget/items/{id}` with an amount clears `isSkipped` (a typed amount is a plan) and stores 30; the later months are the user's to adjust.
 - **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-060; JarLifecycleW04Tests — `Rule61_Skipping_ThisMonth_…`, `Rule61_PlanningASkippedMonthAgain_…`; JarScheduleTests — `Rule61_ASkippedMonth_PlansZero_…`; jar-lifecycle journey)
 
-### BUDG-061 - Archive the jar from the skip dialog (two clicks; rule 26 shown verbatim)
+### BUDG-061 - Archive jar from the skip dialog (a second step in the same sheet; rule 26 shown verbatim)
 - **Priority:** P1
 - **Type:** Happy / Negative
 - **Preconditions:** budg-owner on the current month; Holiday holds 450.
 - **Steps:**
-  1. ✕ → **Archive the jar** (arms to "Really archive?", aria "Confirm archive Holiday") → click again. 2. Move the 450 out; repeat.
+  1. ✕ → the quiet **Archive jar** (aria "Archive Holiday") turns the dialog to its archive step, "Archive Holiday" (one line, Cancel, **Skip this month instead** at the left and the one bad-toned **Archive jar**, aria "Confirm archive Holiday", focused) → click it. 2. Move the 450 out; repeat.
 - **Expected:** 1: the first click sends nothing; the second sends `PUT /jars/{savingsId}/archive` `{archived:true}` → 400 "Holiday still holds €450.00 …" shown in the dialog's banner, which stays open. 2: 200 — the dialog closes, the month is re-read (this month's line cut to what went in, later months' lines gone — P40) and the shelf refreshed; `EVENTS.fundArchived` fires.
 - **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-061; JarLedgerActivationTests — rule 26; JarLifecycleW04Tests — `Rule25_Archiving_…`)
 

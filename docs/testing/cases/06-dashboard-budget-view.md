@@ -397,7 +397,7 @@
   - Step 1: after `PUT /api/budget/items/{id}` succeeds, `GET /api/jars?year&month` is issued again and the shelf's "+€/mo" follows the new plan.
   - Step 2: no `/jars` re-read (an expense line moves no jar figure).
   - Step 3: after `POST /api/budget` returns the month, `/jars` is re-read and the shelf appears with the seeded lines as its plan.
-  - Skipping a month / Plan it again / Archive the jar from a line (BUDG-060/061) and creating a jar from a Savings group already re-read it.
+  - Skipping a month / Plan it again / Archive jar from a line (BUDG-060/061) and creating a jar from a Savings group already re-read it.
 - **Automated:** Yes (client/src/pages/DashboardPage.jars.test.tsx DASH-075 ×2)
 
 ### DASH-076 - Navigating months never shows the previous month's shelf under the new month

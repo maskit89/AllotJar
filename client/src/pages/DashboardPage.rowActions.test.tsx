@@ -420,9 +420,10 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     expect(within(sheet).getByRole('button', { name: 'Skip this month' })).toBeInTheDocument()
     expect(within(sheet).getByRole('button', { name: 'Archive jar' })).toBeInTheDocument()
 
-    // Skip opens the skip-or-archive dialog once the sheet has closed.
+    // Skip opens the skip dialog (titled "Skip Holiday this month") once the sheet has closed.
     await user.click(within(sheet).getByRole('button', { name: 'Skip this month' }))
-    expect(await screen.findByLabelText('Skip Holiday this month', {}, { timeout: 5000 })).toBeInTheDocument()
+    const skip = await screen.findByRole('dialog', { name: 'Skip Holiday this month' }, { timeout: 5000 })
+    expect(within(skip).getByRole('button', { name: 'Skip Holiday this month' })).toBeInTheDocument()
   })
 
   it('Limited access: a bill line’s ⋯ offers only Mark paid; nothing else in the budget is editable', { timeout: 15000 }, async () => {

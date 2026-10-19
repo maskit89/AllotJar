@@ -88,10 +88,21 @@ describe('JarsPage — completion and deletion (W04)', () => {
     await jarAction(user, 'New laptop', 'Mark completed')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
-    expect(dialog.getByText('Mark New laptop completed?')).toBeInTheDocument()
-    // What the user is told: the money stays, the plan stops from this month on.
-    expect(dialog.getByText(/holds €400\.00 of its €1,000\.00 target, €600\.00 short/)).toBeInTheDocument()
-    expect(dialog.getByText(/stops the planned contributions from this month on/)).toBeInTheDocument()
+    // A short title (not a question) and one line; the rules sit behind the title's (i) (restyle PR 18).
+    expect(dialog.getByText('Mark New laptop completed')).toBeInTheDocument()
+    expect(dialog.getByText('Planned contributions stop from this month; what it holds stays until you move it.')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About completing a jar' }))
+    const hint = within(await dialog.findByRole('tooltip'))
+    // What the user is told: what the jar holds, the money stays, the plan stops from this month on.
+    expect(hint.getByText(/holds €400\.00 of its €1,000\.00 target, €600\.00 short/)).toBeInTheDocument()
+    expect(hint.getByText(/stops the planned contributions from this month on/)).toBeInTheDocument()
+    // One primary beside Cancel ("Keep saving"), and nothing else to press but the (i) and Close.
+    expect(dialog.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
+      'About completing a jar',
+      'Close',
+      'Keep saving',
+      'Confirm complete New laptop',
+    ])
     await user.click(dialog.getByLabelText('Confirm complete New laptop'))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/complete'))
@@ -165,12 +176,17 @@ describe('JarsPage — completion and deletion (W04)', () => {
     await jarAction(user, 'New laptop', 'Mark completed')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
+    expect(dialog.getByText('Mark New laptop completed')).toBeInTheDocument()
+    expect(dialog.getByText('Cover the €20.00 it is below zero first.')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About completing a jar' }))
     expect(
-      dialog.getByText(
+      within(await dialog.findByRole('tooltip')).getByText(
         'New laptop is €20.00 overdrawn. Cover the €20.00 shortfall from another jar or unallocated funds first, then mark it completed.',
       ),
     ).toBeInTheDocument()
     expect(dialog.queryByLabelText('Confirm complete New laptop')).not.toBeInTheDocument()
+    // Only a quiet Close (named "Keep saving") to press.
+    expect(dialog.getByRole('button', { name: 'Keep saving' })).toHaveTextContent('Close')
     expect(mockPost).not.toHaveBeenCalled()
   })
 
@@ -187,8 +203,10 @@ describe('JarsPage — completion and deletion (W04)', () => {
     await user.keyboard('{Escape}')
     await jarAction(user, 'New laptop', 'Reopen')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText('Reopen New laptop?')).toBeInTheDocument()
-    expect(dialog.getByText(/holds €400\.00\. Reopening makes it active again/)).toBeInTheDocument()
+    expect(dialog.getByText('Reopen New laptop')).toBeInTheDocument()
+    expect(dialog.getByText('Contributions are planned again from this month, starting from what it holds.')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About reopening a jar' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/holds €400\.00\. Reopening makes it active again/)).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
     await user.click(dialog.getByLabelText('Confirm reopen New laptop'))
 

@@ -1,11 +1,17 @@
 import type { HouseholdMemberDto } from '../types'
+import { InfoHint } from './InfoHint'
 
-const CHECKBOX = 'h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40'
+/** The group's one word above its rows, with the explanation behind an (i) (the word alone is uppercase). */
+const EYEBROW = 'mb-1 flex items-center gap-1.5 text-xs font-semibold text-slate-500'
+const EYEBROW_WORD = 'tracking-[0.04em] uppercase'
+/** A styled checkbox row (`.dlg-check` draws the box; `dlg-scope` on the group gives it its colours). */
+const ROW = 'dlg-check flex min-h-10 cursor-pointer items-center gap-2.5 text-sm font-medium text-slate-900'
 
 /**
  * W13 (rule 30): who holds an account. None ticked is the household's own account, one is a
  * personal account and two or more a joint one; the account keeps one balance and one history
- * whoever holds it.
+ * whoever holds it. Styled checkbox rows under a "Holders" eyebrow (restyle PR 18); the boxes keep
+ * their names ("Held by Sam", "Sam holds Everyday").
  */
 export function HolderPicker({
   members,
@@ -23,22 +29,24 @@ export function HolderPicker({
   const toggle = (id: string, on: boolean) =>
     onChange(on ? [...value, id] : value.filter((v) => v !== id))
   return (
-    <fieldset className="flex flex-col gap-1.5">
-      <legend className="mb-1 text-xs font-medium text-slate-500">
-        Held by{' '}
-        <span className="font-normal text-slate-400">
-          (none: the household’s own; two or more: a joint account)
+    <fieldset className="dlg-scope m-0 flex min-w-0 flex-col border-0 p-0">
+      <legend className="p-0">
+        <span className={EYEBROW}>
+          <span className={EYEBROW_WORD}>Holders</span>
+          <InfoHint label="About holders">
+            None ticked is the household’s own account, one a personal account, two or more a joint one. The account keeps
+            one balance and one history whoever holds it.
+          </InfoHint>
         </span>
       </legend>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+      <div className="flex flex-wrap gap-x-6 gap-y-0.5">
         {members.map((m) => (
-          <label key={m.id} className="flex items-center gap-2 text-sm text-slate-700">
+          <label key={m.id} className={ROW}>
             <input
               type="checkbox"
               checked={value.includes(m.id)}
               aria-label={accountName ? `${m.name} holds ${accountName}` : `Held by ${m.name}`}
               onChange={(e) => toggle(m.id, e.target.checked)}
-              className={CHECKBOX}
             />
             {m.name}
           </label>
@@ -51,21 +59,18 @@ export function HolderPicker({
 /** The private-account checkbox shown when the caller adds an account only they hold (rule 31). */
 export function PrivateCheckbox({ checked, onChange }: { checked: boolean; onChange: (next: boolean) => void }) {
   return (
-    <label className="flex items-start gap-2 text-sm text-slate-700">
-      <input
-        type="checkbox"
-        checked={checked}
-        aria-label="Keep this account private"
-        onChange={(e) => onChange(e.target.checked)}
-        className={`mt-0.5 ${CHECKBOX}`}
-      />
-      <span>
-        Keep it private
-        <span className="block text-xs text-slate-500">
-          Only you will see it, its balance and its transactions. Money you put on a budget line still shows there. You
-          can share it any time.
-        </span>
+    <div className="dlg-scope flex min-w-0 flex-col">
+      <span className={EYEBROW}>
+        <span className={EYEBROW_WORD}>Privacy</span>
+        <InfoHint label="About keeping it private">
+          Only you will see it, its balance and its transactions. Money you put on a budget line still shows there. You can
+          share it any time.
+        </InfoHint>
       </span>
-    </label>
+      <label className={ROW}>
+        <input type="checkbox" checked={checked} aria-label="Keep this account private" onChange={(e) => onChange(e.target.checked)} />
+        Keep it private
+      </label>
+    </div>
   )
 }

@@ -458,7 +458,7 @@
 - **Preconditions:** EUR budget; import (no import account) a GBP row of 40.00 dated 2026-06-01, assigned to the expense line Groceries.
 - **Steps:**
   1. Commit the import; open `/` (June 2026) and `/transactions`.
-  2. On the row, **Enter amount** → **Suggest** (rate e.g. 1.15) → **Confirm amount** with 46.00.
+  2. On the row, **Enter amount** → **Suggest** (rate e.g. 1.15) → **Save** with 46.00.
   3. Re-open `/`.
 - **Expected:** Step 1: the row stores `amount 40.00, currency GBP, fxPending true` (no rate); Groceries' actual is **unchanged** and the dashboard notice says 1 transaction is waiting for its amount in EUR; the register shows "GBP 40.00" + "Needs EUR amount". Step 2: Suggest fills 46.00 (40 × 1.15, rounded to cents) but saves nothing; Confirm stores `amount 46.00, currency EUR, originalAmount 40.00, originalCurrency GBP`. Step 3: Groceries' actual rises by **€46.00** and the notice is gone. Same-currency (EUR) rows count at once with no lookup. Manual entries never wait (they are entered in EUR — CURR-038).
 - **Automated:** Yes (ForeignAmountsTests — `An_imported_row_in_another_currency_waits_and_nothing_converts_it`, `Confirming_makes_the_row_a_budget_currency_row_and_keeps_the_foreign_figure`; FxPendingAggregatesTests — `BudgetActuals_ExcludePendingRows_AndReportTheCount`, `A_confirmed_amount_counts_on_its_line_and_leaves_the_waiting_count`)
@@ -471,7 +471,7 @@
 - **Steps:**
   1. Import a statement with a GBP row; commit.
   2. On the waiting row, **Enter amount** → **Suggest**.
-  3. Type 46.00 and **Confirm amount**.
+  3. Type 46.00 and **Save**.
 - **Expected:** Step 1: the import succeeds exactly as when the provider is up (no rate is looked up); no 500. Step 2: `GET /transactions/conversion-suggestion` → 200 with `rate: null, suggestedAmount: null`; the modal says "No suggestion is available for GBP on this date. Enter the amount in EUR yourself." Step 3: saved; the row counts at €46.00. Nothing ever counts a foreign figure at face value.
 - **Automated:** Yes (ForeignAmountsTests — `No_rate_means_no_suggestion_and_the_user_types_the_amount`; tests/AllotJar.Application.Tests/Imports/FrankfurterExchangeRateProviderTests.cs; client/src/pages/TransactionsPage.test.tsx — "Enter amount: says so when no suggestion is available and shows a refusal")
 

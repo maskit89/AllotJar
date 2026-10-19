@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { JarCycleDto, JarDto, JarPaymentDto } from '../types'
 
@@ -163,12 +163,19 @@ describe('JarsPage — recurring cycles (W03)', () => {
     await jarAction(user, 'Road tax', 'Mark paid')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
-    expect(dialog.getByText(/Which payment settled the cycle due .*Sep.*2026\?/)).toBeInTheDocument()
+    expect(dialog.getByText('Mark Road tax paid')).toBeInTheDocument()
+    // The question sits behind the title's (i) (restyle PR 18).
+    fireEvent.focus(dialog.getByRole('button', { name: 'About marking paid' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/Which payment settled the cycle due .*Sep.*2026\?/)).toBeInTheDocument()
     // Only the jar's own payments are asked for until the user widens the list.
     expect(mockGet).toHaveBeenCalledWith('/jars/f1/payments')
     const first = await dialog.findByRole('radio', { name: /Transport Malta on .*Sep.*2026, €580\.00/ }, { timeout: 5000 })
     expect(dialog.getByRole('radio', { name: /Insurance Co on .*Aug.*2026, €120\.00/ })).toBeInTheDocument()
-    expect(dialog.getAllByText('From this jar')).toHaveLength(2)
+    // "From this jar" is a status chip in the outline tone, one per row, with the amount beside it.
+    const chips = dialog.getAllByText('From this jar')
+    expect(chips).toHaveLength(2)
+    chips.forEach((chip) => expect(chip).toHaveAttribute('data-tone', 'line'))
+    expect(dialog.getByText('€580.00')).toBeInTheDocument()
     // Nothing can be confirmed until a payment is chosen (rule 83: the user picks, never the app).
     expect(dialog.getByLabelText('Confirm Road tax paid')).toBeDisabled()
 
@@ -221,6 +228,8 @@ describe('JarsPage — recurring cycles (W03)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     expect(await dialog.findByText(/No payments from Road tax yet\./, {}, { timeout: 5000 })).toBeInTheDocument()
+    // The empty list's one line and its quiet way out, to the Transactions page.
+    expect(dialog.getByRole('link', { name: 'Record the payment first' })).toHaveAttribute('href', '/transactions')
     await user.click(dialog.getByLabelText('Show payments from other accounts'))
 
     await waitFor(() => expect(mockGet).toHaveBeenCalledWith('/jars/f1/payments?all=true'), { timeout: 5000 })
@@ -249,11 +258,20 @@ describe('JarsPage — recurring cycles (W03)', () => {
     await jarAction(user, 'Road tax', "Dismiss Road tax's missed deadline")
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
-    expect(dialog.getByText('Move Road tax on to its next cycle?')).toBeInTheDocument()
-    expect(dialog.getByText(/Road tax missed its deadline on .*Sep.*2026 — €150\.00 short\./)).toBeInTheDocument()
-    expect(dialog.getByText(/Dismissing keeps the €450\.00 it holds for the next cycle, records nothing as paid/)).toBeInTheDocument()
-    // The way out for a bill that was in fact paid.
+    // A short title and one line naming the next cycle; the explanation behind the (i) (restyle PR 18).
+    expect(dialog.getByText('Move Road tax to its next cycle')).toBeInTheDocument()
+    expect(dialog.getByText(/^What it holds carries to the cycle due .*Sep.*2027; nothing is recorded as paid\.$/)).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About moving on' }))
+    const hint = within(await dialog.findByRole('tooltip'))
+    expect(hint.getByText(/Road tax missed its deadline on .*Sep.*2026 — €150\.00 short\./)).toBeInTheDocument()
+    expect(hint.getByText(/Dismissing keeps the €450\.00 it holds for the next cycle, records nothing as paid/)).toBeInTheDocument()
+    // The way out for a bill that was in fact paid: the quiet action at the footer's left, before Cancel and the one primary.
     expect(dialog.getByRole('button', { name: 'Mark the cycle paid' })).toBeInTheDocument()
+    expect(dialog.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent).slice(-3)).toEqual([
+      'Mark the cycle paid',
+      'Keep the missed deadline',
+      "Dismiss Road tax's missed deadline",
+    ])
 
     // Cancel leaves the notice in place.
     await user.click(dialog.getByLabelText('Keep the missed deadline'))
@@ -303,8 +321,11 @@ describe('JarsPage — recurring cycles (W03)', () => {
     await user.click(screen.getByRole('menuitem', { name: /^Record the payment for Road tax's cycle due .*Sep.*2026$/ }))
 
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/Which payment settled the cycle due .*Sep.*2026\?/)).toBeInTheDocument()
-    expect(dialog.getByText(/This only records the payment against that cycle; nothing is moved\./)).toBeInTheDocument()
+    // The closed cycle's question sits behind the title's (i) (restyle PR 18).
+    fireEvent.focus(dialog.getByRole('button', { name: 'About marking paid' }))
+    const hint = within(await dialog.findByRole('tooltip'))
+    expect(hint.getByText(/Which payment settled the cycle due .*Sep.*2026\?/)).toBeInTheDocument()
+    expect(hint.getByText(/This only records the payment against that cycle; nothing is moved\./)).toBeInTheDocument()
     await user.click(await dialog.findByRole('radio', { name: /Transport Malta/ }, { timeout: 5000 }))
     await user.click(dialog.getByLabelText('Confirm Road tax paid'))
 
@@ -349,13 +370,16 @@ describe('JarsPage — recurring cycles (W03)', () => {
     expect(screen.getByText('€150.00 short')).toBeInTheDocument()
     await jarAction(user, 'Road tax', "Dismiss Road tax's missed deadline")
     let dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/^Road tax missed its Sep 2026 deadline — €150\.00 short\./)).toBeInTheDocument()
+    expect(dialog.getByText('What it holds carries to the cycle due Sep 2027; nothing is recorded as paid.')).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About moving on' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/^Road tax missed its Sep 2026 deadline — €150\.00 short\./)).toBeInTheDocument()
     await user.click(dialog.getByLabelText('Keep the missed deadline'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
 
     await jarAction(user, 'Road tax', 'Mark paid')
     dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/Which payment settled the cycle due Sep 2026\?/)).toBeInTheDocument()
+    fireEvent.focus(dialog.getByRole('button', { name: 'About marking paid' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/Which payment settled the cycle due Sep 2026\?/)).toBeInTheDocument()
   })
 
   it('JAR-121: funded late and the last cycle, for a jar due in a month', async () => {

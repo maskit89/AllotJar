@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { Button, ErrorBanner } from '../ui'
 import { Modal } from '../Modal'
+import { DIALOG_ACTIONS_SPLIT, DIALOG_BODY, DIALOG_CANCEL, DIALOG_PRIMARY, DIALOG_QUIET } from '../settings/parts'
 import { api } from '../../lib/api'
 import type { JarDto } from '../../types'
 import { formatMoney, fromAmount } from '../../lib/money'
 import { formatDate } from '../../lib/dates'
-import { jarDate } from '../../lib/jarStatus'
+import { jarDate, nextCycleDeadline } from '../../lib/jarStatus'
 import { serverErrors } from '../../lib/serverErrors'
 
 export interface DismissCycleModalProps {
@@ -23,6 +24,11 @@ export interface DismissCycleModalProps {
  * Rule 20: dismissing the Deadline-missed notice moves the jar on to its next due date. The
  * money it holds carries into that cycle (rule 19), nothing is recorded as paid and no
  * shortfall is made up; the cycle is closed as missed (or funded late, rule 57).
+ *
+ * A sheet dialog (restyle PR 18): a short title, one line naming the next due date, the
+ * explanation behind the (i); "Mark the cycle paid" (the way out for a bill that was in fact
+ * paid) as the quiet action at the footer's left, Cancel and the one primary "Move on". The
+ * request (`POST /jars/{id}/cycles/dismiss { deadline }`) is unchanged.
  */
 export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkPaidInstead }: DismissCycleModalProps) {
   const [error, setError] = useState<string | null>(null)
@@ -31,7 +37,7 @@ export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkP
   const short = fromAmount(jar.shortfall ?? 0)
 
   async function submit() {
-    if (!jar.deadline) return
+    if (!jar.deadline || saving) return
     setSaving(true)
     setError(null)
     try {
@@ -52,36 +58,51 @@ export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkP
       : jar.status === 'FundedLate'
         ? `the deadline on ${formatDate(jar.deadline)}`
         : `its deadline on ${formatDate(jar.deadline)}`
+  // The cycle the jar moves on to, as the server sets it: stepped from the jar's anchor date (rule 62).
+  const step = jar.recurMonths && jar.recurMonths > 0 ? jar.recurMonths : 12
+  const next =
+    jar.deadline && jar.targetDate
+      ? `the cycle due ${jarDate(nextCycleDeadline(jar.targetDate, jar.deadline, step), jar.monthOnly)}`
+      : 'its next cycle'
 
   return (
-    <Modal title={`Move ${jar.name} on to its next cycle?`} onClose={onClose}>
+    <Modal
+      sheet
+      title={`Move ${jar.name} to its next cycle`}
+      hint={
+        <>
+          <p>
+            {jar.status === 'FundedLate'
+              ? `${jar.name} reached its target after ${deadline}.`
+              : `${jar.name} missed ${deadline}${short > 0 ? ` — ${formatMoney(short, currency)} short` : ''}.`}{' '}
+            Dismissing keeps {balance === null ? 'what it holds' : `the ${formatMoney(balance, currency)} it holds`} for the next cycle, records
+            nothing as paid and makes up no shortfall; the jar simply saves toward its next due date.
+          </p>
+          <p className="mt-2">Paid the bill? Mark the cycle paid and choose the payment instead.</p>
+        </>
+      }
+      hintLabel="About moving on"
+      onClose={onClose}
+      footer={
+        <div className={DIALOG_ACTIONS_SPLIT}>
+          <Button variant="ghost" onClick={onMarkPaidInstead} disabled={saving} className={DIALOG_QUIET}>
+            Mark the cycle paid
+          </Button>
+          <Button variant="ghost" onClick={onClose} aria-label="Keep the missed deadline" className={DIALOG_CANCEL}>
+            Cancel
+          </Button>
+          <Button onClick={submit} aria-disabled={saving || undefined} aria-label={`Dismiss ${jar.name}'s missed deadline`} className={DIALOG_PRIMARY}>
+            {saving ? 'Saving…' : 'Move on'}
+          </Button>
+        </div>
+      }
+    >
       {error && (
         <div className="mb-3">
           <ErrorBanner>{error}</ErrorBanner>
         </div>
       )}
-      <p className="text-sm text-slate-600">
-        {jar.status === 'FundedLate'
-          ? `${jar.name} reached its target after ${deadline}.`
-          : `${jar.name} missed ${deadline}${short > 0 ? ` — ${formatMoney(short, currency)} short` : ''}.`}{' '}
-        Dismissing keeps {balance === null ? 'what it holds' : `the ${formatMoney(balance, currency)} it holds`} for the next cycle, records nothing as paid
-        and makes up no shortfall; the jar simply saves toward its next due date.
-      </p>
-      <p className="mt-2 text-sm text-slate-600">
-        Paid the bill?{' '}
-        <button type="button" onClick={onMarkPaidInstead} className="font-semibold text-brand-700 underline dark:text-brand-200">
-          Mark the cycle paid
-        </button>{' '}
-        and choose the payment instead.
-      </p>
-      <div className="mt-4 flex justify-end gap-2">
-        <Button variant="ghost" onClick={onClose} aria-label="Keep the missed deadline">
-          Cancel
-        </Button>
-        <Button onClick={submit} disabled={saving} aria-label={`Dismiss ${jar.name}'s missed deadline`}>
-          {saving ? 'Saving…' : 'Move on'}
-        </Button>
-      </div>
+      <p className={DIALOG_BODY}>What it holds carries to {next}; nothing is recorded as paid.</p>
     </Modal>
   )
 }

@@ -1,18 +1,28 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Modal } from './Modal'
-import { Button, ErrorBanner, Input } from './ui'
+import { Button, ErrorBanner } from './ui'
+import { DIALOG_ACTIONS, DIALOG_BODY, DIALOG_CANCEL, DIALOG_FIELD_LABEL, DIALOG_PRIMARY } from './settings/parts'
 import { api } from '../lib/api'
 import { fetchConversionSuggestion, formatForeign, suggestionHint } from '../lib/conversion'
-import { fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
+import { currencySymbol, fromAmount, parseMinor, toAmount, toEditString, tooPrecise, TOO_MANY_DECIMALS } from '../lib/money'
 import { formatDate } from '../lib/dates'
 import { selectOnFocusProps } from '../lib/selectOnFocus'
 import { serverErrors } from '../lib/serverErrors'
 import type { ConversionSuggestionDto, TransactionDto } from '../types'
 
+/** The quiet Suggest beside the field: a text button at the field's height. */
+const SUGGEST_BUTTON = 'h-10 shrink-0 rounded-[10px]! px-3! text-slate-500! max-[699.98px]:h-11 dark:hover:bg-foreground/7'
+
 /**
  * "Enter amount" for a transaction recorded in another currency (fxPending): the user types the
  * amount in the budget currency, or asks for a suggestion and edits it. Suggest saves nothing;
- * only Confirm amount does, and the row then counts like any other.
+ * only Save does, and the row then counts like any other.
+ *
+ * A sheet dialog (restyle PR 18): one line saying what was paid, the explanation behind the
+ * title's (i), the amount as the dialogs' amount field with the quiet Suggest beside it and the
+ * suggestion's note under it, Cancel and the one primary "Save". The requests
+ * (`GET /transactions/conversion-suggestion`, `PUT /transactions/{id}/converted-amount { amount }`)
+ * are unchanged.
  */
 export function ConvertedAmountModal({
   transaction: t,
@@ -25,6 +35,7 @@ export function ConvertedAmountModal({
   onClose: () => void
   onConfirmed: (updated: TransactionDto) => void
 }) {
+  const id = useId()
   const [amount, setAmount] = useState('')
   const [suggestion, setSuggestion] = useState<ConversionSuggestionDto | null>(null)
   const [suggesting, setSuggesting] = useState(false)
@@ -69,52 +80,70 @@ export function ConvertedAmountModal({
     }
   }
 
+  const hintId = `${id}-hint`
+
   return (
-    <Modal title={`Amount in ${budgetCurrency}`} onClose={onClose}>
-      <div className="space-y-3">
-        <p className="text-sm text-slate-600">
-          <span className="font-semibold text-slate-900">{t.payee || 'This transaction'}</span> was{' '}
-          {formatForeign(t.amount, t.currency)} on {formatDate(t.date)}. Enter what it cost in {budgetCurrency}.
-          It isn’t counted anywhere until you confirm.
-          {t.accountId && ` ${t.accountName ?? 'Its account'} keeps its ${t.currency} amount; the budget counts yours.`}
-        </p>
-        {error && <ErrorBanner>{error}</ErrorBanner>}
-        <div className="flex items-end gap-2">
-          <label className="flex flex-1 flex-col gap-1 text-xs font-medium text-slate-500">
+    <Modal
+      sheet
+      title={`Amount in ${budgetCurrency}`}
+      hint={`Enter what it cost in ${budgetCurrency}. It isn’t counted anywhere until you save it.${
+        t.accountId ? ` ${t.accountName ?? 'Its account'} keeps its ${t.currency} amount; the budget counts yours.` : ''
+      } Suggest fills in the European Central Bank reference rate for that day, for you to check; it saves nothing.`}
+      hintLabel="About the amount"
+      onClose={onClose}
+      footer={
+        <div className={DIALOG_ACTIONS}>
+          <Button variant="ghost" onClick={onClose} className={DIALOG_CANCEL}>
+            Cancel
+          </Button>
+          <Button onClick={confirm} disabled={amount.trim() === ''} aria-disabled={saving || undefined} className={DIALOG_PRIMARY}>
+            {saving ? 'Saving…' : 'Save'}
+          </Button>
+        </div>
+      }
+    >
+      {error && (
+        <div className="mb-3">
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
+      )}
+      <p className={DIALOG_BODY}>
+        <span className="font-semibold text-slate-900">{t.payee || 'This transaction'}</span> was {formatForeign(t.amount, t.currency)} on{' '}
+        {formatDate(t.date)}.
+      </p>
+      <div className="mt-4 flex items-end gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <label htmlFor={id} className={DIALOG_FIELD_LABEL}>
             Amount in {budgetCurrency}
-            <Input
+          </label>
+          {/* The whole field is a target: a press beside the figure still reaches the input. */}
+          <label className="dlg-in">
+            <span aria-hidden>{currencySymbol(budgetCurrency)}</span>
+            <input
+              id={id}
               type="text"
               inputMode="decimal"
               {...selectOnFocusProps}
               value={amount}
               placeholder="0.00"
               aria-label={`Amount in ${budgetCurrency}`}
-              aria-describedby={suggestion ? 'converted-amount-hint' : undefined}
+              aria-describedby={suggestion ? hintId : undefined}
               onChange={(e) => setAmount(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirm()
               }}
-              className="w-full text-right tabular-nums"
             />
           </label>
-          <Button variant="secondary" onClick={suggest} disabled={suggesting || saving}>
-            {suggesting ? 'Suggesting…' : 'Suggest'}
-          </Button>
         </div>
-        {suggestion && (
-          <p id="converted-amount-hint" role="status" className="text-xs text-slate-500">
-            {suggestionHint(suggestion)}
-          </p>
-        )}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button onClick={confirm} disabled={saving || amount.trim() === ''}>
-            {saving ? 'Saving…' : 'Confirm amount'}
-          </Button>
-        </div>
+        <Button variant="ghost" onClick={suggest} disabled={suggesting || saving} className={SUGGEST_BUTTON}>
+          {suggesting ? 'Suggesting…' : 'Suggest'}
+        </Button>
       </div>
+      {suggestion && (
+        <p id={hintId} role="status" className="mt-2 text-[13px] leading-normal text-slate-500">
+          {suggestionHint(suggestion)}
+        </p>
+      )}
     </Modal>
   )
 }

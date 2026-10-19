@@ -21,6 +21,29 @@ export const DIALOG_CANCEL = `${DIALOG_BUTTON} px-3.5! text-slate-500! dark:hove
 /** A dialog's main action, the green of the page's one primary button. */
 export const DIALOG_PRIMARY = `${DIALOG_BUTTON} min-w-[104px] px-[18px]! shadow-[0_1px_2px_rgb(10_50_30/0.2),inset_0_1px_0_rgb(255_255_255/0.12)] dark:bg-primary dark:hover:bg-brand-600`
 
+/**
+ * A dialog's footer with a quiet action at its left (the jar dialogs, restyle PR 18: the other way
+ * out, such as archiving from the skip dialog). On a phone the quiet action takes a line of its own
+ * above the pair, so the pair never wraps.
+ */
+export const DIALOG_ACTIONS_SPLIT = 'flex items-center justify-end gap-2 pt-4 max-[699.98px]:flex-wrap max-[699.98px]:gap-2.5 max-[699.98px]:pt-[18px]'
+
+/** The quiet text action at a split footer's left. */
+export const DIALOG_QUIET =
+  'mr-auto h-10 rounded-[10px]! px-2.5! text-slate-500! max-[699.98px]:-ml-2.5 max-[699.98px]:h-11 max-[699.98px]:flex-[1_1_100%] max-[699.98px]:justify-start dark:hover:bg-foreground/7'
+
+/** A dialog's one action in the bad tone, tinted (not solid) to keep the sheet calm: Archive jar. */
+export const DIALOG_BAD = `${DIALOG_BUTTON} inline-flex min-w-[104px] items-center justify-center px-[18px] text-sm font-semibold transition disabled:pointer-events-none disabled:opacity-50 bg-bad-bg text-bad shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-bad)_28%,transparent)] hover:bg-[color-mix(in_srgb,var(--color-bad)_10%,var(--color-bad-bg))]`
+
+/** A dialog's one line of body under its title (the explanation sits behind the title's (i)). */
+export const DIALOG_BODY = '-mt-1 text-sm leading-normal text-slate-500'
+
+/** A dialog's field label (the Allocation dialogs' labels). */
+export const DIALOG_FIELD_LABEL = 'flex min-h-[22px] items-center gap-1 text-[13px] font-semibold text-slate-500'
+
+/** A dialog's compact panel in the field colour: a list of choices, or a preview (the Import dialogs' panels). */
+export const DIALOG_PANEL = 'rounded-xl bg-[var(--dlg-field)] shadow-[inset_0_0_0_1px_var(--color-line)]'
+
 /** The page's one primary button, Save (the mock-ups' `.btn`): 38px, full width and 44px on a phone. */
 export const SAVE_BUTTON =
   'h-[38px] rounded-[10px]! px-4! shadow-[0_1px_2px_rgb(10_50_30/0.2),inset_0_1px_0_rgb(255_255_255/0.12)] max-[699.98px]:h-11 max-[699.98px]:w-full dark:bg-primary dark:hover:bg-brand-600'

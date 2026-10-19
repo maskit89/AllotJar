@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AccountDto, BudgetMonthDto, HouseholdMemberDto, TransactionDto } from '../types'
 
@@ -669,9 +669,11 @@ describe('TransactionsPage currency conversion (W08)', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Enter amount in EUR: London Cab' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByText(/UK Current keeps its GBP amount/)).toBeInTheDocument()
+    // What the account keeps sits behind the title's (i) (restyle PR 18).
+    fireEvent.focus(dialog.getByRole('button', { name: 'About the amount' }))
+    expect(within(await dialog.findByRole('tooltip')).getByText(/UK Current keeps its GBP amount/)).toBeInTheDocument()
     await user.type(dialog.getByLabelText('Amount in EUR'), '14.80')
-    await user.click(dialog.getByRole('button', { name: 'Confirm amount' }))
+    await user.click(dialog.getByRole('button', { name: 'Save' }))
 
     expect(mockPut).toHaveBeenCalledWith('/transactions/t-fx/converted-amount', { amount: 14.8 })
     expect(await screen.findByText('Counts as €14.80', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -692,7 +694,10 @@ describe('TransactionsPage currency conversion (W08)', () => {
 
     await user.click(await screen.findByRole('button', { name: 'Enter amount in EUR: London Cab' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    expect(dialog.getByRole('heading', { name: 'Amount in EUR' })).toBeInTheDocument()
     expect(dialog.getByText(/GBP 12\.50 on/)).toBeInTheDocument()
+    // Suggest is the quiet button beside the field; Save the one primary (restyle PR 18).
+    expect(dialog.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent).slice(-3)).toEqual(['Suggest', 'Cancel', 'Save'])
 
     await user.click(dialog.getByRole('button', { name: 'Suggest' }))
     const field = dialog.getByLabelText('Amount in EUR') as HTMLInputElement
@@ -707,7 +712,7 @@ describe('TransactionsPage currency conversion (W08)', () => {
     // The user's own figure is kept as typed.
     await user.clear(field)
     await user.type(field, '14.8')
-    await user.click(dialog.getByRole('button', { name: 'Confirm amount' }))
+    await user.click(dialog.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t-fx/converted-amount', { amount: 14.8 }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -736,7 +741,7 @@ describe('TransactionsPage currency conversion (W08)', () => {
     expect((dialog.getByLabelText('Amount in EUR') as HTMLInputElement).value).toBe('')
 
     await user.type(dialog.getByLabelText('Amount in EUR'), '15')
-    await user.click(dialog.getByRole('button', { name: 'Confirm amount' }))
+    await user.click(dialog.getByRole('button', { name: 'Save' }))
     expect(await dialog.findByText('This transaction is not waiting for an amount.')).toBeInTheDocument()
   })
 
