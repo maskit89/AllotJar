@@ -20,7 +20,7 @@ export interface DismissCycleModalProps {
   onMarkPaidInstead: () => void
 }
 
-/** The due date `months` after `iso` (a day past the end of the month lands on its last day). */
+/** The date `months` after `iso` (a day past the end of the month lands on its last day). */
 function monthsLater(iso: string, months: number): string {
   const [y, m, d] = iso.split('-').map(Number)
   const total = y * 12 + (m - 1) + months
@@ -28,6 +28,20 @@ function monthsLater(iso: string, months: number): string {
   const month = (total % 12) + 1
   const last = new Date(Date.UTC(year, month, 0)).getUTCDate()
   return `${year}-${String(month).padStart(2, '0')}-${String(Math.min(d, last)).padStart(2, '0')}`
+}
+
+/**
+ * The cycle deadline the server moves the jar to (JarSchedule.NextCycleDeadline): the first
+ * `anchor + k·step` months after `after`, stepped from the anchor so a clamped month does not stay
+ * clamped (rule 62: 31 Jan → 28 Feb → 31 Mar). Exported for its unit test.
+ */
+export function nextCycleDeadline(anchor: string, after: string, step: number): string {
+  const [ay, am] = anchor.split('-').map(Number)
+  const [y, m] = after.split('-').map(Number)
+  let cycles = Math.max(0, Math.floor(((y - ay) * 12 + (m - am)) / step))
+  let next = monthsLater(anchor, cycles * step)
+  while (next <= after) next = monthsLater(anchor, ++cycles * step)
+  return next
 }
 
 /**
@@ -68,8 +82,12 @@ export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkP
       : jar.status === 'FundedLate'
         ? `the deadline on ${formatDate(jar.deadline)}`
         : `its deadline on ${formatDate(jar.deadline)}`
-  // The cycle the jar moves on to: one cadence after the missed deadline (the pure view, rule 20).
-  const next = jar.deadline ? `the cycle due ${jarDate(monthsLater(jar.deadline, jar.recurMonths ?? 12), jar.monthOnly)}` : 'its next cycle'
+  // The cycle the jar moves on to, as the server sets it: stepped from the jar's anchor date (rule 62).
+  const step = jar.recurMonths && jar.recurMonths > 0 ? jar.recurMonths : 12
+  const next =
+    jar.deadline && jar.targetDate
+      ? `the cycle due ${jarDate(nextCycleDeadline(jar.targetDate, jar.deadline, step), jar.monthOnly)}`
+      : 'its next cycle'
 
   return (
     <Modal

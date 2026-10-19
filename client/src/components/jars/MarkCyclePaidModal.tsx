@@ -121,7 +121,8 @@ export function MarkCyclePaidModal({ jar, deadline, currency, onClose, onMarked 
             </Link>
           </div>
         ) : (
-          <ul>
+          // Capped, so "Show payments from other accounts" stays in reach under a long list.
+          <ul className="max-h-72 overflow-y-auto overscroll-contain">
             {payments.map((p) => {
               const chosen = selected === p.id
               return (
