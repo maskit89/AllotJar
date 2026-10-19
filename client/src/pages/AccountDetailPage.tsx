@@ -466,7 +466,6 @@ export function AccountDetailPage() {
     // On an in-app change of account the title reads Loading… until the new one is in, never the
     // name of the account left (#344 P3-6).
     <AppShell
-      list
       active="accounts"
       title={shownAccount?.name ?? (account && loading ? 'Loading…' : 'Account')}
       back={{ to: '/accounts', label: 'Accounts' }}
