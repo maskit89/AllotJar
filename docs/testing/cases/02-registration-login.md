@@ -14,7 +14,7 @@
   1. Load `/login` and wait for the auth bootstrap splash to clear (cold load 401s the cookie refresh).
   2. Inspect the page.
 - **Expected:**
-  - Staging banner (`role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (staging build only), a strip across the top of the page above the green room.
+  - Staging banner (`role="status"`, one line on the warn tone): "Staging · test data, may be reset" (staging build only), a strip across the top of the page above the green room.
   - Desktop: a green room across the top holds the wordmark (jar logo + "AllotJar", not a heading) at its left, the round **Dark mode** button (`aria-pressed`, a moon in light, a sun in dark) at its right, and the one line "Give every euro a job." with the money word in gold (euro always, whatever the locale, since restyle PR 16 — the app is euro-first, as the landing page already read; see REG-031), over a shelf of four glass jars, two each side of the card (decoration, hidden from assistive tech; under 1180px wide only the two inner jars, under 1000px no shelf). Phone (under 700px wide): the wordmark row, the button and the line in a compact green band with a small shelf of the same four jars, and the card a sheet with rounded top corners from under the band to the bottom of the screen. No tagline "Zero-based budgeting, in your currency." and no Light/Dark "Theme" group (both gone).
   - The off-white card with a gold hairline edge. The page's only heading is a visually hidden h1 "Sign in to AllotJar".
   - At the top of the card, the full-width switch (`role="group"`, `aria-label="Sign in or create an account"`), options "Sign in" (pressed) and "Create account".
@@ -614,7 +614,7 @@
   1. Complete registration and observe the first authenticated render.
   2. Sign out, sign back in, observe again.
 - **Expected:**
-  - The blocking ConsentModal ("One thing before you start") never appears — `Register` sets `ConsentedUtc` at creation, so `needsConsent` is false. (The modal exists for owner-created/legacy logins — households & people file.) The onboarding welcome dialog *may* appear instead (routing & app shell file).
+  - The blocking ConsentModal ("Accept the terms") never appears — `Register` sets `ConsentedUtc` at creation, so `needsConsent` is false. (The modal exists for owner-created/legacy logins — households & people file.) The onboarding welcome dialog *may* appear instead (routing & app shell file).
 - **Automated:** Partial (client/src/components/ConsentModal.test.tsx — hidden for consented logins; the register-sets-consent linkage is untested)
 
 ### REG-049 - A brand-new registrant is a solo Owner with the matching shell state

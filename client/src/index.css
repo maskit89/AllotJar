@@ -175,6 +175,14 @@
     --tabbar-h: calc(60px + max(14px, env(safe-area-inset-bottom)));
   }
 }
+/* The app frame's sidebar width (AppShell, 900px and up; 0 where there is none), so a bar fixed
+   over the foot of the screen (the analytics consent banner) keeps to the content column and never
+   covers the sidebar's Help item. */
+@media (min-width: 900px) {
+  :root:has([data-sidebar]) {
+    --sidebar-w: 248px;
+  }
+}
 
 /* Enables `dark:` utilities to key off a `.dark` class on <html>. */
 @custom-variant dark (&:where(.dark, .dark *));
@@ -1484,6 +1492,11 @@ html {
 .dlg-check input:focus-visible {
   outline: 2px solid var(--color-ring);
   outline-offset: 2px;
+}
+/* A box that cannot be ticked (an account a jar uses, in the sharing review): dimmed, not a hand. */
+.dlg-check input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 /* Recorded while unticked: the box takes the message's colour until it is ticked. */
 .dlg-check input[aria-invalid='true'] {

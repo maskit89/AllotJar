@@ -206,7 +206,7 @@
 - **Origin:** PR #156/#158 consent-gap work — `ConsentModal` suppresses itself on `/terms` and `/privacy` (ConsentModal.tsx path check)
 - **Preconditions:** A login with `needsConsent = true` from `/auth/me` (e.g. an owner-created login that has never agreed to terms), signed in.
 - **Steps:**
-  1. Land anywhere in the app; confirm the blocking dialog "One thing before you start" is up.
+  1. Land anywhere in the app; confirm the blocking dialog "Accept the terms" is up.
   2. Click its "Terms of Service" link (opens `/terms`).
   3. Navigate to `/privacy` in the same tab.
   4. Return to `/`.
@@ -452,7 +452,7 @@
   3. Sign in and inspect the app shell.
   4. Fetch `/` without JavaScript and search the raw HTML.
 - **Expected:**
-  - A sticky amber strip with `role="status"` reads exactly: "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." It stays pinned on scroll.
+  - A sticky strip on the warn tone with `role="status"` reads exactly: "Staging · test data, may be reset" It stays pinned on scroll.
   - Present on the landing, on `/login`, and above `<main>` in the authed shell.
   - Step 4: the banner markup is inside the prerendered landing HTML (StagingBanner is SSR-safe and included in the staging prerender).
 - **Automated:** Partial (client/src/components/StagingBanner.test.tsx — staging variant text; the staging build is not exercised in CI e2e, no prerender assertion)

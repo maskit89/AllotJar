@@ -52,7 +52,7 @@
   1. Observe the toolbar; attempt to record a transfer.
 - **Expected:**
   - No **"+ Add transaction"** button (rendered only when `canEnterData`, i.e. Limited+), so the modal and transfer form are unreachable.
-  - The AppShell shows the read-only banner "You have read-only access — you can view everything but cannot make changes." Any direct `POST /api/transactions/transfer` would 403 (see TRF-039).
+  - The AppShell shows the read-only banner "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access") Any direct `POST /api/transactions/transfer` would 403 (see TRF-039).
 - **Automated:** Partial (client/src/pages/RoleGating.test.tsx — ReadOnly hides transaction-entry controls)
 
 ## Recording a transfer

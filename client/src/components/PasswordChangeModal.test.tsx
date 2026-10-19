@@ -37,8 +37,7 @@ describe('PasswordChangeModal', () => {
     mockGet.mockResolvedValue(me(true))
     renderModal()
 
-    const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveTextContent(/Choose your own password/)
+    const dialog = await screen.findByRole('dialog', { name: 'Choose a new password' })
     expect(dialog).toHaveTextContent(/emailed to sam@x\.com/)
     // No way to type a new password here: whoever set the temporary one could do that (P2-1).
     expect(dialog.querySelector('input')).toBeNull()
@@ -56,10 +55,10 @@ describe('PasswordChangeModal', () => {
     const user = userEvent.setup()
     renderModal()
 
-    await user.click(await screen.findByRole('button', { name: 'Email me the link again' }))
+    await user.click(await screen.findByRole('button', { name: 'Email me the link' }))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/password-link'))
-    expect(await screen.findByRole('status')).toHaveTextContent(/sent a new link/)
+    expect(await screen.findByRole('status')).toHaveTextContent('A new link is on its way, valid for 2 hours.')
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
@@ -74,18 +73,44 @@ describe('PasswordChangeModal', () => {
     const user = userEvent.setup()
     renderModal()
 
-    await user.click(await screen.findByRole('button', { name: 'Email me the link again' }))
+    await user.click(await screen.findByRole('button', { name: 'Email me the link' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent("We couldn't send the email just now.")
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 
-  it('offers sign-out as the only alternative', async () => {
+  it('offers sign-out as the only alternative: no close control, and Escape or the scrim do nothing', async () => {
     mockGet.mockResolvedValue(me(true))
+    const user = userEvent.setup()
     renderModal()
 
-    await screen.findByRole('dialog')
+    const dialog = await screen.findByRole('dialog')
     expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /close|dismiss/i })).not.toBeInTheDocument()
+    // Focus opens on the primary (there is no close control to land on).
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Email me the link' })).toHaveFocus())
+    await user.keyboard('{Escape}')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    await user.click(dialog.parentElement!.querySelector('[aria-hidden]')!)
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    // The why sits behind the (i); the body is one line naming the address.
+    await user.hover(screen.getByRole('button', { name: 'Why you are asked' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent(/valid for 2 hours/)
+  })
+
+  it('sends one email when the button is pressed twice while it is sending', async () => {
+    mockGet.mockResolvedValue(me(true))
+    let finish: (v: unknown) => void = () => {}
+    mockPost.mockReturnValue(new Promise((resolve) => (finish = resolve)))
+    const user = userEvent.setup()
+    renderModal()
+
+    const send = await screen.findByRole('button', { name: 'Email me the link' })
+    await waitFor(() => expect(send).toHaveFocus())
+    await user.keyboard('{Enter}')
+    await user.keyboard('{Enter}')
+    await user.click(screen.getByRole('button', { name: 'Sending…' }))
+    expect(mockPost.mock.calls.filter(([url]) => url === '/auth/password-link')).toHaveLength(1)
+    finish({ data: {} })
   })
 })

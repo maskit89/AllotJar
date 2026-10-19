@@ -452,7 +452,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     renderPage()
 
-    expect(await screen.findByText(/read-only access/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByText(/Read-only access/, {}, { timeout: 5000 })).toBeInTheDocument()
     const saveBtn = screen.getByRole('button', { name: 'Save preferences' })
     expect(saveBtn).toBeEnabled()
     expect(screen.getByRole('button', { name: 'Change password' })).toBeEnabled()

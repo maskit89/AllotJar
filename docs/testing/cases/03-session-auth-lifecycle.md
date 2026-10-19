@@ -171,7 +171,7 @@
   1. As owner, change the member's role to "Read-only" on `/people`.
   2. On device B (member), let the access token lapse, then trigger any API call (or refocus the tab) so a silent refresh runs.
 - **Expected:**
-  - After the refresh, `sessionHandlers.refreshed` re-applies the session → the token change refires `GET /auth/me` → the client adopts role 3: read-only banner "You have read-only access — you can view everything but cannot make changes." appears and edit controls disappear, with no hard reload.
+  - After the refresh, `sessionHandlers.refreshed` re-applies the session → the token change refires `GET /auth/me` → the client adopts role 3: read-only banner "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access") appears and edit controls disappear, with no hard reload.
   - (Server-side the downgrade was already enforced per request from the moment of the change.)
 - **Automated:** Partial (client/src/lib/api.test.ts — refreshed-handler notification keeps AuthContext in sync; the end-to-end role swap is manual)
 
@@ -538,12 +538,12 @@
 
 ## Gap-fill additions
 
-*Session-side surfaces of the blocking ConsentModal. The modal's rendering, its "I agree" success path, z-order/suppression, and where it appears are owned by the households & people file (ONBD-006, UX-047, LAND-015 and journey checkpoints); these two cases cover only the parts that are pure session lifecycle: the modal keeping an authenticated-but-blocked session stuck when the consent POST fails, and its "Sign out" button being a second `logout()` exit (the same `useAuth().logout` behind SESS-037). Test login: a login whose `ConsentedUtc` is null so `/auth/me` returns `needsConsent: true` — e.g. an owner-created member login with a temporary password, or a direct-invite login on its first sign-in — which lands on the non-dismissible "One thing before you start" dialog immediately after signing in. Registration and invite-link acceptance record consent up front, so `owner@example.com` never hits this.*
+*Session-side surfaces of the blocking ConsentModal. The modal's rendering, its "I agree" success path, z-order/suppression, and where it appears are owned by the households & people file (ONBD-006, UX-047, LAND-015 and journey checkpoints); these two cases cover only the parts that are pure session lifecycle: the modal keeping an authenticated-but-blocked session stuck when the consent POST fails, and its "Sign out" button being a second `logout()` exit (the same `useAuth().logout` behind SESS-037). Test login: a login whose `ConsentedUtc` is null so `/auth/me` returns `needsConsent: true` — e.g. an owner-created member login with a temporary password, or a direct-invite login on its first sign-in — which lands on the non-dismissible "Accept the terms" dialog immediately after signing in. Registration and invite-link acceptance record consent up front, so `owner@example.com` never hits this.*
 
 ### SESS-041 - Consent POST failure shows the exact error banner and keeps the session blocked
 - **Priority:** P2
 - **Type:** Negative
-- **Preconditions:** Signed in as a `needsConsent` login (see section note), sitting on the blocking ConsentModal ("One thing before you start"). Devtools open with the ability to make `POST /api/auth/consent` fail — request-block it to a 500, or set the network to Offline for the click.
+- **Preconditions:** Signed in as a `needsConsent` login (see section note), sitting on the blocking ConsentModal ("Accept the terms"). Devtools open with the ability to make `POST /api/auth/consent` fail — request-block it to a 500, or set the network to Offline for the click.
 - **Steps:**
   1. With the modal showing, arrange for `POST /api/auth/consent` to fail (block-to-500 or Offline).
   2. Click "I agree" and watch the button and the dialog.

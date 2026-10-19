@@ -35,12 +35,23 @@ describe('VerifyEmailBanner (catalog SESS-043)', () => {
   it('SESS-043: shows for an authenticated, unverified, consented login and resends', async () => {
     render(<VerifyEmailBanner />)
 
-    expect(screen.getByText(/please confirm your email/i)).toBeInTheDocument()
-    expect(screen.getByText('owner@example.com')).toBeInTheDocument()
+    const line = screen.getByText('Confirm your email: check your inbox for the link.')
+    expect(line).toBeInTheDocument()
+    // One line on the warn tone; the address sits behind the (i), not in the line.
+    const banner = line.closest('[data-tone]')!
+    expect(banner).toHaveAttribute('data-tone', 'warn')
+    expect(banner).toHaveAttribute('aria-live', 'polite')
+    expect(banner).not.toHaveAttribute('role')
+    expect(screen.queryByText(/owner@example\.com/)).not.toBeInTheDocument()
+    await userEvent.hover(screen.getByRole('button', { name: 'About confirming your email' }))
+    expect(await screen.findByRole('tooltip')).toHaveTextContent('owner@example.com')
 
     await userEvent.click(screen.getByRole('button', { name: 'Resend' }))
     expect(authState.resendVerification).toHaveBeenCalledOnce()
-    expect(await screen.findByText(/sent a fresh link/i)).toBeInTheDocument()
+    // The outcome replaces the line, on the ok tone.
+    expect(await screen.findByText('A fresh link is on its way.')).toBeInTheDocument()
+    expect(screen.queryByText('Confirm your email: check your inbox for the link.')).not.toBeInTheDocument()
+    expect(banner).toHaveAttribute('data-tone', 'ok')
   })
 
   it('SESS-043: hidden once the email is confirmed', () => {
@@ -66,6 +77,7 @@ describe('VerifyEmailBanner (catalog SESS-043)', () => {
     render(<VerifyEmailBanner />)
 
     await userEvent.click(screen.getByRole('button', { name: 'Resend' }))
-    expect(await screen.findByText(/couldn't resend/i)).toBeInTheDocument()
+    const line = await screen.findByText("Couldn't resend, try again.")
+    expect(line.closest('[data-tone]')).toHaveAttribute('data-tone', 'bad')
   })
 })

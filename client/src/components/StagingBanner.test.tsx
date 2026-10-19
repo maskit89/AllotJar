@@ -27,9 +27,14 @@ describe('StagingBanner', () => {
     expect(screen.queryByRole('status')).toBeNull()
   })
 
-  it('warns that data may be lost in the staging build', () => {
+  it('warns, in one line on the warn tone, that the data here may be reset in the staging build', () => {
     state.isStaging = true
     render(<StagingBanner />)
-    expect(screen.getByRole('status')).toHaveTextContent(/data can be reset or lost/i)
+    const strip = screen.getByRole('status')
+    expect(strip).toHaveTextContent('Staging · test data, may be reset')
+    expect(strip).toHaveAttribute('data-tone', 'warn')
+    // One line: no second sentence, no (i), no action.
+    expect(strip.textContent).not.toMatch(/\. /)
+    expect(strip.querySelector('button')).toBeNull()
   })
 })

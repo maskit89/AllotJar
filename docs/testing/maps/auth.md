@@ -31,7 +31,7 @@ Guard mechanics:
 ## 2. UI controls & user actions (exact labels)
 
 ### LoginPage (`client/src/pages/LoginPage.tsx`)
-- `StagingBanner` (staging build only, `role="status"`): "**Staging** — this is the AllotJar test environment. Features may change and your data can be reset or lost without notice." (StagingBanner.tsx:29-31; gated on `IS_STAGING` = `VITE_APP_ENV === 'staging'`, env.ts:16).
+- `StagingBanner` (staging build only, `role="status"`): "Staging · test data, may be reset" (StagingBanner.tsx:29-31; gated on `IS_STAGING` = `VITE_APP_ENV === 'staging'`, env.ts:16).
 - ThemeToggle top-right. Jar logo + heading "AllotJar", tagline "Zero-based budgeting, in your currency."
 - Expired-session banner (`role="status"`): "Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where you left off." — only when `?reason=expired` AND mode is login.
 - `SegmentedControl` aria-label "Sign in or create an account", options **"Sign in"** / **"Create account"**. Switching tabs clears the error (LoginPage.tsx:47-50).
@@ -63,10 +63,10 @@ Guard mechanics:
   - Household section (only when >1 household): each household as a menuitem, active marked "✓"; clicking a non-active one calls `switchHousehold` → `POST /households/switch` → full nav to `/` (AuthContext.tsx:300-304).
   - **"Account settings"** → `/account`.
   - **"Sign out"** → analytics `logout`, then `logout()` (fire-and-forget `POST /auth/logout`, clear state, cross-tab broadcast; AuthContext.tsx:347-352).
-- Role banners (AppShell.tsx:165-169): read-only → "You have read-only access — you can view everything but cannot make changes."; limited → "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
+- Role banners (AppShell.tsx:165-169): read-only → "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access"); limited → "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access")
 
 ### ConsentModal (`client/src/components/ConsentModal.tsx`)
-- Heading "One thing before you start"; body "Your login was set up for you, so we need your own agreement to the Terms of Service and Privacy Policy before you continue."
+- A sheet dialog (Modal `sheet`, not dismissible: no ✕, scrim or Escape; restyle PR 17). Heading "Accept the terms"; the why behind its (i) "Why you are asked"; body "Your login was set up for you, so please agree to the Terms of Service and Privacy Policy yourself."; footer "Sign out" (quiet) + "I agree" (the one primary).
 - Buttons **"I agree"** ("Please wait…") and **"Sign out"**. Error `role="alert"`: "Something went wrong saving your agreement — please try again."
 - Shown for logins with `MeResponse.NeedsConsent == true` (i.e. `ConsentedUtc == null` — owner-created logins with temp passwords, or legacy accounts). Registration and invite acceptance record consent up front, so most users never see it.
 

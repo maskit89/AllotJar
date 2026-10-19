@@ -64,7 +64,7 @@ async function signIn(page: Page, email: string, password: string): Promise<void
  * the server refuses every other call until it does. Then the consent prompt follows.
  */
 async function chooseOwnPassword(page: Page, email: string, temporary: string): Promise<void> {
-  const dialog = page.getByRole('dialog', { name: 'Choose your own password' })
+  const dialog = page.getByRole('dialog', { name: 'Choose a new password' })
   await expect(dialog).toBeVisible()
   // The prompt offers no password fields: the new one is chosen through the link emailed to the
   // login's own address, so whoever set the temporary password can't choose it for them.
@@ -88,9 +88,9 @@ async function chooseOwnPassword(page: Page, email: string, temporary: string): 
  * ConsentModal on first sign-in until they agree themselves.
  */
 async function agreeToTerms(page: Page): Promise<void> {
-  await expect(page.getByRole('heading', { name: 'One thing before you start' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Accept the terms' })).toBeVisible()
   await page.getByRole('button', { name: 'I agree' }).click()
-  await expect(page.getByRole('heading', { name: 'One thing before you start' })).toBeHidden()
+  await expect(page.getByRole('heading', { name: 'Accept the terms' })).toBeHidden()
 }
 
 test('adding a 2nd person flips solo→shared live, and a temp-password Limited login is enforced by the server mid-session', async ({
@@ -151,7 +151,7 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   // session — they land inside the owner's household seeing its real budget…
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
   // …with the Limited banner (ROLE-007).
-  await expect(guest.getByText(/You have limited access/)).toBeVisible()
+  await expect(guest.getByText(/Limited access: you can record transactions/)).toBeVisible()
 
   // --- Limited chrome: Admin+ write controls are hidden, day-to-day entry stays ---
   // ROLE-009: no budget-structure editing — no "Add a group", names are static text.
@@ -224,7 +224,7 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
 
   // --- ROLE-038 (UI catches up on next load) + ROLE-007 / ROLE-015 ---
   await guest.reload()
-  await expect(guest.getByText(/You have read-only access/)).toBeVisible()
+  await expect(guest.getByText(/Read-only access: you can view everything/)).toBeVisible()
   await expect(guest.getByRole('button', { name: 'Add transaction' })).toHaveCount(0)
   await expect(guest.getByText('Tesco')).toBeVisible() // full view parity, zero controls
   // PPL-070: the profile card's access-level chip (Your account) reflects the new access level.
@@ -253,7 +253,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await chooseOwnPassword(guest, robinEmail, JOURNEY_PASSWORD)
   await agreeToTerms(guest)
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
-  await expect(guest.getByText(/You have limited access/)).toBeVisible()
+  await expect(guest.getByText(/Limited access: you can record transactions/)).toBeVisible()
 
   // PPL-070 + PPL-061 preconditions: a pure invitee's /account offers BOTH the start-own
   // row (ownsHousehold=false) and Leave household behind the Household card's ⋯ (viewing a
@@ -269,14 +269,14 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await guest.getByRole('button', { name: 'Start my own budget' }).click()
   await startOwn
   // Full re-bootstrap into the new own household with the ?started=1 greeting…
-  await expect(guest.getByText(/This is your own budget — set up your first month below/)).toBeVisible()
+  await expect(guest.getByText('Your own budget is ready.')).toBeVisible()
   // …landing on the create-month flow with nothing seeded (start-own never seeds).
   await expect(guest.getByText(/No budget for .+ yet/)).toBeVisible()
   await expect(guest.getByText('Remaining to budget')).toHaveCount(0)
   // ROLE-035: in their OWN household the same login is Owner — the create buttons render
   // (a non-writer would be told to ask an admin) and the Limited banner is gone.
   await expect(guest.getByRole('button', { name: 'Start a blank budget' })).toBeVisible()
-  await expect(guest.getByText(/You have limited access/)).toHaveCount(0)
+  await expect(guest.getByText(/Limited access: you can record transactions/)).toHaveCount(0)
 
   // PPL-058 (own side): the own household is solo — just the invitee, none of Olive's data.
   await expect(guest.getByRole('link', { name: 'Allocation' })).toHaveCount(0)
@@ -304,7 +304,7 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   // ROLE-036 + PPL-058: after the full reload the app re-scopes to the shared household —
   // its budget is back, the role re-resolves to Limited, and People shows both members.
   await expect(guest.getByText('Remaining to budget')).toBeVisible()
-  await expect(guest.getByText(/You have limited access/)).toBeVisible()
+  await expect(guest.getByText(/Limited access: you can record transactions/)).toBeVisible()
   await guest.goto('/people')
   await expect(personCards(guest)).toHaveCount(2)
   await expect(guest.getByText('Olive', { exact: true })).toBeVisible()
@@ -317,9 +317,9 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   await guest.getByRole('button', { name: 'Yes, leave' }).click()
   await left
   // Lands back in their own budget, explained — and STILL never seeded (PR #170).
-  await expect(guest.getByText(/left that household/)).toBeVisible()
+  await expect(guest.getByText(/back on your own budget/)).toBeVisible()
   await expect(guest.getByText(/No budget for .+ yet/)).toBeVisible()
-  await expect(guest.getByText(/You have limited access/)).toHaveCount(0)
+  await expect(guest.getByText(/Limited access: you can record transactions/)).toHaveCount(0)
 
   // PPL-057 (single-household side): with one household left, the switcher section is gone.
   await guest.getByRole('button', { name: 'Account menu' }).first().click()

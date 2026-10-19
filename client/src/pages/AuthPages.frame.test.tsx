@@ -135,7 +135,7 @@ describe('Forgot password in the frame', () => {
   it('shows the staging banner in a staging build, as before', () => {
     envState.isStaging = true
     renderAt('/forgot-password')
-    expect(screen.getByRole('status')).toHaveTextContent(/data can be reset or lost/i)
+    expect(screen.getByRole('status')).toHaveTextContent('Staging · test data, may be reset')
   })
 })
 
@@ -242,7 +242,7 @@ describe('Accept invite in the frame', () => {
     envState.isStaging = true
     renderAt('/accept-invite?code=ABC123')
     await screen.findByLabelText('Password')
-    expect(screen.queryByText(/data can be reset or lost/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/test data, may be reset/i)).not.toBeInTheDocument()
   })
 
   it('a link without its code: the title and the alert only', async () => {
@@ -280,7 +280,7 @@ describe('Sign in in a staging build', () => {
     const user = userEvent.setup()
     renderAt('/login?register=1')
 
-    expect(screen.getByRole('status')).toHaveTextContent(/data can be reset or lost/i)
+    expect(screen.getByRole('status')).toHaveTextContent('Staging · test data, may be reset')
     const boxes = screen.getAllByRole('checkbox')
     expect(boxes).toHaveLength(2)
     expect(boxes[1]).toBe(screen.getByRole('checkbox', { name: /staging/i }))

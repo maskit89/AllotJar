@@ -18,8 +18,8 @@ Repo paths below are relative to that root unless absolute.
 - `RequireAuth` (App.tsx:38-48): shows `AuthSplash` while `bootstrapping`, renders children when authenticated, otherwise redirects to `/login?returnUrl=<encoded current path+search>`.
 - Nav: "Transactions" link in `AppNav` is ALWAYS shown (`show: true`, client/src/components/AppNav.tsx:33), regardless of role or flags.
 - `AppShell` banner for restricted roles (client/src/components/AppShell.tsx:165-169):
-  - Read-only: "You have read-only access — you can view everything but cannot make changes."
-  - Limited: "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
+  - Read-only: "Read-only access: you can view everything, not change it." (the full explanation behind its (i) "About your access")
+  - Limited: "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access")
 - Page data load (TransactionsPage.tsx:78-99): parallel `GET /transactions` (unfiltered — ALL months), `GET /budget/current` (for assign options + base currency; failure tolerated → null), `GET /accounts`, `GET /members` (failures tolerated → empty arrays). Only the transactions call failing sets the page error "Could not load transactions."
 - The app-wide viewed month (`useMonth()` from MonthContext) supplies only the hero LABEL (`monthLabel`, e.g. "July 2026"). The register does NOT refetch or filter when the viewed month changes — the list and the hero totals always span all transactions ever, while the hero eyebrow reads "Money in · {monthLabel}" (TransactionsPage.tsx:355-399). Known label/data mismatch to probe in QA.
 

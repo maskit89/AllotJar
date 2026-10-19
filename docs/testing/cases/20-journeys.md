@@ -93,7 +93,7 @@
   - CP2-CP3: after the add, `HouseholdContext.refresh()` makes `isShared` true → the **Allocation** nav item appears live without reload; combined-income hero updates.
   - CP5-CP6: the profile saves; the Steps card lists the four steps (Cover shared costs → Fund the jars → Pocket money → Split remainder to savings) with a By-income cost split; the KPI tiles "Shared spending" + "To savings" reconcile to the pool ("Income to allocate") by construction.
   - CP7: the link modal returns the raw token **once**; the pending membership shows the amber **"Invited"** badge on Sam's row; re-opening cannot retrieve the token again.
-  - CP8-CP9: acceptance creates Sam's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Sam's active household to Alex's (`SetActiveHouseholdAsync`). Sam lands via full reload on `/?joined=1` showing the **"You've joined this household…"** greeting and Alex's shared budget (Remaining-to-budget matches Alex's), NOT an own empty budget (PR #156). Sam is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the Household card's "Your own budget" row.
+  - CP8-CP9: acceptance creates Sam's login with `ConsentedUtc` stamped (terms on the form) — **no** ConsentModal later — and the server sets Sam's active household to Alex's (`SetActiveHouseholdAsync`). Sam lands via full reload on `/?joined=1` showing the **"You’ve joined the household."** greeting and Alex's shared budget (Remaining-to-budget matches Alex's), NOT an own empty budget (PR #156). Sam is a **pure invitee**: `ownsHousehold=false` → her `/account` shows the Household card's "Your own budget" row.
   - CP10: Sam (Admin) can add/attribute a transaction; the actual lands on the shared line the moment it's read (tx-derived).
   - CP11: Sam's spending appears attributed to her member row; income shares compute over active members (Alex 60% / Sam 40% by 3000/2000; rounded display may not sum to exactly 100%).
   - CP12: Allocate writes one `Transfer` per member with `Residual > 0` and a valid savings account (`BankReference = "alloc:{y}-{m}:{memberId}"`), moving money Joint → each personal savings; reconciliation on `/accounts` now shows the Joint float against any jars it backs. Re-running Allocate keeps unchanged transfers, never doubles.
@@ -107,7 +107,7 @@
   1. As Alex, `/people` → Robin's row → **"Invite to sign in"** → switch **"How should they get access?"** to **"Set a temporary password"**, set **"Access level"** = "Limited", type a temporary password (≥8, HIBP-safe), submit **"Create login"** (people suite).
   2. Read the success box.
   3. In a signed-out context, go to `/login`, sign in as Robin with the email + temporary password.
-  4. Observe the very first authed screen; **"Choose your own password"** names Robin's address and has no password fields; open the "Choose your AllotJar password" link from Robin's email (dev mailbox), enter a new password twice and click **"Set new password"**.
+  4. Observe the very first authed screen; **"Choose a new password"** names Robin's address and has no password fields; open the "Choose your AllotJar password" link from Robin's email (dev mailbox), enter a new password twice and click **"Set new password"**.
   5. Click **"I agree"** in the blocking dialog.
   6. Observe onboarding / dashboard.
   7. As Robin, on `/transactions` record a transaction and mark a bill **"Paid"** on `/`.
@@ -115,7 +115,7 @@
   9. As Robin, go to `/account` and use **"Change"** on the Password row (the **"Change password"** dialog) to replace the temp password.
 - **Expected:**
   - CP1-CP2: a login is created with membership Active, role Limited, `MustChangePassword = true` and `ConsentedUtc = null`; the success box reads "Login created … On their first sign-in they choose their own password…".
-  - CP3-CP4: Robin signs in and is first blocked by **"Choose your own password"** (S-P2-3; every other signed-in call is 403, change-password and consent included, until the emailed link is used), then by the **ConsentModal** ("One thing before you start") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
+  - CP3-CP4: Robin signs in and is first blocked by **"Choose a new password"** (S-P2-3; every other signed-in call is 403, change-password and consent included, until the emailed link is used), then by the **ConsentModal** ("Accept the terms") — Onboarding is NOT mounted underneath (App gates it on `!needsConsent`); the modal is non-dismissible (only "I agree" / "Sign out") and disappears if Robin navigates to `/terms`//`/privacy` so it never covers the text.
   - CP5-CP6: `POST /auth/consent` stamps `ConsentedUtc`; `needsConsent` flips false; the onboarding welcome may then appear; the dashboard shows the shared household's budget (Robin acts in Alex's household).
   - CP7: Limited role CAN record transactions and toggle Paid on bill lines (`[AllowLimited]`); the AppShell shows the amber "limited access" banner.
   - CP8: structure edits are hidden client-side and 403 server-side ("Your access level (Limited) does not permit this action."); `/accounts` shows a read-only register (no "+ Add account"), and account create 403s.
@@ -139,9 +139,9 @@
 - **Expected:**
   - CP1-CP2: new login created with consent stamped; server sets active household to Alex's; full reload to `/?joined=1` with the joined greeting; the invitee sees Alex's shared budget. `ownsHousehold=false` at this point.
   - CP3: with only ONE household the account menu shows **no** "Household" switcher section.
-  - CP4-CP5: `POST /households/start-own` bootstraps the invitee's OWN household with `seedSampleBudget:false` and switches into it → full reload to `/?started=1` with the **"This is your own budget…"** greeting and a **create-month hero** (never seeded samples, PR #170). If they later add a jar, a fresh blank month lands over-budgeted, not empty (PR #172).
+  - CP4-CP5: `POST /households/start-own` bootstraps the invitee's OWN household with `seedSampleBudget:false` and switches into it → full reload to `/?started=1` with the **"Your own budget is ready."** greeting and a **create-month hero** (never seeded samples, PR #170). If they later add a jar, a fresh blank month lands over-budgeted, not empty (PR #172).
   - CP6-CP7: now `households.length > 1`, so the switcher section appears; switching to Alex's household `POST /households/switch` then full `window.location.assign('/')` re-bootstrap; MonthContext resets to the current calendar month; the active-household label in the user chip flips.
-  - CP8-CP9: leaving (`POST /households/leave {ownerId}`) hard-deletes the membership row, re-materialises the invitee's own household without samples, and resets `ActiveOwnerId` → full reload to `/?left=1` with **"You've left that household — … Nothing was deleted…"**; the invitee lands in their own (never-seeded) budget. Their attributed data in Alex's household is untouched.
+  - CP8-CP9: leaving (`POST /households/leave {ownerId}`) hard-deletes the membership row, re-materialises the invitee's own household without samples, and resets `ActiveOwnerId` → full reload to `/?left=1` with **"You’re back on your own budget."**; the invitee lands in their own (never-seeded) budget. Their attributed data in Alex's household is untouched.
 - **Automated:** Partial (`client/e2e-journey/invite.spec.ts` covers accept → lands-in-household → leave-lands-in-own-never-seeded; the start-own + switch legs are unautomated)
 
 ---
@@ -304,7 +304,7 @@
   5. As Alex, WITHOUT reloading, attempt to record another transaction; then reload.
   6. After reload, confirm Alex's affordances and banners.
 - **Expected:**
-  - CP1-CP2: Limited (`[AllowLimited]`) can create/split/assign transactions and toggle Paid; the amber banner reads "You have limited access — you can record transactions, mark bills paid and run allocation, but not change the budget structure or settings."
+  - CP1-CP2: Limited (`[AllowLimited]`) can create/split/assign transactions and toggle Paid; the warn-tone banner reads "Limited access: you can record transactions, mark bills paid and run allocation." (what an admin keeps behind its (i) "About your access")
   - CP3: structure edit controls are hidden client-side; server commands 403 with the role message; `/import` shows the "available to admins and the household owner" info card and the API 403s even preview (import is Admin+).
   - CP4: `PUT /access/members/{id}/role` succeeds (owner-only); role is server-resolved per request, so enforcement is immediate.
   - CP5: role changes are server-live but client-lazy — Alex's stale tab still shows entry affordances until reload, and the action now 403s ("Your access level (ReadOnly) does not permit this action."). After reload, `/auth/me` resolves ReadOnly.
@@ -329,7 +329,7 @@
   6. As Alex, confirm Jordan's attributed data is intact and re-invite Jordan.
   7. As Jordan, accept the new invite.
 - **Expected:**
-  - CP1-CP2: `POST /households/leave` hard-deletes Jordan's membership, materialises Jordan's own household **without samples**, and resets `ActiveOwnerId` → full reload to `/?left=1` with "You've left that household — … Nothing was deleted…".
+  - CP1-CP2: `POST /households/leave` hard-deletes Jordan's membership, materialises Jordan's own household **without samples**, and resets `ActiveOwnerId` → full reload to `/?left=1` with "You’re back on your own budget.".
   - CP3-CP4: Jordan's own household has zero months, zero jars; the blank month is a **truly empty** month → Hero shows "Plan your income, then give every euro a job", NOT the gold badge and NOT over-budgeted (PR #172).
   - CP5: after Jordan owns a jar, the next blank month is born **over-budgeted** (appended accrual-planned savings line vs 0 income) — "…over-budgeted — trim a line", never the empty prompt (PR #172 corollary / BUDG-028).
   - CP6-CP7: leave/revoke only removed the membership row (Active/Invited are the only statuses — no tombstone); the budget person + attributed data remain in Alex's household; a re-invite is a brand-new membership; accepting it lands Jordan back IN Alex's household (`/?joined=1`) with `SetActiveHouseholdAsync` (PR #156).

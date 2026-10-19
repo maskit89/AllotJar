@@ -1,15 +1,22 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { serverErrors } from '../lib/serverErrors'
 import type { SharingReviewDto } from '../types'
 import { Modal } from './Modal'
+import { Notice, NoticeAction } from './Notice'
+import { DIALOG_ACTIONS, DIALOG_CANCEL, DIALOG_PRIMARY } from './settings/parts'
 import { Button, ErrorBanner } from './ui'
 
 /**
  * Rule 32 (P58): a login newly linked to a person who already holds accounts, or for whom someone
  * else added one, is asked once to choose which of those accounts the household sees. Nothing
  * changes until they answer: every listed account starts as it is now.
+ *
+ * One line on the info tone with a quiet "Review sharing" (restyle PR 17); the dialog is a sheet
+ * (Modal `sheet`) whose explanation sits behind its (i), one styled checkbox row per account, and
+ * "Not now" / "Save" in its footer. The requests are unchanged: GET /accounts/sharing-review on
+ * open, POST /accounts/sharing-review { privateAccountIds } on Save.
  */
 export function SharingReviewBanner() {
   const { isAuthenticated, sharingReviewPending, clearSharingReview } = useAuth()
@@ -17,6 +24,8 @@ export function SharingReviewBanner() {
   const [privateIds, setPrivateIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Save stays focusable while saving (aria-disabled), so a second press or Enter must be ignored here.
+  const inFlight = useRef(false)
 
   if (!isAuthenticated || !sharingReviewPending) return null
 
@@ -33,6 +42,8 @@ export function SharingReviewBanner() {
   }
 
   async function save() {
+    if (inFlight.current) return
+    inFlight.current = true
     setSaving(true)
     setError(null)
     try {
@@ -42,40 +53,55 @@ export function SharingReviewBanner() {
     } catch (err) {
       setError(serverErrors(err) ?? 'Could not save your choices.')
     } finally {
+      inFlight.current = false
       setSaving(false)
     }
   }
 
+  // Nothing closes the dialog while it saves.
+  const close = () => {
+    if (!saving) setReview(null)
+  }
+
   return (
     <>
-      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-900 dark:border-violet-500/30 dark:bg-violet-500/10 dark:text-violet-100">
-        <span>You hold accounts in this household. Choose which ones the others can see.</span>
-        <button
-          type="button"
-          onClick={open}
-          className="shrink-0 font-semibold underline underline-offset-2 hover:opacity-80"
-        >
-          Review sharing
-        </button>
-      </div>
+      <Notice tone="info" action={<NoticeAction onClick={open}>Review sharing</NoticeAction>}>
+        Review who sees your accounts.
+      </Notice>
       {error && !review && <ErrorBanner>{error}</ErrorBanner>}
       {review && (
-        <Modal title="Who sees your accounts" onClose={() => setReview(null)}>
+        <Modal
+          sheet
+          title="Who sees your accounts"
+          hint="A private account is seen only by you: its balance, its transactions and its name. Money you put on a budget line still shows there. An account a jar uses stays visible to everyone."
+          hintLabel="About private accounts"
+          onClose={close}
+          footer={
+            <div className={DIALOG_ACTIONS}>
+              <Button variant="ghost" onClick={close} disabled={saving} className={DIALOG_CANCEL}>
+                Not now
+              </Button>
+              <Button onClick={save} aria-disabled={saving || undefined} className={DIALOG_PRIMARY}>
+                {saving ? 'Saving…' : 'Save'}
+              </Button>
+            </div>
+          }
+        >
           {error && (
             <div className="mb-3">
               <ErrorBanner>{error}</ErrorBanner>
             </div>
           )}
-          <p className="text-sm text-slate-600">
-            A private account is seen only by you: its balance, its transactions and its name. Money you put on a budget
-            line still shows there. An account a jar uses stays visible to everyone.
-          </p>
-          <ul className="mt-3 space-y-2">
+          {/* The list's one word: what a tick means (each row's box is named "Keep … private"). */}
+          <p className="mb-1 text-xs font-semibold tracking-[0.04em] text-slate-500 uppercase">Keep private</p>
+          <ul>
             {review.accounts.map((a) => {
               const blocked = !a.isPrivate && !!a.sharingBlockedReason
               return (
-                <li key={a.id}>
-                  <label className="flex items-start gap-2 text-sm text-slate-700">
+                <li key={a.id} className="border-t border-line first:border-t-0">
+                  <label
+                    className={`dlg-check flex min-h-14 items-center gap-3 py-2.5 max-[699.98px]:gap-[11px] ${blocked ? '' : 'cursor-pointer'}`}
+                  >
                     <input
                       type="checkbox"
                       checked={privateIds.includes(a.id)}
@@ -84,25 +110,16 @@ export function SharingReviewBanner() {
                       onChange={(e) =>
                         setPrivateIds((prev) => (e.target.checked ? [...prev, a.id] : prev.filter((id) => id !== a.id)))
                       }
-                      className="mt-0.5 h-4 w-4 rounded border-slate-400 text-brand-600 focus:ring-2 focus:ring-brand-500/40"
                     />
-                    <span>
-                      <span className="font-medium">{a.name}</span>: {privateIds.includes(a.id) ? 'private' : 'shared with the household'}
-                      {blocked && <span className="block text-xs text-slate-500">{a.sharingBlockedReason}</span>}
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-900">{a.name}</span>
+                      {blocked && <span className="block text-[13px] text-slate-500">{a.sharingBlockedReason}</span>}
                     </span>
                   </label>
                 </li>
               )
             })}
           </ul>
-          <div className="mt-4 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => setReview(null)}>
-              Not now
-            </Button>
-            <Button onClick={save} disabled={saving}>
-              Save choices
-            </Button>
-          </div>
         </Modal>
       )}
     </>
