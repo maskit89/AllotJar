@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { MonthProvider, useMonth } from './MonthContext'
 import { currentMonth } from '../lib/dates'
 
@@ -43,5 +43,94 @@ describe('the current month follows the UTC calendar', () => {
       </MonthProvider>,
     )
     expect(screen.getByText('January 2027')).toBeInTheDocument()
+  })
+})
+
+// A phone resumes the installed app rather than starting it afresh, so coming back in a new
+// month must move a view that was on the current month on to the new one, as a fresh start
+// would; a month picked on purpose stays put, and nothing moves under an entry being made.
+describe('coming back to the app in a new month', () => {
+  function Navigator() {
+    const { label, goPrev } = useMonth()
+    return (
+      <>
+        <p>{label}</p>
+        <button onClick={goPrev}>Previous month</button>
+      </>
+    )
+  }
+
+  function awayUntil(iso: string) {
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    document.dispatchEvent(new Event('visibilitychange'))
+    vi.setSystemTime(new Date(iso))
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+  }
+
+  afterEach(() => {
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+  })
+
+  it('moves on from October to November when the app was showing October', () => {
+    vi.setSystemTime(new Date('2026-10-31T21:00:00Z'))
+    render(
+      <MonthProvider>
+        <Navigator />
+      </MonthProvider>,
+    )
+    expect(screen.getByText('October 2026')).toBeInTheDocument()
+
+    awayUntil('2026-11-01T07:30:00Z')
+
+    expect(screen.getByText('November 2026')).toBeInTheDocument()
+  })
+
+  it('stays on a month picked on purpose', () => {
+    vi.setSystemTime(new Date('2026-10-31T21:00:00Z'))
+    render(
+      <MonthProvider>
+        <Navigator />
+      </MonthProvider>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }))
+    expect(screen.getByText('September 2026')).toBeInTheDocument()
+
+    awayUntil('2026-11-01T07:30:00Z')
+
+    expect(screen.getByText('September 2026')).toBeInTheDocument()
+  })
+
+  it('stays put within the same month', () => {
+    vi.setSystemTime(new Date('2026-10-15T12:00:00Z'))
+    render(
+      <MonthProvider>
+        <Navigator />
+      </MonthProvider>,
+    )
+    awayUntil('2026-10-20T12:00:00Z')
+    expect(screen.getByText('October 2026')).toBeInTheDocument()
+  })
+
+  it('waits while a dialog is open, then moves on the next time the app comes back', () => {
+    vi.setSystemTime(new Date('2026-10-31T21:00:00Z'))
+    const { rerender } = render(
+      <MonthProvider>
+        <Navigator />
+        <div role="dialog" aria-label="Add a transaction" />
+      </MonthProvider>,
+    )
+    awayUntil('2026-11-01T07:30:00Z')
+    expect(screen.getByText('October 2026')).toBeInTheDocument()
+
+    rerender(
+      <MonthProvider>
+        <Navigator />
+      </MonthProvider>,
+    )
+    awayUntil('2026-11-01T08:00:00Z')
+    expect(screen.getByText('November 2026')).toBeInTheDocument()
   })
 })

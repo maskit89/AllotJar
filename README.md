@@ -307,6 +307,17 @@ The Reports page renders these as plain CSS bar charts (no charting library).
 - **Legal** — `/privacy` and `/terms` pages.
 - **Analytics** (`Analytics` flag, **default OFF**) — consent-gated, PII-safe GA4 that
   only loads after the user consents and a build-time measurement ID is present.
+- **Installable app (PWA)** — `client/public/manifest.webmanifest` (opens at `/login`,
+  which forwards a signed-in person to the dashboard) and a service worker
+  (`client/public/sw.js`, registered in production builds only) whose one job is to show
+  `offline.html` when a page can't load. It never answers or stores `/api`, the app's
+  scripts or other sites, and there are no offline writes, so every figure comes from the
+  server. Coming back to the app after 10+ minutes (online, nothing half-typed or open)
+  reloads it fully when a newer build has been deployed, otherwise remounts the figure
+  pages so they read their figures again; a view on the current month moves on when the
+  month has turned (`lib/appReturn.ts`). Inline editors carry `data-entry` so they count
+  as unfinished work. To roll the worker back, deploy a self-unregistering
+  `sw.js` (see its header); deleting the file leaves browsers on the old worker.
 
 ---
 
