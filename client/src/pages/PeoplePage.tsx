@@ -929,7 +929,7 @@ export function PeoplePage() {
   const showFigures = !loading && members.length > 0
 
   return (
-    <AppShell active="people" title="People" month actions={desktop ? addButton || undefined : undefined}>
+    <AppShell list active="people" title="People" month actions={desktop ? addButton || undefined : undefined}>
       {/* No people (or none could be loaded): nothing to add up, so no KPI row. */}
       {showFigures && (
         <KpiRow tiles={1} halves>
