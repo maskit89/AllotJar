@@ -302,7 +302,7 @@ export function AccountPage() {
   ]
 
   return (
-    <AppShell list active="account" title="Account settings">
+    <AppShell active="account" title="Account settings">
       <div className="@container">
         <div className="grid grid-cols-1 items-start gap-4 min-[700px]:gap-6 @min-[940px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]">
           {/* You: one card, one form (the profile's name fields and the preferences save together). */}

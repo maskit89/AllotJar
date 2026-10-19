@@ -256,7 +256,7 @@ export function HelpPage() {
   const granted = consent === 'granted'
 
   return (
-    <AppShell list active="help" title="Help & guide">
+    <AppShell active="help" title="Help & guide">
       {/* The one idea, in the KPI row's place and height. Named, so it is a region (not a heading:
           the page's only h1 is the top bar's). The jar's lid is the page's only gold. */}
       <KpiRow tiles={0}>

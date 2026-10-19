@@ -73,48 +73,25 @@ for (const { width, column, cols } of [
   })
 }
 
-/** The width left for content inside the page column and inside the top bar (their paddings off). */
-async function contentWidths(page: Page) {
-  return page.evaluate(() => {
-    const inner = (el: Element) => {
-      const cs = getComputedStyle(el)
-      return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
-    }
-    const main = document.getElementById('main-content')!
-    return { body: inner(main.querySelector(':scope > div')!), bar: inner(main.querySelector('header > div')!) }
-  })
-}
-
-// A page of one long list keeps to 1440px (`--list-max`) from the column's left edge; the top bar
-// with it, so its buttons sit over the list. A laptop's column is narrower than that already.
-for (const { width, content } of [
-  { width: 1440, content: 1112 },
-  { width: 2560, content: 1440 },
-  { width: 3840, content: 1440 },
-]) {
-  test.describe(`a list page on a ${width}px-wide screen`, () => {
-    test.use({ viewport: { width, height: 1000 } })
-
-    test(`Transactions keeps to ${content}px, the top bar with it`, async ({ page }) => {
-      await open(page, '/transactions')
-      const { body, bar } = await contentWidths(page)
-      expect(Math.abs(body - content)).toBeLessThanOrEqual(1)
-      expect(Math.abs(bar - content)).toBeLessThanOrEqual(1)
-    })
-  })
-}
-
-test.describe('the Dashboard on a 3840px-wide screen', () => {
+// Every page uses the same column (Christopher, 19 Oct: nothing moves between pages), so a page
+// that keeps to a narrower width of its own fails here.
+test.describe('every page on a 3840px-wide screen', () => {
   test.use({ viewport: { width: 3840, height: 1000 } })
-
-  test('the budget stops at 1080px and the jars take the rest', async ({ page }) => {
-    await open(page, '/')
-    const budget = await page.locator('section[aria-labelledby="budget-heading"]').boundingBox()
-    const jars = await page.locator('section[aria-labelledby="jars-heading"]').boundingBox()
-    expect(Math.abs(budget!.width - 1080)).toBeLessThanOrEqual(1)
-    // The jars card runs to the column's right edge: 3432px, less the budget and the 24px gap.
-    expect(Math.abs(jars!.width - (3432 - 80 - 1080 - 24))).toBeLessThanOrEqual(1)
-  })
+  for (const path of AUTHED_ROUTES) {
+    test(`${path} uses the full 3432px column, the top bar with it`, async ({ page }) => {
+      await open(page, path)
+      const inner = await page.evaluate(() => {
+        const width = (el: Element) => {
+          const cs = getComputedStyle(el)
+          return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
+        }
+        const main = document.getElementById('main-content')!
+        return { body: width(main.querySelector(':scope > div')!), bar: width(main.querySelector('header > div')!) }
+      })
+      expect(Math.abs(inner.body - (3432 - 80))).toBeLessThanOrEqual(1)
+      expect(Math.abs(inner.bar - (3432 - 80))).toBeLessThanOrEqual(1)
+    })
+  }
 })
 
 test.describe('the widest screen', () => {

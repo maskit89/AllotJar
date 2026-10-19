@@ -33,7 +33,6 @@ export function AppShell({
   month = false,
   actions,
   back,
-  list = false,
   children,
 }: {
   /** The frame's current place: a nav page, or 'account' (the account button is marked then). */
@@ -57,12 +56,8 @@ export function AppShell({
    * the top bar is as on every other page.
    */
   back?: { to: string; label: string }
-  /**
-   * A page of one long list or form: its content and top bar keep to a comfortable width
-   * (`--list-max`, index.css) from the column's left edge, leaving the rest of a wide screen empty.
-   * Left out, the page fills the column (the Dashboard and the card grids).
-   */
-  list?: boolean
+  // Kept for call-site compatibility; the frame uses one column (`--content-max`, index.css).
+  maxWidth?: '4xl' | '5xl'
   children: ReactNode
 }) {
   const { canWrite, canEnterData, isReadOnly } = useAuth()
@@ -138,8 +133,8 @@ export function AppShell({
           <StagingBanner />
         </div>
         <main id="main-content" tabIndex={-1} className="flex-1 focus:outline-none">
-          <TopBar title={title} month={month} actions={desktop ? actions : undefined} back={back} list={list} />
-          <div className={`mx-auto flex w-full max-w-(--content-max) flex-col gap-4 px-4 pt-1 pb-[calc(var(--tabbar-h)+32px)] min-[900px]:gap-6 min-[900px]:px-10 min-[900px]:pb-14 ${list ? 'list-column' : ''}`}>
+          <TopBar title={title} month={month} actions={desktop ? actions : undefined} back={back} />
+          <div className="mx-auto flex w-full max-w-(--content-max) flex-col gap-4 px-4 pt-1 pb-[calc(var(--tabbar-h)+32px)] min-[900px]:gap-6 min-[900px]:px-10 min-[900px]:pb-14">
             {actions && !desktop && <div className="flex justify-end gap-2.5">{actions}</div>}
             <VerifyEmailBanner />
             <SharingReviewBanner />
