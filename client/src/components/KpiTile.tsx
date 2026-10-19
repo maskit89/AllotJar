@@ -7,9 +7,9 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * plain tiles. It lays itself out by its own width (a container query), so it reads the same in
  * the phone frame, beside the desktop sidebar and on a wide screen:
  *  - from 640px: one row, the hero 1.55 times as wide as each tile (the split of the two-column
- *    cards under it, so with one tile both edges line up with them); with two tiles, from a 1300px
- *    row the hero keeps that left column's width and the tiles share the right one (narrower rows
- *    would squeeze the tiles' numbers); a plain tile's icon shows
+ *    cards under it, so with one tile both edges line up with them); with two tiles, from a 1100px
+ *    row (a 1440px screen) the hero keeps that left column's width and the tiles share the right
+ *    one (narrower rows would squeeze the tiles' numbers); a plain tile's icon shows
  *    from 720px (a third of a narrower row has no room for it beside a five-figure number), and
  *    its number steps up to 30px from 850px;
  *  - narrower: the hero across the top, the two tiles side by side under it (or, when there is
@@ -60,7 +60,7 @@ export function KpiRow({
     : onGrid
     ? '@min-[640px]:grid-cols-2 @min-[900px]:grid-cols-3 @min-[900px]:[&>:first-child]:col-span-2'
     : tiles === 2
-      ? '@min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[1300px]:grid-cols-[calc((100%-24px)*1.55/2.55)_minmax(0,1fr)_minmax(0,1fr)]'
+      ? '@min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[1100px]:grid-cols-[calc((100%-24px)*1.55/2.55)_minmax(0,1fr)_minmax(0,1fr)]'
       : tiles === 1
         ? '@min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]'
         : // The hero alone (the Help page, restyle PR 13): across the whole row at every width.

@@ -111,7 +111,7 @@ test.describe('the widest screen', () => {
 /**
  * The KPI row's edges against the two cards under it (Christopher, 19 Oct: the four looked out of
  * line). The hero ends where the left card ends; with one tile, the tile spans the right card; with
- * two, from a 1300px row the two share the right card's width. Each card is the grid child holding
+ * two, from a 1100px row (a 1440px screen) the two share the right card's width. Each card is the grid child holding
  * its heading.
  */
 async function edges(page: Page, left: string, right: string) {
@@ -142,7 +142,7 @@ async function noBills(page: Page) {
   )
 }
 
-for (const width of [1920, 2560, 3840]) {
+for (const width of [1440, 1920, 2560, 3840]) {
   test.describe(`the KPI row on a ${width}px-wide screen`, () => {
     test.use({ viewport: { width, height: 1000 } })
     for (const { name, path, left, right, stub } of [
@@ -162,5 +162,25 @@ for (const width of [1920, 2560, 3840]) {
         near(e.tiles[e.tiles.length - 1][1], e.right[1])
       })
     }
+
+    test('the Dashboard while loading: the placeholder hero is as wide as the loaded one', async ({ page }) => {
+      let release = () => {}
+      const held = new Promise<void>((resolve) => (release = resolve))
+      await authedSetup(page, 'light')
+      await page.route(/\/api\/budget\/(current|\d+\/\d+)$/, async (route) => {
+        await held
+        return route.fallback()
+      })
+      await page.goto('/')
+      await expect(page.getByText('Loading your budget…')).toBeAttached()
+      const placeholder = await page.evaluate(() => {
+        const row = document.querySelector('#main-content [aria-hidden] .grid')!
+        return row.firstElementChild!.getBoundingClientRect().width
+      })
+      release()
+      await expect(page.locator('.kpi-hero')).toBeVisible()
+      const hero = await page.locator('.kpi-hero').evaluate((el) => el.getBoundingClientRect().width)
+      expect(Math.abs(placeholder - hero)).toBeLessThanOrEqual(1)
+    })
   })
 }
