@@ -1,5 +1,5 @@
-import { expect, test, type Page } from '@playwright/test'
-import { AUTHED_ROUTES, authedSetup } from './mocks'
+import { expect, test, type Page, type Route } from '@playwright/test'
+import { AUTHED_ROUTES, authedSetup, mockApi } from './mocks'
 
 /**
  * Wide-screen guard. The content column is 1240px wide until the screen leaves 80px either side of
@@ -107,3 +107,60 @@ test.describe('the widest screen', () => {
     })
   }
 })
+
+/**
+ * The KPI row's edges against the two cards under it (Christopher, 19 Oct: the four looked out of
+ * line). The hero ends where the left card ends; with one tile, the tile spans the right card; with
+ * two, from a 1300px row the two share the right card's width. Each card is the grid child holding
+ * its heading.
+ */
+async function edges(page: Page, left: string, right: string) {
+  return page.evaluate(([l, r]) => {
+    const h = (name: string) => [...document.querySelectorAll('#main-content h2')].find((x) => x.textContent?.trim() === name)!
+    const cell = (own: Element, other: Element) => {
+      let el = own
+      while (el.parentElement && !el.parentElement.contains(other)) el = el.parentElement
+      return el.getBoundingClientRect()
+    }
+    const [hl, hr] = [h(l), h(r)]
+    const tiles = [...document.querySelector('.kpi-hero')!.parentElement!.children].map((t) => t.getBoundingClientRect())
+    return { tiles: tiles.map((t) => [t.left, t.right]), left: [cell(hl, hr).left, cell(hl, hr).right], right: [cell(hr, hl).left, cell(hr, hl).right] }
+  }, [left, right])
+}
+
+/** The month without a due date on any line, so the Dashboard shows no Bills tile. */
+async function noBills(page: Page) {
+  await page.route(/\/api\/budget\/(current|\d+\/\d+)$/, (route) =>
+    mockApi({
+      request: () => route.request(),
+      fulfill: ({ body, ...rest }: { body: string }) => {
+        const month = JSON.parse(body)
+        for (const c of month.categories) for (const item of c.items) item.dueDay = null
+        return route.fulfill({ ...rest, body: JSON.stringify(month) })
+      },
+    } as unknown as Route),
+  )
+}
+
+for (const width of [1920, 2560, 3840]) {
+  test.describe(`the KPI row on a ${width}px-wide screen`, () => {
+    test.use({ viewport: { width, height: 1000 } })
+    for (const { name, path, left, right, stub } of [
+      { name: 'the Dashboard without bills', path: '/', left: 'Budget', right: 'Jars', stub: noBills },
+      { name: 'the Dashboard with bills', path: '/', left: 'Budget', right: 'Jars' },
+      { name: 'Reports', path: '/reports', left: 'Trend', right: 'Spending' },
+      { name: 'Allocation', path: '/allocation', left: 'Steps', right: 'Savings' },
+    ]) {
+      test(`${name}: the tiles line up with the cards under them`, async ({ page }) => {
+        await open(page, path, stub && (() => stub(page)))
+        const e = await edges(page, left, right)
+        expect(e.tiles.length).toBe(stub ? 2 : 3)
+        const near = (a: number, b: number) => expect(Math.abs(a - b)).toBeLessThanOrEqual(1)
+        near(e.tiles[0][0], e.left[0])
+        near(e.tiles[0][1], e.left[1])
+        near(e.tiles[1][0], e.right[0])
+        near(e.tiles[e.tiles.length - 1][1], e.right[1])
+      })
+    }
+  })
+}

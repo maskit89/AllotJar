@@ -1145,7 +1145,7 @@ function DashboardSkeleton() {
     <>
       <p className="sr-only">Loading your budget…</p>
       <div aria-hidden className="flex flex-col gap-4 min-[700px]:gap-6">
-        <div className="grid grid-cols-2 gap-3 min-[700px]:grid-cols-[1.5fr_1fr_1fr] min-[700px]:gap-6">
+        <div className="grid grid-cols-2 gap-3 min-[700px]:grid-cols-[1.55fr_1fr_1fr] min-[700px]:gap-6">
           <Skeleton className="col-span-2 h-[132px] rounded-2xl min-[700px]:col-span-1 min-[700px]:h-[150px]" />
           <Skeleton className="h-[104px] rounded-2xl min-[700px]:h-[150px]" />
           <Skeleton className="h-[104px] rounded-2xl min-[700px]:h-[150px]" />
