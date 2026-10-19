@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { Target, Users } from 'lucide-react'
 import { BandShelf, RoomShelf } from '../components/AuthFrame'
 import { JarNavIcon } from '../components/icons'
-import { PublicFooter, PublicHeader } from '../components/PublicHeader'
+import { PublicFooter, PublicHeader, PublicLink } from '../components/PublicHeader'
 import { StagingBanner } from '../components/StagingBanner'
 import { hueColor, type CategoryHue } from '../lib/categoryColors'
 
@@ -21,8 +21,8 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  *
  * It is **self-contained and SSR-safe**: it renders to static HTML at build time
  * (scripts/prerender.mjs → renderToStaticMarkup), so nothing it renders may read `window`,
- * `document` or `navigator` during render, use router context or router state. Navigation is plain
- * `<a>` links to /login. The line always says "euro" (the app is euro-first), so the prerendered
+ * `document` or `navigator` during render, or read router state. Its links are `PublicLink`s: plain
+ * `<a>` links to /login in the static HTML, in-app links (no reload) once the app is running. The line always says "euro" (the app is euro-first), so the prerendered
  * HTML never changes after the SPA mounts. The theme button's hook has a server snapshot (light),
  * and the theme itself is applied before paint by /theme-init.js.
  */
@@ -33,12 +33,12 @@ const SIGN_IN = '/login'
 /** The page's primary: the sign-in form's green pill, as a link. */
 function CreateAccount() {
   return (
-    <a
-      href={REGISTER}
+    <PublicLink
+      to={REGISTER}
       className="auth-pill land-pill inline-flex items-center justify-center rounded-lg bg-brand-600 font-semibold text-white transition hover:bg-brand-700 dark:bg-primary dark:hover:bg-brand-600"
     >
       Create your free account
-    </a>
+    </PublicLink>
   )
 }
 
@@ -99,9 +99,9 @@ export function LandingPage() {
             </p>
             <div className="land-actions">
               <CreateAccount />
-              <a href={SIGN_IN} className="auth-link land-signin">
+              <PublicLink to={SIGN_IN} className="auth-link land-signin">
                 Sign in
-              </a>
+              </PublicLink>
             </div>
             <p className="land-note">Free to start · No card required</p>
           </div>

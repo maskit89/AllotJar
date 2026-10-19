@@ -9,7 +9,7 @@ import { StagingBanner } from '../components/StagingBanner'
  * the `.legal-prose` text at a comfortable reading measure, and the landing's quiet footer. These
  * are public, crawlable trust pages — no auth, no app shell. Content uses semantic HTML inside
  * `.legal-prose` (styled in index.css) so the pages read like a document without class noise on
- * every element. Navigation is plain `<a>` links, as on the landing.
+ * every element. Navigation is `PublicLink`s, as on the landing (in-app links, no reload).
  */
 export function LegalLayout({
   title,
