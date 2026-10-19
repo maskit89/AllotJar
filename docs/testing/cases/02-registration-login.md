@@ -83,7 +83,7 @@
 - **Preconditions:** Anonymous browser on `/login?register=1`; fresh email `reg-006@example.test`.
 - **Steps:**
   1. Fill "First name" = `Ana`, "Last name" = `Borg`, "Email", "Password" = a fresh `Aa1-<uuid>`.
-  2. Leave "Currency" = the preselected value (EUR under en-GB? see REG-031 — pick "Euro (€)" explicitly), "Number format" = "1,234.56".
+  2. Leave "Currency" = the preselected value ("Euro (€)" under every locale, REG-031), "Number format" = "1,234.56".
   3. Leave the sample-figures checkbox **unticked** (its default).
   4. Tick the terms checkbox and (staging build) the data-loss checkbox.
   5. Click "Create account".
@@ -390,7 +390,7 @@
   - Number format: exactly 5 options labeled `1,234.56`, `1.234,56`, `1 234,56`, `1'234.56`, `1,23,456.78`.
 - **Automated:** No
 
-### REG-031 - Browser locale preselects currency and number format
+### REG-031 - Euro preselected; browser locale preselects the number format
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Anonymous browsers pinned to specific locales (e.g. Playwright `locale`).
@@ -398,11 +398,11 @@
   1. Load `/login?register=1` under `en-US`; read the two selects and the line in the green room (the band on a phone).
   2. Repeat under `en-IN`, `de-CH`, `de-DE`, and `pt-PT`.
 - **Expected:**
-  - `en-US`: USD + `1,234.56`. The line reads "Give every euro a job." (the money word in gold) under every locale — restyle PR 16: the frame's line is euro always, never the locale's noun ("dollar", "pound", "franc", "rupee" never appear in the room).
-  - `en-IN`: INR + `1,23,456.78` (lakh). `de-CH`: CHF + `1'234.56`. `de-DE`: EUR + `1.234,56`. The line still "…every euro…".
-  - `pt-PT` (region not in the map): falls back to EUR; number format inferred from the locale's separators (comma decimal + space grouping → `1 234,56`).
+  - `en-US`: EUR + `1,234.56`. The currency is the euro under every locale (the app works mainly in the eurozone). The line reads "Give every euro a job." (the money word in gold) under every locale — restyle PR 16: the frame's line is euro always, never the locale's noun ("dollar", "pound", "franc", "rupee" never appear in the room).
+  - `en-IN`: EUR + `1,23,456.78` (lakh). `de-CH`: EUR + `1'234.56`. `de-DE`: EUR + `1.234,56`. The line still "…every euro…".
+  - `pt-PT`: EUR; number format inferred from the locale's separators (comma decimal + space grouping → `1 234,56`).
   - Both selects remain fully user-overridable; the preselect is computed once on mount.
-- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-031 — en-GB, de-DE and en-US: the selects, and the line reads euro under each; `AuthPages.frame.test.tsx` — euro on the forgot, reset and accept-invite pages under en-GB, en-US and de-CH; client/src/lib/money.test.ts — detectLocaleDefaults + currencyNoun)
+- **Automated:** Partial (client `LoginPage.catalog.test.tsx` REG-031 — en-GB, de-DE and en-US: EUR preselected and the number format, and the line reads euro under each; `AuthPages.frame.test.tsx` — euro on the forgot, reset and accept-invite pages under en-GB, en-US and de-CH; client/src/lib/money.test.ts — detectLocaleDefaults (EUR under en-US, en-GB, de-CH, ja-JP, en-IN) + currencyNoun)
 
 ### REG-032 - Chosen currency and format actually govern the app after sign-up
 - **Priority:** P1
@@ -415,7 +415,7 @@
 - **Expected:**
   - Money renders in PLN with dot-comma grouping app-wide (hero "Remaining to budget" shows the seeded 800 as `800,00 zł`-style per the PLN formatter with de-DE grouping).
   - Account-menu chip shows "PLN · Your household" (the budget currency). `/account` Preferences preselects "Polish złoty (zł)" and "1.234,56" while the budget is still empty; once it holds an account, month or transaction the currency shows read-only with a lock, and its (i) "About the lock" reads "Your budget currency is fixed once your budget has accounts, months or transactions. …" (PREF-011), and every month is created in PLN.
-  - The signed-out pages' line on later visits aside (it follows the browser locale, REG-031), the in-app "give every złoty a job" surfaces use the noun "złoty".
+  - The signed-out pages' line aside (it reads euro always, REG-031), the in-app "give every złoty a job" surfaces use the noun "złoty".
 - **Automated:** Partial (client/src/pages/LoginPage.test.tsx — registration submits the chosen prefs; client/src/lib/money.test.ts — formats render; the end-to-end render isn't tested)
 
 ### REG-033 - Invalid currency code is rejected server-side
@@ -978,7 +978,7 @@ rejects anything else, INCLUDING a real Google token — production uses `Google
   1. First Google sign-in sending `preferredCurrency:"GBP"`, `numberFormat:"dot-comma"`.
   2. Another first sign-in sending garbage currency/format.
 - **Expected:**
-  - 1: `/auth/me` shows GBP / dot-comma (register-form parity — the client sends its locale detection). 2: sign-in still succeeds (200); prefs fall back to EUR / comma-dot — bad hints never fail sign-in.
+  - 1: `/auth/me` shows GBP / dot-comma (register-form parity — the client sends the form's defaults: EUR and the locale-detected format). 2: sign-in still succeeds (200); prefs fall back to EUR / comma-dot — bad hints never fail sign-in.
 - **Automated:** Full (GoogleSignInFlowTests — REG-078)
 
 ### REG-079 - The fake validator is double-gated
