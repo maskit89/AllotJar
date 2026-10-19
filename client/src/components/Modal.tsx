@@ -27,6 +27,11 @@ const noop = () => {}
  * footer's own actions. Focus then opens on the footer control marked `data-sheet-focus` (its
  * primary), as there is no close control to land on. `zIndex` (opt-in) raises it over other fixed
  * layers (the analytics banner, the onboarding dialogs). Left out, both are as before.
+ *
+ * `banner` (sheet only, opt-in; the onboarding welcome, restyle PR 19): decoration drawn above the
+ * title row (under the phone's grab handle), such as the green room with its jars. `describedBy`
+ * (opt-in) points the dialog's `aria-describedby` at an element inside it, so a screen reader reads
+ * that line with the title. Left out, the dialog is as before.
  */
 export function Modal({
   title,
@@ -39,6 +44,8 @@ export function Modal({
   footer,
   dismissible = true,
   zIndex,
+  banner,
+  describedBy,
 }: {
   title: ReactNode
   onClose: () => void
@@ -56,6 +63,10 @@ export function Modal({
   dismissible?: boolean
   /** Sheet only: the layer it sits on (the default is 50). */
   zIndex?: number
+  /** Sheet only: decoration above the title row (see above). */
+  banner?: ReactNode
+  /** The id of the element that describes the dialog (its `aria-describedby`). */
+  describedBy?: string
 }) {
   const ref = useRef<HTMLDivElement>(null)
   // A sheet that cannot be dismissed ignores Escape too.
@@ -99,6 +110,7 @@ export function Modal({
           role="dialog"
           aria-modal="true"
           aria-label={label}
+          aria-describedby={describedBy}
           className="sheet-dlg relative z-10 flex max-h-[calc(100dvh-48px)] w-full max-w-[480px] min-w-0 flex-col rounded-2xl text-sm border border-slate-200/80 px-6 pt-[22px] pb-6 shadow-[var(--shadow-frame-lg)] max-[699.98px]:max-h-[calc(100dvh-12px)] max-[699.98px]:max-w-none max-[699.98px]:rounded-t-[20px] max-[699.98px]:rounded-b-none max-[699.98px]:border-x-0 max-[699.98px]:border-b-0 max-[699.98px]:px-[18px] max-[699.98px]:pt-2 max-[699.98px]:pb-[calc(20px+env(safe-area-inset-bottom))]"
         >
           {/* The phone's grab handle: a real button (as the action sheets' handle), the sheet's close there. */}
@@ -112,6 +124,7 @@ export function Modal({
               className="relative mx-auto mb-3.5 block h-[5px] w-[38px] flex-none rounded-full bg-slate-500/35 after:absolute after:-inset-x-5 after:-inset-y-[18px] after:content-['']"
             />
           )}
+          {banner && <div className="flex-none">{banner}</div>}
           <div className="mb-4 flex flex-none items-center gap-3 max-[699.98px]:mb-3.5">
             <div className="flex min-w-0 items-center gap-1.5">
               <h2 className="text-lg leading-tight font-bold tracking-[-0.018em] text-slate-900">{title}</h2>
@@ -156,6 +169,7 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={label}
+        aria-describedby={describedBy}
         className={`relative z-10 my-auto w-full ${width} rounded-2xl border border-slate-200 bg-surface p-5 shadow-card`}
       >
         <div className="mb-4 flex items-center justify-between gap-3">

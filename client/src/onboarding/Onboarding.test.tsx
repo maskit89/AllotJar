@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { screen, fireEvent, waitFor, within } from '@testing-library/react'
 
 vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
 
@@ -92,5 +92,91 @@ describe('Onboarding', () => {
     expect(JSON.parse(localStorage.getItem('zbb.onboarding:u-me') ?? '{}').welcomeSeen).toBe(true)
     expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
     expect(Object.keys(localStorage).some((k) => k.includes('@'))).toBe(false)
+  })
+
+  // Restyle PR 19: the owner's "one primary (green) button on the screen at a time".
+  it('shows one primary button at a time: Take the tour, then Next / Finish, and none on the checklist', async () => {
+    const primaries = (scope: HTMLElement) =>
+      within(scope)
+        .queryAllByRole('button')
+        .filter((b) => b.classList.contains('bg-brand-600'))
+        .map((b) => b.textContent)
+
+    renderApp()
+    const welcome = await screen.findByRole('dialog', { name: 'Welcome to AllotJar' })
+    expect(primaries(document.body)).toEqual(['Take the tour'])
+    fireEvent.click(within(welcome).getByRole('button', { name: 'Take the tour' }))
+
+    await screen.findByRole('heading', { name: 'Find your way around' })
+    for (let step = 1; step < 9; step++) {
+      expect(primaries(document.body)).toEqual(['Next'])
+      fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    }
+    expect(primaries(document.body)).toEqual(['Finish'])
+    fireEvent.click(screen.getByRole('button', { name: 'Finish' }))
+
+    const region = await screen.findByRole('region', { name: 'Getting started' })
+    expect(primaries(region)).toEqual([])
+    fireEvent.click(within(region).getByRole('button', { name: 'Collapse getting started' }))
+    const pill = await screen.findByRole('button', { name: /Getting started/ })
+    expect(pill).not.toHaveClass('bg-brand-600')
+  })
+
+  it('on a wide screen the tour card sits beside its target, not docked', async () => {
+    renderApp()
+    fireEvent.click(await screen.findByRole('button', { name: 'Take the tour' }))
+    const tour = await screen.findByRole('dialog', { name: 'Find your way around' })
+    expect(tour).not.toHaveAttribute('data-docked')
+  })
+})
+
+// Restyle PR 19: on a phone (below 700px) the tour card docks above the tab bar, and the checklist
+// starts collapsed so the Dashboard's hero and budget card stay in sight.
+describe('Onboarding on a phone', () => {
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('max-width: 699.98px'),
+      media: query,
+      onchange: null,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+      dispatchEvent: () => false,
+    }))
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/budget/months') return Promise.resolve({ data: [] })
+      if (url === '/transactions') return Promise.resolve({ data: [] })
+      if (url === '/auth/me') return Promise.resolve({ data: { userId: 'u-me', email: 'me@test.app', role: 0 } })
+      return Promise.reject({ response: { status: 404 } })
+    })
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('docks the tour card, then shows the checklist collapsed; the pill opens it and focus follows', async () => {
+    renderApp()
+    // The welcome is a bottom sheet there: its grab handle is the close control.
+    const welcome = await screen.findByRole('dialog', { name: 'Welcome to AllotJar' })
+    expect(within(welcome).getByRole('button', { name: 'Close' })).toHaveAttribute('data-sheet-close')
+    fireEvent.click(within(welcome).getByRole('button', { name: 'Take the tour' }))
+
+    const tour = await screen.findByRole('dialog', { name: 'Find your way around' })
+    expect(tour).toHaveAttribute('data-docked')
+    expect(tour.style.bottom).toContain('var(--tabbar-h)')
+    fireEvent.click(within(tour).getByRole('button', { name: 'Skip tour' }))
+
+    // Collapsed: the quiet pill with its count, no open card.
+    const pill = await screen.findByRole('button', { name: /Getting started/ })
+    expect(pill).toHaveTextContent('0 of 5')
+    expect(pill).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument()
+    // Collapsing is not dismissing.
+    expect(JSON.parse(localStorage.getItem('zbb.onboarding:u-me') ?? '{}').checklistDismissed).toBe(false)
+
+    fireEvent.click(pill)
+    const region = await screen.findByRole('region', { name: 'Getting started' })
+    await waitFor(() => expect(within(region).getByRole('button', { name: 'Collapse getting started' })).toHaveFocus())
+    fireEvent.click(within(region).getByRole('button', { name: 'Collapse getting started' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Getting started/ })).toHaveFocus())
   })
 })

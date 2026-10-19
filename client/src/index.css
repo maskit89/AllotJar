@@ -1963,3 +1963,92 @@ html {
     margin-top: 22px;
   }
 }
+
+/* Onboarding (restyle PR 19): the welcome's green room, the tour's scrim and card, the Getting
+   started card. Additive: nothing outside src/onboarding uses these classes. */
+
+/* The welcome's room: the hero tile's green under a soft gold glow, its gold hairline edge, and the
+   sign-in band's shelf of four glass jars standing on the khaki plank (BandShelf; its tints follow
+   .auth-pshelf). Decoration only. */
+.onb-room {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 120px;
+  margin: 0 0 18px;
+  overflow: hidden;
+  border-radius: 14px;
+  background:
+    radial-gradient(52% 130% at 50% 0%, rgb(244 219 142 / 0.2), transparent 72%),
+    linear-gradient(135deg, #114a32, #185c3f 45%, #237a55);
+  box-shadow: 0 18px 32px -26px rgb(31 107 77 / 0.7);
+}
+.dark .onb-room {
+  background:
+    radial-gradient(52% 130% at 50% 0%, rgb(244 219 142 / 0.1), transparent 72%),
+    linear-gradient(135deg, #0f3d29, #165438 45%, #1d6a4a);
+  box-shadow: none;
+}
+.onb-room::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgb(244 219 142 / 0.6), rgb(229 190 94 / 0.06) 30%, rgb(229 190 94 / 0.06) 70%, rgb(244 219 142 / 0.4));
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+}
+.onb-room .auth-pshelf {
+  display: block;
+  position: relative;
+  width: 250px;
+  margin: 0 0 20px;
+}
+.onb-room .auth-jars {
+  position: relative;
+  justify-content: center;
+  gap: 16px;
+}
+.onb-room .auth-plank {
+  position: relative;
+  height: 5px;
+  -webkit-mask: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+  mask: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 40px), transparent);
+}
+@media (max-width: 699.98px) {
+  .onb-room {
+    height: 108px;
+    margin-bottom: 16px;
+  }
+  .onb-room .auth-pshelf {
+    margin-bottom: 16px;
+  }
+}
+/* A short screen (a phone on its side): the title and the two buttons come first. */
+@media (max-height: 560px) {
+  .onb-room {
+    display: none;
+  }
+}
+
+/* The tour: the scrim around the spotlit element (the dialogs' warm green-black, deeper, so the cut-out
+   reads), the gold ring around it (the frame's gold marker), and the card on the dialogs' surface (one step lighter than the cards in dark mode). */
+:root {
+  --onb-scrim: rgb(10 20 15 / 0.55);
+  --onb-ring: #e5be5e;
+}
+.dark {
+  --onb-scrim: rgb(0 0 0 / 0.62);
+  --onb-ring: #e8c36a;
+}
+.onb-card {
+  background: var(--color-card);
+}
+.dark .onb-card {
+  background: var(--color-surface-2);
+}

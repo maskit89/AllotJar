@@ -1,12 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { ChevronUp } from 'lucide-react'
 import { api } from '../lib/api'
 import type { BudgetMonthDto, BudgetMonthSummaryDto, JarDto, TransactionDto } from '../types'
 import { fromDto, remainingToBudget, totalIncome } from '../budgetModel'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../components/icons'
+import { InfoHint } from '../components/InfoHint'
+import { StatusChip } from '../components/StatusChip'
+import { ROW_HINT } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { currencyNoun } from '../lib/money'
 import { currentMonth } from '../lib/dates'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { useFeatures } from '../features/FeatureContext'
 import { useOnboarding } from './OnboardingContext'
 
@@ -20,10 +25,29 @@ interface Progress {
 
 const EMPTY: Progress = { monthExists: false, hasIncome: false, hasJar: false, balanced: false, hasTransaction: false }
 
+/** The card's two small icon buttons (collapse, dismiss): 32px, 40px for a finger on a phone. */
+const ICON_BUTTON =
+  'grid size-8 shrink-0 place-items-center rounded-lg text-slate-500 transition hover:bg-surface-2 hover:text-slate-900 max-[699.98px]:size-10 dark:hover:bg-foreground/7'
+
 /**
- * A small, dismissible "Getting started" panel pinned to the corner. Its steps
+ * Where it sits: on a wide screen at the bottom right of the content column (the sidebar and its
+ * Help item are on the left); on a phone (below 700px) above the tab bar (`--tabbar-h`, safe area
+ * included), the card full width within the page's 16px gutter and the pill at the right.
+ */
+const PINNED =
+  'fixed z-40 right-[max(1.5rem,env(safe-area-inset-right))] bottom-[max(calc(var(--tabbar-h)+12px),calc(env(safe-area-inset-bottom)+1.5rem))] max-[699.98px]:right-[max(1rem,env(safe-area-inset-right))]'
+
+/**
+ * A small, dismissible "Getting started" card pinned to the corner. Its steps
  * tick off automatically from the user's own data (refreshed on navigation), so
  * it doubles as a progress tracker without ever blocking the screen.
+ *
+ * The look (restyle PR 19): a compact off-white card with an eyebrow title, its (i) (what the steps
+ * are for: the hints that once sat under every row), the count, a thin progress line and one row per
+ * step, a check and a short name. Collapsed, it is a quiet pill (the title, a chip with the count and
+ * a chevron), never a second green button. All done, one line under the rows, "Every euro has a
+ * job.", with a quiet Dismiss. On a phone it starts collapsed, so the Dashboard's hero and budget
+ * card stay in sight; opened, it is capped below the hero and its rows scroll inside it.
  */
 export function GettingStartedChecklist() {
   const { dismissChecklist } = useOnboarding()
@@ -31,8 +55,24 @@ export function GettingStartedChecklist() {
   const features = useFeatures()
   const noun = currencyNoun(budgetCurrency)
   const location = useLocation()
-  const [open, setOpen] = useState(true)
+  const phone = useMediaQuery('(max-width: 699.98px)')
+  // Untouched, it is open on a wide screen and collapsed on a phone; the user's choice then holds.
+  const [chosen, setChosen] = useState<boolean | null>(null)
+  const open = chosen ?? !phone
   const [progress, setProgress] = useState<Progress>(EMPTY)
+  // Focus follows the toggle: to the pill after collapsing, to the collapse button after opening.
+  const pillRef = useRef<HTMLButtonElement>(null)
+  const collapseRef = useRef<HTMLButtonElement>(null)
+  const toggled = useRef(false)
+  useEffect(() => {
+    if (!toggled.current) return
+    toggled.current = false
+    ;(open ? collapseRef : pillRef).current?.focus()
+  }, [open])
+  const toggle = (next: boolean) => {
+    toggled.current = true
+    setChosen(next)
+  }
 
   // Only the latest check lands: a focus check and a navigation check in flight together answer in
   // either order, and an older "no income yet" must not overwrite a newer answer.
@@ -89,12 +129,12 @@ export function GettingStartedChecklist() {
   if (activeHousehold && !activeHousehold.isOwn) return null
 
   const steps = [
-    { id: 'month', label: 'Create your first month', hint: 'Start blank or pick a template — later months can copy the previous one.', to: '/', done: progress.monthExists },
-    { id: 'income', label: 'Plan your income', hint: 'Add what you expect to earn this month.', to: '/', done: progress.hasIncome },
+    { id: 'month', label: 'Create your first month', to: '/', done: progress.monthExists },
+    { id: 'income', label: 'Plan your income', to: '/', done: progress.hasIncome },
     // Only where the Jars page is on: the step links to it.
-    ...(features.jars ? [{ id: 'jar', label: 'Add a jar', hint: 'A yearly bill, a holiday or a rainy-day pot.', to: '/jars', done: progress.hasJar }] : []),
-    { id: 'balance', label: `Give every ${noun} a job`, hint: 'Assign it all until Remaining reaches zero.', to: '/', done: progress.balanced },
-    { id: 'tx', label: 'Log your first transaction', hint: 'Record real spending and assign it to a line.', to: '/transactions', done: progress.hasTransaction },
+    ...(features.jars ? [{ id: 'jar', label: 'Add a jar', to: '/jars', done: progress.hasJar }] : []),
+    { id: 'balance', label: `Give every ${noun} a job`, to: '/', done: progress.balanced },
+    { id: 'tx', label: 'Log your first transaction', to: '/transactions', done: progress.hasTransaction },
   ]
   const doneCount = steps.filter((s) => s.done).length
   const allDone = doneCount === steps.length
@@ -102,12 +142,17 @@ export function GettingStartedChecklist() {
   if (!open) {
     return (
       <button
+        ref={pillRef}
         type="button"
-        onClick={() => setOpen(true)}
-        className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[calc(var(--tabbar-h)+1rem)] z-40 flex items-center gap-2 rounded-full bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-brand-700"
+        onClick={() => toggle(true)}
+        aria-expanded={false}
+        className={`${PINNED} onb-card flex h-10 items-center gap-2 rounded-full border border-slate-200/80 pr-3 pl-4 text-[13px] font-semibold text-slate-900 shadow-[var(--shadow-frame-lg)] transition hover:bg-surface-2 max-[699.98px]:h-11 dark:hover:bg-foreground/7`}
       >
-        <CheckIcon className="h-4 w-4" />
-        Getting started · {doneCount}/{steps.length}
+        Getting started
+        <StatusChip tone={allDone ? 'ok' : 'neutral'}>
+          {doneCount} of {steps.length}
+        </StatusChip>
+        <ChevronUp aria-hidden strokeWidth={1.8} className="size-4 text-slate-500" />
       </button>
     )
   }
@@ -115,38 +160,37 @@ export function GettingStartedChecklist() {
   return (
     <section
       aria-label="Getting started"
-      className="fixed right-[max(1rem,env(safe-area-inset-right))] bottom-[calc(var(--tabbar-h)+1rem)] z-40 w-80 max-w-[calc(100vw-2rem)] rounded-2xl border border-slate-200/70 bg-surface shadow-lg"
+      className={`${PINNED} onb-card flex max-h-[calc(100dvh-48px)] w-80 max-w-[calc(100vw-var(--sidebar-w,0px)-3rem)] flex-col rounded-2xl border border-slate-200/80 text-sm shadow-[var(--shadow-frame-lg)] max-[699.98px]:left-[max(1rem,env(safe-area-inset-left))] max-[699.98px]:max-h-[calc(100dvh-var(--tabbar-h)-224px)] max-[699.98px]:w-auto max-[699.98px]:max-w-none`}
     >
-      <div className="flex items-center justify-between gap-2 border-b border-slate-200 px-4 py-3">
-        <div>
-          <h2 className="text-sm font-bold text-slate-900">Getting started</h2>
-          <p className="text-xs text-slate-500">
-            {doneCount} of {steps.length} done
-          </p>
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            aria-label="Collapse getting started"
-            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-          >
-            <ChevronDownIcon className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={dismissChecklist}
-            aria-label="Dismiss getting started"
-            className="rounded-md p-1.5 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
-          >
+      <div className="flex flex-none items-center gap-1.5 pt-2.5 pr-2 pb-2 pl-4 max-[699.98px]:pt-1.5 max-[699.98px]:pb-1">
+        <h2 className="text-xs font-semibold tracking-[0.05em] text-slate-500 uppercase">Getting started</h2>
+        <InfoHint fixed label="About getting started" buttonClassName={ROW_HINT}>
+          Steps tick themselves off as you go. Start a month blank or from a template, add your income
+          {features.jars ? ' and a jar' : ''}, assign it all until Remaining to budget reads zero, then log
+          your spending.
+        </InfoHint>
+        <span className="ml-auto pr-1 text-xs font-semibold text-slate-500 tabular-nums">
+          {doneCount} of {steps.length} done
+        </span>
+        <button
+          ref={collapseRef}
+          type="button"
+          onClick={() => toggle(false)}
+          aria-label="Collapse getting started"
+          className={ICON_BUTTON}
+        >
+          <ChevronDownIcon className="h-4 w-4" />
+        </button>
+        {!allDone && (
+          <button type="button" onClick={dismissChecklist} aria-label="Dismiss getting started" className={ICON_BUTTON}>
             <CloseIcon className="h-4 w-4" />
           </button>
-        </div>
+        )}
       </div>
 
-      <div className="px-4 pt-3">
+      <div className="flex-none px-4">
         <div
-          className="h-1.5 w-full overflow-hidden rounded-full bg-slate-100"
+          className="h-[3px] w-full overflow-hidden rounded-full bg-track"
           role="progressbar"
           aria-valuenow={doneCount}
           aria-valuemin={0}
@@ -154,46 +198,45 @@ export function GettingStartedChecklist() {
           aria-label="Onboarding progress"
         >
           <div
-            className="h-full rounded-full bg-brand-600 transition-all"
+            className="h-full rounded-full bg-brand-600 transition-all dark:bg-brand-500"
             style={{ width: `${(doneCount / steps.length) * 100}%` }}
           />
         </div>
       </div>
 
-      <ul className="space-y-1 p-3">
+      <ul className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-2 pt-1.5 pb-2">
         {steps.map((s) => (
           <li key={s.id}>
-            <Link to={s.to} className="flex items-start gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-50">
+            <Link
+              to={s.to}
+              className="flex min-h-10 items-center gap-3 rounded-[10px] px-2 transition hover:bg-surface-2 max-[699.98px]:min-h-11 dark:hover:bg-foreground/7"
+            >
               <span
-                className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
-                  s.done ? 'border-brand-600 bg-brand-600 text-white' : 'border-slate-300 text-transparent'
+                className={`grid size-5 shrink-0 place-items-center rounded-full ${
+                  s.done
+                    ? 'bg-brand-600 text-white'
+                    : 'text-transparent shadow-[inset_0_0_0_1.5px_color-mix(in_srgb,var(--color-slate-400)_70%,transparent)]'
                 }`}
               >
                 <CheckIcon className="h-3 w-3" />
                 <span className="sr-only">{s.done ? 'Done:' : 'To do:'}</span>
               </span>
-              <span>
-                <span className={`block text-sm font-medium ${s.done ? 'text-slate-500 line-through' : 'text-slate-800'}`}>
-                  {s.label}
-                </span>
-                <span className="block text-xs text-slate-500">{s.hint}</span>
-              </span>
+              {/* The space keeps the row's name "Done: Create your first month", not "Done:Create…". */}{' '}
+              <span className={`min-w-0 truncate font-medium ${s.done ? 'text-slate-500' : 'text-slate-900'}`}>{s.label}</span>
             </Link>
           </li>
         ))}
       </ul>
 
       {allDone && (
-        <div className="border-t border-slate-200 px-4 py-3 text-center">
-          <p className="text-sm font-semibold text-brand-700 dark:text-brand-200">
-            All set — every {noun} has a job! 🎉
-          </p>
+        <div className="flex flex-none items-center gap-2 border-t border-line py-1.5 pr-2 pl-4">
+          <p className="min-w-0 flex-1 font-semibold text-slate-900">Every {noun} has a job.</p>
           <button
             type="button"
             onClick={dismissChecklist}
-            className="mt-1 text-xs font-medium text-slate-500 transition hover:text-slate-700"
+            className="h-8 shrink-0 rounded-lg px-2.5 text-[13px] font-semibold text-slate-500 transition hover:bg-surface-2 hover:text-slate-900 max-[699.98px]:h-10 dark:hover:bg-foreground/7"
           >
-            Hide this checklist
+            Dismiss
           </button>
         </div>
       )}

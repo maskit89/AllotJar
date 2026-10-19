@@ -164,7 +164,7 @@
 - **Preconditions:** Brand-new user on `/`, welcome → "Take the tour".
 - **Steps:**
   1. Drive the tour with keyboard: "Next"/"Back"/"Skip tour"/"Finish"; press Escape.
-- **Expected:** Focus moves to each step's heading; the dimmed backdrop catches clicks so the page behind is inert; Escape ends the tour. Sidebar-anchored steps that are off-screen on mobile fall back to a centred card. (Tour mechanics owned by `05-onboarding.md`; this asserts the keyboard/inertness convention.)
+- **Expected:** Focus moves to each step's heading; the dimmed backdrop catches clicks so the page behind is inert; Escape ends the tour. Steps whose anchor is missing or off-screen fall back to a centred card; on a phone (below 700 px) the card docks above the tab bar instead (restyle PR 19). (Tour mechanics owned by `05-onboarding.md`; this asserts the keyboard/inertness convention.)
 - **Automated:** Partial (`client/e2e/a11y.spec.ts` walks every step via keyboard-reachable buttons)
 
 ## Screen-reader structure

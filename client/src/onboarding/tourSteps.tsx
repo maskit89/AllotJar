@@ -9,6 +9,7 @@ export interface TourStep {
    */
   selector?: string
   title: string
+  /** One sentence (restyle PR 19): what this part of the app is for. */
   body: ReactNode
 }
 
@@ -26,135 +27,82 @@ const phoneOnly = (copy: ReactNode) => <span className="min-[900px]:hidden">{cop
  * switcher, or no budget yet), so the tour works in any app state. Copy that differs between
  * the desktop and phone frames shows only in its own layout (desktopOnly / phoneOnly).
  *
+ * One short title and one sentence per step (restyle PR 19, the owner's "as little text as
+ * possible"): the frame's words as the restyled pages use them ("Remaining to budget" is the
+ * Dashboard's first KPI tile; the theme button sits in the top bar on desktop, Dark mode under
+ * More on a phone), and no emoji.
+ *
  * A builder rather than a constant so the zero-based step can speak the user's
  * currency ("give every euro a job"); `noun` is the singular money-noun from
  * currencyNoun(). Step count is invariant to the noun — see TOUR_STEP_COUNT.
  */
 export function buildTourSteps(noun: string): TourStep[] {
   return [
-  {
-    id: 'nav',
-    // The desktop sidebar, or on phones the bottom tab bar.
-    selector: '[data-tour="sidebar"], [data-tabbar]',
-    title: 'Find your way around',
-    body: (
-      <>
-        {desktopOnly(
-          <>
-            Every section lives in this sidebar — your monthly <strong>Dashboard</strong>, the{' '}
-            <strong>Transactions</strong> register, <strong>Accounts</strong>, savings{' '}
-            <strong>Jars</strong>, <strong>Reports</strong> and <strong>People</strong>. The account button at
-            the bottom is where <strong>account settings</strong>, switching household, dark mode and{' '}
-            <strong>signing out</strong> live.
-          </>,
-        )}
-        {phoneOnly(
-          <>
-            Your monthly <strong>Dashboard</strong>, the <strong>Transactions</strong> register, savings{' '}
-            <strong>Jars</strong> and <strong>Reports</strong> sit in this bar; <strong>More</strong> holds{' '}
-            <strong>Accounts</strong>, <strong>People</strong> and the rest. The round account button (your
-            initials) at the top is where <strong>account settings</strong>, switching household, dark mode and{' '}
-            <strong>signing out</strong> live.
-          </>,
-        )}
-      </>
-    ),
-  },
-  {
-    id: 'month',
-    // The month switcher, on the month-based screens only (elsewhere the step centres).
-    selector: '[data-tour="month"]',
-    title: 'Pick the month you’re planning',
-    body: (
-      <>
-        On month-based screens like the <strong>Dashboard</strong>, use the <strong>‹ ›</strong> arrows at the
-        top to move between months — they all follow the month you pick. <strong>Dark mode</strong> is in
-        your account menu.
-      </>
-    ),
-  },
-  {
-    id: 'goal',
-    selector: '[data-tour="remaining-banner"]',
-    title: `Give every ${noun} a job`,
-    body: (
-      <>
-        This is the heart of zero-based budgeting: assign <strong>all</strong> of your income across
-        spending lines, savings and jars until <strong>Remaining to Budget</strong> reaches{' '}
-        <strong>zero</strong> and the banner turns green. <strong>Spent</strong> fills in
-        automatically from the transactions you log — there’s nothing to tally by hand.
-      </>
-    ),
-  },
-  {
-    id: 'transactions',
-    selector: '[data-tour="nav-transactions"], [data-tour-more~="transactions"]',
-    title: 'Track what you actually spend',
-    body: (
-      <>
-        Log spending in <strong>Transactions</strong> and assign each one to a budget line — that’s what
-        fills the <strong>Spent</strong> column. You can <strong>split</strong> one receipt across
-        several lines, and repeat payees categorise themselves over time.
-      </>
-    ),
-  },
-  {
-    id: 'accounts',
-    selector: '[data-tour="nav-accounts"], [data-tour-more~="accounts"]',
-    title: 'Know where your money sits',
-    body: (
-      <>
-        <strong>Accounts</strong> tracks your current account, savings, cash or card. Give each an
-        opening balance and tag transactions to it — the balance is worked out for you as
-        <em> opening + income − expenses</em>.
-      </>
-    ),
-  },
-  {
-    id: 'jars',
-    selector: '[data-tour="nav-jars"], [data-tour-more~="jars"]',
-    title: 'Save up with jars',
-    body: (
-      <>
-        <strong>Jars</strong> save up for a yearly bill, a holiday or a rainy-day pot. We work out what to
-        set aside each month.
-      </>
-    ),
-  },
-  {
-    id: 'reports',
-    selector: '[data-tour="nav-reports"], [data-tour-more~="reports"]',
-    title: 'See the bigger picture',
-    body: (
-      <>
-        <strong>Reports</strong> show income versus spending across recent months, where the money went
-        by category, and an annual overview of what you earned, spent and saved.
-      </>
-    ),
-  },
-  {
-    id: 'people',
-    selector: '[data-tour="nav-people"], [data-tour-more~="people"]',
-    title: 'Sharing money with someone?',
-    body: (
-      <>
-        Add the people you share money with under <strong>People</strong>. Once you’re sharing, an{' '}
-        <strong>Allocation</strong> tool appears that pools everyone’s income, covers the shared costs,
-        and splits what’s left into each person’s savings — all previewed before anything moves.
-      </>
-    ),
-  },
-  {
-    id: 'done',
-    title: "You're all set",
-    body: (
-      <>
-        We’ve pinned a <strong>Getting started</strong> checklist in the corner to walk you through your
-        first month, step by step. You can replay this tour anytime from <strong>Help</strong>. Happy
-        budgeting! 🎉
-      </>
-    ),
-  },
+    {
+      id: 'nav',
+      // The desktop sidebar, or on phones the bottom tab bar.
+      selector: '[data-tour="sidebar"], [data-tabbar]',
+      title: 'Find your way around',
+      body: (
+        <>
+          {desktopOnly('Every page lives in this sidebar, with your account and household at its foot.')}
+          {phoneOnly('Your main pages sit in this bar, and More holds Accounts, People and the rest.')}
+        </>
+      ),
+    },
+    {
+      id: 'month',
+      // The month switcher, on the month-based screens only (elsewhere the step centres).
+      selector: '[data-tour="month"]',
+      title: 'Pick the month you’re planning',
+      body: (
+        <>
+          {desktopOnly('These arrows move every month-based page; the button beside them switches light and dark.')}
+          {phoneOnly('These arrows move every month-based page; Dark mode is under More.')}
+        </>
+      ),
+    },
+    {
+      id: 'goal',
+      selector: '[data-tour="remaining-banner"]',
+      title: `Give every ${noun} a job`,
+      body: 'Assign all your income to lines and jars until Remaining to budget reads zero.',
+    },
+    {
+      id: 'transactions',
+      selector: '[data-tour="nav-transactions"], [data-tour-more~="transactions"]',
+      title: 'Track what you spend',
+      body: 'Log each payment in Transactions and give it a budget line.',
+    },
+    {
+      id: 'accounts',
+      selector: '[data-tour="nav-accounts"], [data-tour-more~="accounts"]',
+      title: 'Know where your money sits',
+      body: 'Accounts keeps each current account, savings pot, card and cash balance up to date.',
+    },
+    {
+      id: 'jars',
+      selector: '[data-tour="nav-jars"], [data-tour-more~="jars"]',
+      title: 'Save up with jars',
+      body: 'Jars save for a yearly bill, a holiday or a rainy day, a little each month.',
+    },
+    {
+      id: 'reports',
+      selector: '[data-tour="nav-reports"], [data-tour-more~="reports"]',
+      title: 'See the bigger picture',
+      body: 'Reports show income against spending, where the money went and your year at a glance.',
+    },
+    {
+      id: 'people',
+      selector: '[data-tour="nav-people"], [data-tour-more~="people"]',
+      title: 'Sharing money with someone?',
+      body: 'Add them under People, and Allocation splits what is left into each person’s savings.',
+    },
+    {
+      id: 'done',
+      title: "You're all set",
+      body: 'Getting started walks you through your first month, and Help replays this tour.',
+    },
   ]
 }
 
