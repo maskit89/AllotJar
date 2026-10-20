@@ -27,7 +27,7 @@ const ANALYTICS_RETENTION = '2 months'
 // True only once each provider's data processing terms are accepted and filed, InterServer's too.
 // The Gmail alert inbox has none (consumer Gmail), so Google's bullet says so; move the alerts to a
 // mailbox with a DPA before charging.
-const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement]'
+const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement except where noted]'
 // The safeguard for the US transfer: the EU-US Data Privacy Framework if InterServer is
 // certified, otherwise Standard Contractual Clauses signed with it.
 const TRANSFER_SAFEGUARD = '[TO CONFIRM: the Data Privacy Framework or Standard Contractual Clauses]'
