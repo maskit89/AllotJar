@@ -56,7 +56,7 @@ Assert-True ($null -eq (Get-R2BucketFromArgumentLine -ArgumentLine $local)) 'no 
 $prod = New-BackupTaskArgumentLine -ScriptPath 'C:\deploy\Backup-Database.ps1' -Server '.\SQLEXPRESS' `
     -Database 'ZeroBudgetProd' -BackupDir 'C:\deploy\backups' -RetentionDays 14 `
     -R2Bucket 'allotjar-db-backups' -Rclone 'C:\deploy\rclone\rclone.exe' `
-    -RcloneConf 'C:\deploy\rclone.conf' -R2Remote 'r2' -R2Prefix 'db-backups'
+    -RcloneConf 'C:\deploy\rclone.conf' -R2Remote 'r2' -R2Prefix 'db-backups-enc'
 Assert-True ($prod -match '-R2Bucket "allotjar-db-backups"') 'production line carries the R2 bucket'
 Assert-True ($prod -match '-Rclone ')                        'production line carries the rclone path'
 Assert-True ((Get-R2BucketFromArgumentLine -ArgumentLine $prod) -eq 'allotjar-db-backups') 'bucket parses back out of the line (preserve path)'
@@ -248,6 +248,32 @@ Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://staging\.allot
 # The expected values can be overridden (another domain, another database name).
 $p = Get-StackSettingsProblems -SettingsText $stagingOk -AspNetEnvironment Staging -ExpectedDatabase 'Other' -ExpectedAppBaseUrl 'https://test.example'
 Assert-True ($p.Count -eq 2) 'overridden expectations are honoured'
+
+Write-Host '== Get-BackupCryptRemoteProblems / Get-RcloneConfValue (uploads are encrypted or refused) =='
+$goodConf = "[r2]`ntype = s3`nprovider = Cloudflare`n`n[r2crypt]`ntype = crypt`nremote = r2:allotjar/db-backups-enc`nfilename_encryption = off`ndirectory_name_encryption = false`npassword = AAA`npassword2 = BBB`n"
+$cp = @{ CryptRemote = 'r2crypt'; Remote = 'r2'; Bucket = 'allotjar'; Prefix = 'db-backups-enc' }
+Assert-True ((Get-RcloneConfValue -ConfText $goodConf -Section 'r2crypt' -Key 'remote') -eq 'r2:allotjar/db-backups-enc') 'reads a value from the named section'
+Assert-True ($null -eq (Get-RcloneConfValue -ConfText $goodConf -Section 'r2' -Key 'password')) 'a key of another section is not picked up'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText $goodConf @cp).Count -eq 0) 'a complete crypt remote passes'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText ($goodConf -replace "`r?`n", "`r`n") @cp).Count -eq 0) 'CRLF config passes'
+$noCrypt = @(Get-BackupCryptRemoteProblems -ConfText "[r2]`ntype = s3`n" @cp)
+Assert-True ($noCrypt.Count -eq 1 -and $noCrypt[0] -match 'not be encrypted') 'no crypt remote is refused (no plain-text fallback)'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText ($goodConf -replace 'db-backups-enc', 'db-backups') @cp).Count -eq 1) 'a crypt remote aimed at the plain folder is refused'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText ($goodConf -replace 'allotjar/', 'other/') @cp).Count -eq 1) 'a crypt remote aimed at another bucket is refused'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText ($goodConf -replace 'type = crypt', 'type = alias') @cp).Count -eq 1) 'a non-crypt remote is refused'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText ($goodConf -replace 'password2 = BBB', '') @cp).Count -eq 1) 'a missing salt is refused'
+Assert-True (@(Get-BackupCryptRemoteProblems -ConfText ($goodConf -replace 'filename_encryption = off', 'filename_encryption = standard') @cp).Count -eq 1) 'encrypted file names are refused (the newest backup could not be found)'
+
+Write-Host '== Test-RcloneCryptFile =='
+$tmp = Join-Path ([IO.Path]::GetTempPath()) ("crypt-magic-" + [guid]::NewGuid().ToString('N'))
+try {
+    [IO.File]::WriteAllBytes($tmp, [byte[]](0x52, 0x43, 0x4C, 0x4F, 0x4E, 0x45, 0x00, 0x00, 1, 2, 3))
+    Assert-True (Test-RcloneCryptFile -Path $tmp) 'rclone crypt magic is recognised'
+    [IO.File]::WriteAllBytes($tmp, [System.Text.Encoding]::ASCII.GetBytes('TAPE'))
+    Assert-True (-not (Test-RcloneCryptFile -Path $tmp)) 'a short file is not encrypted'
+    [IO.File]::WriteAllBytes($tmp, [System.Text.Encoding]::ASCII.GetBytes('TAPE....and more bytes'))
+    Assert-True (-not (Test-RcloneCryptFile -Path $tmp)) 'a .bak header is not encrypted'
+} finally { Remove-Item -LiteralPath $tmp -ErrorAction SilentlyContinue }
 
 Write-Host '== Get-UrlOrigin =='
 Assert-True ((Get-UrlOrigin -Url 'HTTPS://Staging.AllotJar.com/reset?x=1') -eq 'https://staging.allotjar.com') 'origin drops path and case'

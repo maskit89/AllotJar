@@ -72,7 +72,7 @@ param(
     [string]$Rclone        = 'C:\deploy\rclone\rclone.exe',
     [string]$RcloneConf    = 'C:\deploy\rclone.conf',
     [string]$R2Remote      = 'r2',
-    [string]$R2Prefix      = 'db-backups',
+    [string]$R2Prefix      = 'db-backups-enc',
 
     # Post-cutover cleanup: remove catch-all/apex/www/app.allotjar.com bindings from
     # the staging site (leaving only $StagingHost). Run this only AFTER DNS moved
