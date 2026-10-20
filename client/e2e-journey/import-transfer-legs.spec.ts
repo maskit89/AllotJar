@@ -49,7 +49,7 @@ async function addAccount(page: Page, name: string, opening: string) {
  * candidates, and the status line. Done closes it; the row keeps the transfer.
  */
 async function markTransfer(page: Page, row: string): Promise<Locator> {
-  await rowAction(page, `${row}: more actions`, `Mark ${row} as a transfer`)
+  await rowAction(page, `${row}: more actions`, `Mark as transfer: ${row}`)
   const dialog = page.getByRole('dialog', { name: 'Transfer' })
   await expect(dialog).toBeVisible()
   return dialog

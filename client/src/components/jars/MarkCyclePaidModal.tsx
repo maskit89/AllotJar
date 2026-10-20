@@ -99,7 +99,7 @@ export function MarkCyclePaidModal({ jar, deadline, currency, onClose, onMarked 
           <Button variant="ghost" onClick={onClose} aria-label="Cancel marking paid" className={DIALOG_CANCEL}>
             Cancel
           </Button>
-          <Button onClick={submit} disabled={!selected} aria-disabled={saving || undefined} aria-label={`Confirm ${jar.name} paid`} className={DIALOG_PRIMARY}>
+          <Button onClick={submit} disabled={!selected} aria-disabled={saving || undefined} className={DIALOG_PRIMARY}>
             {saving ? 'Saving…' : 'Mark paid'}
           </Button>
         </div>

@@ -85,7 +85,7 @@ test('assigning a previous-month transaction to this month prompts, and the conf
   // Confirm: the acknowledged retry must SUCCEED (this is the wire that once dropped the flag).
   await page.getByRole('button', { name: 'Budget it anyway' }).click()
   await expect(page.getByText('Budget to a different month?')).toBeHidden()
-  await expect(row.getByRole('button', { name: 'Reassign Cinema', exact: true })).toContainText('Groceries')
+  await expect(row.getByRole('button', { name: /^Reassign Cinema:/ })).toContainText('Groceries')
 
   // The row's ⋯ note marks the deliberate mismatch so it can be found later (restyle PR 5: a
   // status that needs nothing done is said in the note, not as a chip in the row).

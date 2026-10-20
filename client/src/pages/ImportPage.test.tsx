@@ -227,7 +227,7 @@ describe('ImportPage', () => {
     expect(screen.getByLabelText('Remaining to allocate')).toHaveTextContent('Fully allocated')
     await done(user)
     // The row's category cell reads the slices.
-    expect(screen.getByRole('button', { name: 'Edit split for AUTOMARKET on 2026-06-17' })).toHaveTextContent('Groceries €20 · Soap €15')
+    expect(screen.getByRole('button', { name: /^Edit split for AUTOMARKET on 2026-06-17:/ })).toHaveTextContent('Groceries €20 · Soap €15')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
@@ -269,12 +269,12 @@ describe('ImportPage', () => {
     await screen.findByText('E-BANKING PAYMENT')
 
     expect(screen.getByText('Looks like a transfer')).toBeInTheDocument()
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     expect(screen.getByRole('dialog', { name: 'Transfer' })).toBeInTheDocument()
     await user.selectOptions(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16'), 'acc2')
     await done(user)
     // The row's category cell names the other side.
-    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toHaveTextContent('from Joint Savings')
+    expect(screen.getByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ })).toHaveTextContent('from Joint Savings')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
 
@@ -310,7 +310,7 @@ describe('ImportPage', () => {
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
 
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     // Without a chosen match a credit is a receipt with an unknown departure.
     expect(screen.getByText(/Held for review until the departure date is known/)).toBeInTheDocument()
     const match = matchGroup('E-BANKING PAYMENT on 2026-06-16')
@@ -361,7 +361,7 @@ describe('ImportPage', () => {
       await user.upload(screen.getByLabelText(/^Statement file/), csv())
       await user.click(screen.getByRole('button', { name: 'Review transactions' }))
       await screen.findByText('E-BANKING PAYMENT')
-      await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+      await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
       await chooseMatch(user, 'E-BANKING PAYMENT on 2026-06-16', /From Pot/)
     }
     await review()
@@ -464,7 +464,7 @@ describe('ImportPage', () => {
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('AUTOMARKET')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     expect(screen.getByText(/Recorded as departed on/)).toBeInTheDocument()
     expect(screen.queryByLabelText('Match recorded transfer for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
   })
@@ -478,14 +478,14 @@ describe('ImportPage', () => {
     await user.upload(screen.getByLabelText(/^Statement file/), csv())
     await user.click(screen.getByRole('button', { name: 'Review transactions' }))
     await screen.findByText('E-BANKING PAYMENT')
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await done(user)
 
     await waitFor(() =>
       expect(screen.getByRole('button', { name: 'Import 2 transactions' })).toBeDisabled(),
     )
     // The row says what is missing.
-    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toHaveTextContent('Choose account…')
+    expect(screen.getByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ })).toHaveTextContent('Choose account…')
     expect(screen.getByText(/Finish the highlighted rows first/)).toBeInTheDocument()
     expect(mockCommit).not.toHaveBeenCalled()
   })
@@ -712,7 +712,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     await reviewIntoAccount(user, 'E-BANKING PAYMENT')
 
     expect(screen.getByText('Looks like a transfer coming back')).toBeInTheDocument()
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     const match = matchGroup('E-BANKING PAYMENT on 2026-06-16')
     expect(match).toHaveTextContent(`Returned: transfer to Pot on ${formatDate('2026-06-10')}`)
     await chooseMatch(user, 'E-BANKING PAYMENT on 2026-06-16', /Returned: transfer to Pot/)
@@ -720,7 +720,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     expect(screen.queryByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).not.toBeInTheDocument()
     expect(screen.getByText(/Records the transfer to Pot as returned/)).toBeInTheDocument()
     await done(user)
-    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toHaveTextContent('coming back')
+    expect(screen.getByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ })).toHaveTextContent('coming back')
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))
     await waitFor(() => expect(mockCommit).toHaveBeenCalledTimes(1))
@@ -750,7 +750,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     // The server's order is kept.
     const options = matchOptions('AUTOMARKET on 2026-06-17')
     expect(options[1]).toMatch(/To Pot .* same bank reference/)
@@ -786,7 +786,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     await user.selectOptions(screen.getByLabelText('Transfer account for AUTOMARKET on 2026-06-17'), 'acc2')
     const fee = screen.getByLabelText('Fee for AUTOMARKET on 2026-06-17')
 
@@ -852,7 +852,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     const match = matchGroup('AUTOMARKET on 2026-06-17')
     // Nothing is chosen for the user, even with a single candidate (rule 50).
     expect(within(match).getByRole('radio', { name: 'No — record it as a new transfer' })).toBeChecked()
@@ -889,7 +889,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /with a fee of/)
     const line = screen.getByLabelText('Fee category for AUTOMARKET on 2026-06-17') as HTMLSelectElement
     expect(line.value).toBe('bi-may')
@@ -911,7 +911,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     renderPage()
     await reviewIntoAccount(user, 'AUTOMARKET')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     const match = matchGroup('AUTOMARKET on 2026-06-17')
     expect(match).toHaveTextContent('To Private account')
     await chooseMatch(user, 'AUTOMARKET on 2026-06-17', /To Private account/)
@@ -919,7 +919,7 @@ describe('ImportPage transfer returns, fees and reused references', () => {
     expect(screen.queryByLabelText('Transfer account for AUTOMARKET on 2026-06-17')).not.toBeInTheDocument()
     expect(within(screen.getByRole('dialog', { name: 'Transfer' })).getByText('Private account')).toBeInTheDocument()
     await done(user)
-    expect(screen.getByRole('button', { name: 'Edit transfer for AUTOMARKET on 2026-06-17' })).toHaveTextContent('to Private account')
+    expect(screen.getByRole('button', { name: /^Edit transfer for AUTOMARKET on 2026-06-17:/ })).toHaveTextContent('to Private account')
     expect(screen.queryByText(/Finish the highlighted rows first/)).not.toBeInTheDocument()
 
     await user.click(screen.getByRole('button', { name: 'Import 2 transactions' }))

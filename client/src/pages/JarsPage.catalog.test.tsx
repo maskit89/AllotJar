@@ -649,8 +649,8 @@ describe('JarsPage — catalog (JAR)', () => {
 
     await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' })) // arm
-    await user.click(dialog.getByRole('button', { name: 'Confirm archive Home insurance' })) // act
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' })) // arm
+    await user.click(dialog.getByRole('button', { name: 'Really archive?' })) // act
 
     expect(await dialog.findByText('Could not archive that jar.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Home insurance')).toBeInTheDocument() // still listed
@@ -665,8 +665,8 @@ describe('JarsPage — catalog (JAR)', () => {
     await jarAction(user, 'Holiday', 'Edit')
     let dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // Arm the archive, then cancel out of the modal entirely.
-    await user.click(dialog.getByRole('button', { name: 'Archive Holiday' }))
-    expect(dialog.getByRole('button', { name: 'Confirm archive Holiday' })).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
+    expect(dialog.getByRole('button', { name: 'Really archive?' })).toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Cancel edit' }))
 
     expect(mockPut).not.toHaveBeenCalled()
@@ -676,7 +676,7 @@ describe('JarsPage — catalog (JAR)', () => {
     // Re-opening shows the Archive button reset (confirmArchive cleared on close).
     await jarAction(user, 'Holiday', 'Edit')
     dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(dialog.getByRole('button', { name: 'Archive Holiday' })).toBeInTheDocument()
-    expect(dialog.queryByRole('button', { name: 'Confirm archive Holiday' })).not.toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Archive jar' })).toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: 'Really archive?' })).not.toBeInTheDocument()
   })
 })

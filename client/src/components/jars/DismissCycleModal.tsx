@@ -88,10 +88,10 @@ export function DismissCycleModal({ jar, currency, onClose, onDismissed, onMarkP
           <Button variant="ghost" onClick={onMarkPaidInstead} disabled={saving} className={DIALOG_QUIET}>
             Mark the cycle paid
           </Button>
-          <Button variant="ghost" onClick={onClose} aria-label="Keep the missed deadline" className={DIALOG_CANCEL}>
+          <Button variant="ghost" onClick={onClose} className={DIALOG_CANCEL}>
             Cancel
           </Button>
-          <Button onClick={submit} aria-disabled={saving || undefined} aria-label={`Dismiss ${jar.name}'s missed deadline`} className={DIALOG_PRIMARY}>
+          <Button onClick={submit} aria-disabled={saving || undefined} className={DIALOG_PRIMARY}>
             {saving ? 'Saving…' : 'Move on'}
           </Button>
         </div>

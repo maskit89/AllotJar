@@ -103,12 +103,12 @@ describe('JarsPage — Move money across accounts (rule 80)', () => {
     fireEvent.change(received, { target: { value: '2026-09-22' } })
 
     // The checkbox is required: nothing is posted until the user confirms the transfer was made.
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Record transfer' }))
     expect(await dialog.findByText(/Tick “I have made this transfer” to record it/)).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
 
     await user.click(dialog.getByLabelText('I have made this transfer'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Record transfer' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/transactions/transfer', {
@@ -141,7 +141,7 @@ describe('JarsPage — Move money across accounts (rule 80)', () => {
     fireEvent.change(dialog.getByLabelText('Receipt date'), { target: { value: '' } })
     await user.type(dialog.getByLabelText('Move note'), 'Cash withdrawal')
     await user.click(dialog.getByLabelText('I have made this transfer'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Record transfer' }))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
     const [url, body] = mockPost.mock.calls[0]
@@ -168,7 +168,7 @@ describe('JarsPage — Move money across accounts (rule 80)', () => {
     fireEvent.change(dialog.getByLabelText('Departure date'), { target: { value: '2026-09-20' } })
     fireEvent.change(dialog.getByLabelText('Receipt date'), { target: { value: '2026-09-19' } })
     await user.click(dialog.getByLabelText('I have made this transfer'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Record transfer' }))
 
     expect(await dialog.findByText(/The receipt date can’t be before the departure date/)).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
@@ -185,7 +185,7 @@ describe('JarsPage — Move money across accounts (rule 80)', () => {
     await user.selectOptions(dialog.getByLabelText('Move to'), 'f2')
     await user.type(dialog.getByLabelText('Move amount'), '500')
     await user.click(dialog.getByLabelText('I have made this transfer'))
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Record transfer' }))
 
     expect(await dialog.findByText('Home insurance holds 400.00 EUR; it cannot give 500.00 EUR.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument() // still open for a correction
@@ -200,7 +200,7 @@ describe('JarsPage — Move money across accounts (rule 80)', () => {
     await user.selectOptions(dialog.getByLabelText('Move to'), 'unallocated:acc1')
     await user.type(dialog.getByLabelText('Move amount'), '50')
     fireEvent.change(dialog.getByLabelText('Move date'), { target: { value: '2026-09-21' } })
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Move money' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/jars/reallocations', {

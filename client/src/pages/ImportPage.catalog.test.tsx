@@ -296,7 +296,7 @@ describe('ImportPage (catalog)', () => {
     await user.click(screen.getByRole('button', { name: 'Clear split' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Split' })).not.toBeInTheDocument())
     expect(categoryChip('AUTOMARKET on 2026-06-17')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Edit split for AUTOMARKET on 2026-06-17' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Edit split for AUTOMARKET on 2026-06-17:/ })).not.toBeInTheDocument()
     // The ⋯ offers Split again, not Edit split.
     const items = (await rowItems(user, 'AUTOMARKET on 2026-06-17')).map((i) => i.name)
     expect(items).toContain('Split')

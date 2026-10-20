@@ -152,14 +152,21 @@ export function PhoneNav({ active }: { active?: FrameKey }) {
         <div className={GROUP}>
           <Link
             to="/account"
-            aria-label={`Account settings: ${[name, householdLabel].filter(Boolean).join(', ')}`}
             aria-current={accountHere ? 'page' : undefined}
             onClick={() => setOpen(false)}
             className={`${ROW} min-h-[62px]`}
           >
             <AccountAvatar size={32} ring="var(--grp)" />
+            {/* "Account settings: name, household", the visible words inside the spoken name. */}
             <span className="flex min-w-0 flex-1 flex-col">
-              {name && <span className={`truncate ${accountHere ? 'font-bold' : ''}`}>{name}</span>}
+              <span className="sr-only">Account settings:</span>{' '}
+              {name && (
+                <span className={`truncate ${accountHere ? 'font-bold' : ''}`}>
+                  {name}
+                  {/* A 0px comma, not sr-only: Chrome reads an absolutely placed span as a block ("Alex , household"). */}
+                  {householdLabel && <span className="text-[0px]">,</span>}
+                </span>
+              )}{' '}
               <span className="truncate text-[13px] font-medium text-slate-500">{householdLabel}</span>
             </span>
             <ChevronRight aria-hidden strokeWidth={1.8} className="mr-1 size-4 shrink-0 text-slate-500" />
