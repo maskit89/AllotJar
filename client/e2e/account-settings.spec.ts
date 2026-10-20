@@ -385,6 +385,33 @@ test.describe('Account settings', () => {
         await expectNoViolations(page)
       })
 
+      test('the Delete account dialog, its password entered', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/delete-preview$/, (route) =>
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 0, hasPassword: true })),
+        )
+        await openAccount(page)
+        await page.getByRole('button', { name: 'Delete account' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
+        await expect(dialog.getByText('Your sign-in and your budget go for good.')).toBeVisible()
+        await expect(dialog.getByRole('button', { name: 'Delete for good' })).toHaveAttribute('aria-disabled', 'true')
+        await dialog.getByLabel('Your password').fill('hunter22')
+        await expect(dialog.getByRole('button', { name: 'Delete for good' })).not.toHaveAttribute('aria-disabled')
+        await expectNoViolations(page)
+      })
+
+      test('the Delete account dialog while others share the budget', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/delete-preview$/, (route) =>
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 1, hasPassword: true })),
+        )
+        await openAccount(page)
+        await page.getByRole('button', { name: 'Delete account' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
+        await expect(dialog.getByRole('link', { name: 'People' })).toBeVisible()
+        await expectNoViolations(page)
+      })
+
       test('the name being edited, on a phone', async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 })
         await authedSetup(page, theme)

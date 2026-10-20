@@ -90,6 +90,8 @@ interface AuthState {
   /** Leave a household the login joined, then re-bootstrap into whatever remains active. */
   /** Leaves a joined household; `privateAccounts` is the count the leaver was warned about (D4). */
   leaveHousehold: (ownerId: string, privateAccounts?: number) => Promise<void>
+  /** Deletes this login and its data for good (proved by its password, or a Google-only login's email typed), then signs out to the sign-in page. */
+  deleteAccount: (proof: { password: string } | { confirmEmail: string }) => Promise<void>
   /** False when the login has no password (Google-created) — the account page adapts. */
   hasPassword: boolean
   /** True when a Google identity is linked to this login. */
@@ -494,6 +496,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign('/?left=1')
   }
 
+  async function deleteAccount(proof: { password: string } | { confirmEmail: string }) {
+    await api.post('/auth/delete-account', proof)
+    // The login is gone and the server cleared its cookie: forget it here and in every other tab.
+    clearAuthState()
+    broadcastSignOut()
+    window.location.assign('/login?reason=deleted')
+  }
+
   async function updatePreferences(input: PreferencesInput) {
     const { data } = await api.put<PreferencesResponse>('/auth/preferences', input)
     setFirstName(data.firstName)
@@ -583,6 +593,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       switchHousehold,
       startOwnBudget,
       leaveHousehold,
+      deleteAccount,
       login,
       loginWithGoogle,
       register,
