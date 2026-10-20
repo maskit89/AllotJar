@@ -39,6 +39,13 @@
     "TestOnStartup": false
   },
 
+  "BankDetailsEncryption": {
+    "//": "Encrypts account IBANs, BICs, sort codes and account numbers in the database (AES-256-GCM). 32 random bytes in base64, a different key per stack; the API refuses to start without it and Deploy.ps1 refuses to deploy. Keep the passphrase it was made from in your password manager: a restore on a new server needs the same key, or those fields can't be read. See docs/deployment/README.md (Bank details key).",
+    "Key": "REPLACE_WITH_32_BYTES_BASE64",
+    "//PreviousKeys": "Only after changing Key: list the old key(s) here. The next start re-encrypts every value written with them under Key (the startup log counts them), after which they can be removed.",
+    "PreviousKeys": []
+  },
+
   "DataProtection": {
     "//": "Persistent folder for the DataProtection key ring (grant the API app-pool identity modify rights). Without it, emailed password-reset links die on every app restart/deploy.",
     "KeysPath": "C:\\inetpub\\zerobudget-dp-keys"

@@ -98,6 +98,56 @@ powershell -File .\Import-ToServer.ps1 -BacpacPath C:\deploy\ZeroBudget.bacpac
 powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1   # skips SQL install; grants on the new DB
 ```
 
+### 4. Bank details key (each stack)
+
+Account IBANs, BICs, sort codes and account numbers are encrypted in the database (AES-256-GCM)
+with a key in the stack's settings file, `BankDetailsEncryption:Key`: 32 bytes in base64, a
+**different key for staging and production**. Without it the API refuses to start outside
+Development, and `Deploy.ps1` refuses to deploy (the stack keeps its old build).
+
+The key is the SHA-256 of a long random passphrase (32+ characters) that you generate and **save in
+your password manager first**, one entry per stack. That entry is the real home of the key: a backup
+restored on a new server needs the same key, or every bank detail in it reads as unreadable. The
+server steps for the first setup are a paste block that asks for the passphrase as hidden input,
+adds the section to the settings file (after a backup copy and a content check) and prints only
+the key id, an 8-character fingerprint the API also logs at startup
+(`Bank details encryption: key <id>; encrypted <n> stored value(s) ...` in the Application log).
+
+On every start the API brings stored bank details onto the stack's current key: it encrypts any
+saved before encryption and re-encrypts any written with an older key, and logs both counts
+(`encrypted N ...; re-encrypted M ...`). After the first start both are normally 0.
+
+**Changing the key** (for example after a leak): put the old key, as base64, in
+`BankDetailsEncryption:PreviousKeys` (an array), set the new one as `Key`, and deploy or recycle the
+pool. That start re-encrypts every value under the new key; once its log line shows the re-encrypted
+count, remove the old key from `PreviousKeys`.
+
+**A value written with a key the stack does not have** (for example production's data restored onto
+staging in the restore test) makes the API log an Error at startup. Every screen that loads an account
+fails for each household holding such a value (accounts, dashboard, transactions, Download my data,
+Delete my account), because the app refuses to show or overwrite what it cannot read. To read it, list
+the key that wrote it under `PreviousKeys`; for the restore test, add production's key to staging's file
+and remove it after the test.
+
+**If a key is lost** (the settings file and the password-manager entry both gone), the bank details it
+encrypted cannot be recovered by anyone. To bring those households' screens back, take a backup first,
+then clear only the values written with the lost key, whose id is in the startup Error and in the stored
+text (`aj1:<key id>:...`):
+
+```sql
+UPDATE Accounts SET Iban          = NULL WHERE Iban          LIKE 'aj1:<lost key id>:%';
+UPDATE Accounts SET Bic           = NULL WHERE Bic           LIKE 'aj1:<lost key id>:%';
+UPDATE Accounts SET SortCode      = NULL WHERE SortCode      LIKE 'aj1:<lost key id>:%';
+UPDATE Accounts SET AccountNumber = NULL WHERE AccountNumber LIKE 'aj1:<lost key id>:%';
+```
+
+The users then type their bank details again; nothing else in their budgets is affected. A new key for
+the stack is made the same way as the first.
+
+**Rolling back** to a build from before encryption is not supported once values are encrypted: the old
+build would show the encrypted text in the bank fields, and the migration's Down fails while any value
+is encrypted.
+
 ### Adding a domain + TLS (later)
 Once you have a domain:
 - Point a DNS **A record** at the VPS public IP, then re-run `Setup-Server.ps1 -Domain "budget.yourdomain.com"` to bind the host header.

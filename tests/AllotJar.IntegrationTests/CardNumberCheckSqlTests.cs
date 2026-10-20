@@ -25,11 +25,14 @@ public class CardNumberCheckSqlTests
     public async Task Check_ReportsRowsHoldingACardNumber_ByIdOnly_AndChangesNothing()
     {
         var owner = $"user-{Guid.NewGuid():N}";
-        Guid accountId, cardRowId, referenceRowId;
+        Guid accountId, encryptedAccountId, cardRowId, referenceRowId;
         await using (var db = _fixture.CreateContext())
         {
             var account = new Account { OwnerId = owner, Name = "Current", Currency = CurrencyCode.Eur };
-            db.Accounts.Add(account);
+            // Saved through EF, so stored encrypted (compliance fix 10): only the decrypted value shows the card.
+            var encryptedAccount = new Account { OwnerId = owner, Name = "Savings", Currency = CurrencyCode.Eur, AccountNumber = Card };
+            db.Accounts.AddRange(account, encryptedAccount);
+            encryptedAccountId = encryptedAccount.Id;
             Transaction Row(string payee) => new()
             {
                 OwnerId = owner, Account = account, Type = TransactionType.Expense, Amount = 1m,
@@ -53,7 +56,7 @@ public class CardNumberCheckSqlTests
             var found = await CardNumberCheck.FindAsync(db);
 
             found["Transactions"].Should().Contain(cardRowId).And.NotContain(referenceRowId);
-            found["Accounts"].Should().Contain(accountId);
+            found["Accounts"].Should().Contain(accountId).And.Contain(encryptedAccountId);
             (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == cardRowId)).Payee
                 .Should().Be("AMAZON " + Card, "the check reports and never rewrites");
         }

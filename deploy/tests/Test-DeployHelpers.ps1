@@ -201,6 +201,9 @@ $stagingNoUrl = @'
   "Email": {
     "Provider": "cloudflare",
     "FromAddress": "AllotJar <no-reply@allotjar.com>"
+  },
+  "BankDetailsEncryption": {
+    "Key": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA="
   }
 }
 '@
@@ -223,10 +226,22 @@ Assert-True ($p.Count -eq 1 -and $p[0] -match 'Database=ZeroBudgetProd' -and $p[
 $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=ZeroBudgetStaging;', '') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'names no database') 'a connection string without a database is refused'
 $p = Get-StackSettingsProblems -SettingsText '{ "Jwt": { "Key": "x" } }' -AspNetEnvironment Staging
-Assert-True ($p.Count -eq 2 -and $p[0] -match 'DefaultConnection is missing') 'a file without a connection string reports both problems'
+Assert-True ($p.Count -eq 3 -and $p[0] -match 'DefaultConnection is missing' -and $p[2] -match 'BankDetailsEncryption:Key is missing') 'a file without a connection string reports every problem'
 # Both wrong at once: the staging stack reading a copy of production's file.
 $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'staging\.allotjar', 'www.allotjar') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 2) 'a production file under the staging name reports the database and the origin'
+# The bank-details key must be there and be 32 bytes, or the API would refuse to start.
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"Key": "AQID[^"]*"', '"Key": ""') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'not 32 bytes') 'an empty bank-details key is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"Key": "AQID[^"]*"', '"Key": "AQIDBA=="') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'not 32 bytes') 'a short bank-details key is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"Key": "AQID[^"]*"', '"Key": "not base64!"') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'not 32 bytes') 'a bank-details key that is not base64 is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"BankDetailsEncryption"', '"SomethingElse"') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'BankDetailsEncryption:Key is missing') 'a file without the bank-details key is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '(?m)^(\s*)"Key": "AQID', '$1// "Key": "AQID') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'BankDetailsEncryption:Key is missing') 'a commented-out bank-details key does not count'
+
 # A commented-out line neither satisfies nor fails a check.
 $p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace '"Provider": "cloudflare",', "`"Provider`": `"cloudflare`",`n    // `"AppBaseUrl`": `"https://staging.allotjar.com`",") -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'AppBaseUrl is missing') 'a commented-out AppBaseUrl does not count'
