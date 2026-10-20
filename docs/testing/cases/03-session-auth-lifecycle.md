@@ -580,3 +580,30 @@
 - **Expected:**
   - Shown (persistent, non-dismissible, `aria-live` (NOT `role="status"` — avoids colliding with page status banners)) only when authenticated AND unverified AND not awaiting consent. Resend calls `POST /auth/resend-verification` and confirms it sent (or a retry hint on failure). Hidden once confirmed, while consent is owed (that blocks the app first), or signed out.
 - **Automated:** Full (client/src/components/VerifyEmailBanner.catalog.test.tsx — SESS-043; client/e2e/a11y.spec.ts scans it)
+
+
+### SESS-044 - A sign-in lasts at most 90 days
+- **Priority:** P1
+- **Type:** Security
+- **Preconditions:** A signed-in device that keeps using the app.
+- **Steps:**
+  1. Refresh the session repeatedly over time (each `/auth/refresh` rotates the cookie).
+- **Expected:**
+  - Each rotation renews the token for 30 days but never past 90 days after the sign-in began (`RefreshTokenService.MaxSessionDays`); the cookie expires with the token.
+  - Once the sign-in is 90 days old, `/auth/refresh` answers 401 and clears the cookie, however recently it was used; the device signs in again.
+  - A rotation keeps the sign-in's id, start and device name; a token from before sign-ins were tracked counts as a sign-in begun when it was minted.
+- **Automated:** Full (tests/AllotJar.Application.Tests/Application/RefreshTokenServiceTests.cs)
+
+### SESS-045 - Signed-in devices on Account settings
+- **Priority:** P1
+- **Type:** Security / UX
+- **Preconditions:** One login signed in on two devices (e.g. Chrome on Windows and the installed app on an iPhone).
+- **Steps:**
+  1. Open Account settings on each device and look at the Devices card.
+  2. On the laptop, press Sign out on the phone's row.
+  3. Press Sign out everywhere, then confirm.
+- **Expected:**
+  - Step 1: `GET /auth/sessions` lists one row per sign-in, this device first as "This device" with no Sign out of its own, others as "Active today/yesterday/N days ago". Names come from the user agent ("Chrome on Windows"); the installed app sends `X-AllotJar-App: 1` and reads "AllotJar app on iPhone"; an unknown one reads "Unknown device".
+  - Step 2: `DELETE /auth/sessions/{id}` → 204: that sign-in's tokens are revoked and the security stamp rotates, so the phone is signed out at once (its next request 401s, its refresh fails); the laptop recovers silently with its own cookie. Another login's sign-in, or one already ended, is a 404.
+  - Step 3: a dialog asks first; `POST /auth/sign-out-everywhere` → 204 revokes every sign-in, rotates the stamp and clears this device's cookie; the app goes to `/login`.
+- **Automated:** Full (tests/AllotJar.IntegrationTests/Http/SignedInDevicesHttpTests.cs, tests/AllotJar.IntegrationTests/DeviceNameTests.cs, client/src/components/settings/DevicesCard.test.tsx)

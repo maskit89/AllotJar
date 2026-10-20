@@ -385,6 +385,17 @@ test.describe('Account settings', () => {
         await expectNoViolations(page)
       })
 
+      test('the Devices card, and the Sign out everywhere dialog', async ({ page }) => {
+        await authedSetup(page, theme)
+        await openAccount(page)
+        const devices = page.getByRole('region', { name: 'Devices' })
+        await expect(devices.getByRole('heading', { name: 'AllotJar app on iPhone' })).toBeVisible()
+        await expectNoViolations(page)
+        await devices.getByRole('button', { name: 'Sign out everywhere' }).click()
+        await expect(page.getByRole('dialog', { name: 'Sign out everywhere?' })).toBeVisible()
+        await expectNoViolations(page)
+      })
+
       test('the Delete account dialog, its password entered', async ({ page }) => {
         await authedSetup(page, theme)
         await page.route(/\/api\/auth\/delete-preview$/, (route) =>

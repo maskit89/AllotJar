@@ -571,7 +571,7 @@ public class AuthController : ControllerBase
         // a cookie the server had already replaced, and its next refresh, replaying it outside the
         // grace window, would meet the theft response and sign out every device.
         await using var answer = _db.Database.IsRelational() ? await _db.Database.BeginTransactionAsync(ct) : null;
-        var rotation = await _refreshTokens.RotateAsync(raw, ct);
+        var rotation = await _refreshTokens.RotateAsync(raw, CurrentDevice(), ct);
         if (!rotation.Succeeded)
         {
             if (answer is not null)
@@ -601,7 +601,7 @@ public class AuthController : ControllerBase
         {
             await answer.CommitAsync(ct);
         }
-        SetRefreshCookie(rotation.NewRawToken!);
+        SetRefreshCookie(rotation.NewRawToken!, rotation.ExpiresUtc);
         return Ok(response);
     }
 
@@ -630,6 +630,77 @@ public class AuthController : ControllerBase
             }
         }
 
+        ClearRefreshCookie();
+        return NoContent();
+    }
+
+    /// <summary>The login's sign-ins still in force, one per device, this device's first.</summary>
+    [HttpGet("sessions")]
+    [Authorize]
+    [ProducesResponseType(typeof(IReadOnlyList<SessionResponse>), StatusCodes.Status200OK)]
+    public async Task<IActionResult> Sessions(CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var sessions = await _refreshTokens.ListActiveAsync(userId, Request.Cookies[RefreshCookieName], ct);
+        // Read back from the database as Unspecified: marked UTC so they reach the client with their Z.
+        return Ok(sessions.Select(s => new SessionResponse(
+            s.Id, s.Device, DateTime.SpecifyKind(s.StartedUtc, DateTimeKind.Utc), DateTime.SpecifyKind(s.LastActiveUtc, DateTimeKind.Utc), s.Current)));
+    }
+
+    /// <summary>
+    /// Signs one device out. Its refresh token is revoked, and rotating the security stamp ends its
+    /// access token now, as sign-out does; the other devices recover silently with their own cookies.
+    /// </summary>
+    [HttpDelete("sessions/{id:guid}")]
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> EndSession(Guid id, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var user = userId is null ? null : await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        var current = (await _refreshTokens.ListActiveAsync(user.Id, Request.Cookies[RefreshCookieName], ct))
+            .Any(s => s.Id == id && s.Current);
+        if (!await _refreshTokens.RevokeSessionAsync(user.Id, id, ct))
+        {
+            return NotFound();
+        }
+
+        await _userManager.UpdateSecurityStampAsync(user);
+        if (current)
+        {
+            ClearRefreshCookie();
+        }
+        return NoContent();
+    }
+
+    /// <summary>Signs the login out on every device, this one included.</summary>
+    [HttpPost("sign-out-everywhere")]
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public async Task<IActionResult> SignOutEverywhere(CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        var user = userId is null ? null : await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
+        await _userManager.UpdateSecurityStampAsync(user);
         ClearRefreshCookie();
         return NoContent();
     }
@@ -1096,14 +1167,26 @@ public class AuthController : ControllerBase
     private static string ResolveNumberFormat(string? value) =>
         UserPreferences.NormalizeNumberFormat(value) ?? UserPreferences.DefaultNumberFormat;
 
-    /// <summary>Issues a fresh refresh token and writes it to the HttpOnly cookie.</summary>
+    /// <summary>Starts a sign-in on this device: a fresh refresh token, written to the HttpOnly cookie.</summary>
     private async Task IssueRefreshCookieAsync(string userId, CancellationToken ct)
     {
-        var raw = await _refreshTokens.IssueAsync(userId, ct);
+        // The cookie being replaced ends with it, or its sign-in lingers as a second row for this
+        // device (disconnecting Google, signing in again over a cookie still set).
+        var replaced = Request.Cookies[RefreshCookieName];
+        if (!string.IsNullOrEmpty(replaced))
+        {
+            await _refreshTokens.RevokeAsync(replaced, ct);
+        }
+
+        var raw = await _refreshTokens.IssueAsync(userId, CurrentDevice(), ct);
         SetRefreshCookie(raw);
     }
 
-    private void SetRefreshCookie(string rawToken) =>
+    /// <summary>The device this request comes from, as the list of signed-in devices names it.</summary>
+    private string? CurrentDevice() =>
+        DeviceName.From(Request.Headers.UserAgent.ToString(), Request.Headers[DeviceName.AppHeader] == "1");
+
+    private void SetRefreshCookie(string rawToken, DateTime? expiresUtc = null) =>
         Response.Cookies.Append(RefreshCookieName, rawToken, new CookieOptions
         {
             HttpOnly = true,
@@ -1111,7 +1194,9 @@ public class AuthController : ControllerBase
             Secure = !_env.IsDevelopment(),
             SameSite = SameSiteMode.Strict,
             Path = "/api/auth",
-            Expires = DateTimeOffset.UtcNow.AddDays(RefreshTokenService.LifetimeDays),
+            Expires = expiresUtc is { } at
+                ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc))
+                : DateTimeOffset.UtcNow.AddDays(RefreshTokenService.LifetimeDays),
             IsEssential = true,
         });
 

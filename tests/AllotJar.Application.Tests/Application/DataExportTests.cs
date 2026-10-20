@@ -211,6 +211,22 @@ public class DataExportTests
     }
 
     [Fact]
+    public async Task The_devices_the_login_is_signed_in_on_are_in_the_zip()
+    {
+        await SeedAsync();
+        var export = await ExportAsync(Chris);
+        export.SignIns = [new ExportedSignIn("Safari on iPhone", new DateTime(2026, 6, 1, 8, 0, 0), new DateTime(2026, 6, 9, 21, 30, 0))];
+
+        var files = Unzip(DataExportArchive.Build(export));
+
+        files["sign-ins.csv"].Should().Contain("device,signed_in_utc,last_used_utc")
+            .And.Contain("Safari on iPhone,2026-06-01T08:00:00Z,2026-06-09T21:30:00Z");
+        using var json = JsonDocument.Parse(files["allotjar-data.json"]);
+        json.RootElement.GetProperty("signIns")[0].GetProperty("device").GetString().Should().Be("Safari on iPhone");
+        files["README.txt"].Should().Contain("sign-ins.csv");
+    }
+
+    [Fact]
     public async Task The_zip_holds_one_json_file_a_csv_per_table_and_a_readme()
     {
         await SeedAsync();
@@ -219,7 +235,7 @@ public class DataExportTests
         var files = Unzip(DataExportArchive.Build(export));
 
         files.Keys.Should().BeEquivalentTo(
-            "README.txt", "allotjar-data.json", "profile.csv", "accounts.csv", "people.csv", "household-access.csv",
+            "README.txt", "allotjar-data.json", "profile.csv", "sign-ins.csv", "accounts.csv", "people.csv", "household-access.csv",
             "transactions.csv", "transaction-splits.csv", "budget-lines.csv", "jars.csv", "jar-cycles.csv",
             "jar-movements.csv", "jar-history.csv", "jar-archive-periods.csv", "allocation-rules.csv");
 

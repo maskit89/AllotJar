@@ -147,3 +147,9 @@ public record DeleteAccountPreviewResponse(bool OwnsHousehold, int OthersInHouse
 /// (<c>Password</c>); a Google-only login types its email (<c>ConfirmEmail</c>).
 /// </summary>
 public record DeleteAccountRequest(string? ConfirmEmail = null, string? Password = null);
+
+/// <summary>
+/// One sign-in still in force, for the list of signed-in devices: the device it was made on (null
+/// when unknown), when it began, when the device last refreshed it, and whether it is the caller's.
+/// </summary>
+public record SessionResponse(Guid Id, string? Device, DateTime StartedUtc, DateTime LastActiveUtc, bool Current);
