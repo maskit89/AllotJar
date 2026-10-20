@@ -80,7 +80,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         {
             return null;
         }
-        var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        // Inside a transaction the caller already holds (an account deletion), the locks join it and
+        // last until the caller commits.
+        var transaction = Database.CurrentTransaction is null
+            ? await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
+            : null;
         // Hold each account row until commit: a second writer on the same account waits here and
         // then validates against the committed money, never against a stale read. Always in id
         // order, so two writers sharing accounts wait for each other instead of deadlocking.
@@ -92,10 +96,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         return new LedgerWrite(transaction);
     }
 
-    private sealed class LedgerWrite(IDbContextTransaction transaction) : ILedgerWrite
+    private sealed class LedgerWrite(IDbContextTransaction? transaction) : ILedgerWrite
     {
-        public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
-        public ValueTask DisposeAsync() => transaction.DisposeAsync();
+        public Task CommitAsync(CancellationToken cancellationToken) =>
+            transaction?.CommitAsync(cancellationToken) ?? Task.CompletedTask;
+        public ValueTask DisposeAsync() => transaction?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 
     protected override void OnModelCreating(ModelBuilder builder)

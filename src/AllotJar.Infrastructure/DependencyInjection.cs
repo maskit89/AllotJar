@@ -137,6 +137,7 @@ public static class DependencyInjection
 
         // Application-facing wrapper over UserManager (create logins, change passwords).
         services.AddScoped<IIdentityService, IdentityService>();
+        services.AddScoped<AccountDeletion>();
 
         // Refresh tokens backing the HttpOnly-cookie session (issue / rotate / revoke).
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();

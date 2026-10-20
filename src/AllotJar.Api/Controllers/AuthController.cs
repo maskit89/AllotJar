@@ -797,6 +797,62 @@ public class AuthController : ControllerBase
         return Ok(await BuildResponseAsync(user, ct));
     }
 
+    /// <summary>What deleting the signed-in login would take with it, for the confirmation.</summary>
+    [HttpGet("delete-preview")]
+    [Authorize]
+    [ProducesResponseType(typeof(DeleteAccountPreviewResponse), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeletePreview([FromServices] AccountDeletion deletion, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var preview = await deletion.PreviewAsync(userId, ct);
+        return Ok(new DeleteAccountPreviewResponse(preview.OwnsHousehold, preview.OthersInHousehold, preview.PrivateAccountsElsewhere));
+    }
+
+    /// <summary>
+    /// Deletes the signed-in login for good (compliance fix 5): its own household and everything in
+    /// it, its private accounts in households it joined (erased as P59's "Keep shared" erase does, so
+    /// no one else's figure changes), its access there, and its sign-in. Guarded by the login's email,
+    /// typed. Ends the session here; every other device's token fails its next check (no user).
+    /// A login whose password someone else set can't do this until it has chosen its own (S-P2-3).
+    /// </summary>
+    [HttpPost("delete-account")]
+    [Authorize]
+    [EnableRateLimiting("auth")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    public async Task<IActionResult> DeleteAccount(
+        DeleteAccountRequest request, [FromServices] AccountDeletion deletion, CancellationToken ct)
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId is null)
+        {
+            return Unauthorized();
+        }
+
+        var user = await _userManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            return Unauthorized();
+        }
+
+        if (!string.Equals(request.ConfirmEmail.Trim(), user.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            return BadRequest(new { error = "That isn't your email. Type it exactly to delete your account." });
+        }
+
+        await deletion.DeleteAsync(userId, ct);
+        _logger.LogInformation("Account {UserId} was deleted by its own login.", userId);
+        ClearRefreshCookie();
+        return NoContent();
+    }
+
     /// <summary>The authenticated login's identity, household and access level.</summary>
     [HttpGet("me")]
     [Authorize]

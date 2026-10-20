@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import axios from 'axios'
-import { Check, ChevronDown, ChevronRight, Ellipsis, House, Lock, LogOut, Pencil, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronRight, Ellipsis, House, Lock, LogOut, Pencil, Trash2, X } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
 import { Button, Input, Select } from '../components/ui'
 import { InfoHint } from '../components/InfoHint'
@@ -12,6 +12,7 @@ import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../compo
 import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog'
 import { LeaveHouseholdDialog } from '../components/settings/LeaveHouseholdDialog'
+import { DeleteAccountDialog, type DeletePreview } from '../components/settings/DeleteAccountDialog'
 import { GoogleMark, OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, SAVE_BUTTON, Tile } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -46,7 +47,7 @@ const LOCK_NOTE = 'Your budget currency is fixed once your budget has accounts, 
  * Last name fields of the same form. On the right: Household (who shares the budget, "Just you"
  * when alone, "Your own budget" for someone with none, Leave household behind the ⋯) and Sign-in
  * (the password, changed in a dialog or set by the forgot-password flow; Google, disconnected from
- * its ⋯). Phones: the same cards in one column.
+ * its ⋯; Delete account, which asks in a dialog for the email typed). Phones: the same cards in one column.
  *
  * Nothing here is role-gated: every access level edits its own preferences and password, starts a
  * budget of its own and leaves a household it joined.
@@ -67,6 +68,7 @@ export function AccountPage() {
     memberId,
     startOwnBudget,
     leaveHousehold,
+    deleteAccount,
     updatePreferences,
     hasPassword,
     hasGoogle,
@@ -148,6 +150,37 @@ export function AccountPage() {
   function closeLeave() {
     setLeaveError(null)
     setConfirmLeave(false)
+  }
+
+  // --- Delete account (asks first, in a dialog; the email typed guards it) ---
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleteBusy, setDeleteBusy] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+  const [deletePreview, setDeletePreview] = useState<DeletePreview | null>(null)
+
+  async function askToDelete() {
+    setDeleteError(null)
+    setDeletePreview(null)
+    setConfirmDelete(true)
+    try {
+      const { data } = await api.get<DeletePreview>('/auth/delete-preview')
+      if (data && typeof data.ownsHousehold === 'boolean') setDeletePreview(data)
+    } catch {
+      // The dialog then names only the sign-in; the delete itself doesn't depend on this read.
+    }
+  }
+
+  async function onDeleteAccount(typedEmail: string) {
+    setDeleteError(null)
+    setDeleteBusy(true)
+    try {
+      await deleteAccount(typedEmail)
+      // On success the app leaves for the sign-in page (full navigation).
+    } catch (err) {
+      const data = axios.isAxiosError(err) ? (err.response?.data as { error?: string } | undefined) : undefined
+      setDeleteError(data?.error ?? 'Could not delete your account. Please try again.')
+      setDeleteBusy(false)
+    }
   }
 
   // --- Preferences (name + money display) ---
@@ -643,6 +676,15 @@ export function AccountPage() {
                     </span>
                   </div>
                 )}
+                <div className={ROW}>
+                  <Tile color="var(--color-bad)" tint="10%">
+                    <Trash2 strokeWidth={1.8} />
+                  </Tile>
+                  <h3 className={`${ROW_TITLE} min-w-0 flex-1`}>Delete account</h3>
+                  <button type="button" onClick={() => void askToDelete()} aria-label="Delete account" className={`${OUTLINE_SM} ml-auto text-bad!`}>
+                    Delete
+                  </button>
+                </div>
               </div>
               {/* Disconnecting's outcome, outside the Google row, which goes once Google is disconnected. */}
               {unlinkError && (
@@ -669,6 +711,17 @@ export function AccountPage() {
             setPasswordDone(true)
             setChangingPassword(false)
           }}
+        />
+      )}
+
+      {confirmDelete && email && (
+        <DeleteAccountDialog
+          email={email}
+          preview={deletePreview}
+          busy={deleteBusy}
+          error={deleteError}
+          onDelete={(typed) => void onDeleteAccount(typed)}
+          onClose={() => setConfirmDelete(false)}
         />
       )}
 

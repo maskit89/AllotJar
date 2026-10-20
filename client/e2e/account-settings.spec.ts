@@ -363,6 +363,21 @@ test.describe('Account settings', () => {
         await expectNoViolations(page)
       })
 
+      test('the Delete account dialog, its email typed', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/delete-preview$/, (route) =>
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 1, privateAccountsElsewhere: 0 })),
+        )
+        await openAccount(page)
+        await page.getByRole('button', { name: 'Delete account' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
+        await expect(dialog.getByText(/1 person loses access/)).toBeVisible()
+        await expect(dialog.getByRole('button', { name: 'Delete for good' })).toHaveAttribute('aria-disabled', 'true')
+        await dialog.getByLabel('Type your email to confirm').fill('e2e@allotjar.app')
+        await expect(dialog.getByRole('button', { name: 'Delete for good' })).not.toHaveAttribute('aria-disabled')
+        await expectNoViolations(page)
+      })
+
       test('the name being edited, on a phone', async ({ page }) => {
         await page.setViewportSize({ width: 390, height: 844 })
         await authedSetup(page, theme)

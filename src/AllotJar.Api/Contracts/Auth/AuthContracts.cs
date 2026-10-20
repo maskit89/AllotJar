@@ -134,3 +134,12 @@ public record LeaveHouseholdRequest([Required] string OwnerId, int PrivateAccoun
 
 /// <summary>What leaving a household would leave behind: the caller's private accounts there.</summary>
 public record LeavePreviewResponse(int PrivateAccounts);
+
+/// <summary>
+/// What deleting the login takes with it: its own household (<c>OwnsHousehold</c>), whose other
+/// logins (<c>OthersInHousehold</c>) lose access, and its private accounts in other households.
+/// </summary>
+public record DeleteAccountPreviewResponse(bool OwnsHousehold, int OthersInHousehold, int PrivateAccountsElsewhere);
+
+/// <summary>Deletes the signed-in login and its data. <c>ConfirmEmail</c> = the login's email, typed.</summary>
+public record DeleteAccountRequest([Required] string ConfirmEmail);
