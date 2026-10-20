@@ -16,7 +16,7 @@ All vector files live in `brand/`. Pre-rendered raster files live in `brand/png/
 | `allotjar-mark-flat.svg` | **Flat mark** — green jar, gold fill, gold lid. No coins/shadow. | Default UI mark wherever the realistic one is too busy or too small (24–96 px): nav, headers, cards. |
 | `allotjar-mark-mono.svg` | **Monochrome** silhouette. Uses `currentColor` (defaults to ink). | One-colour contexts: print, embossing, watermarks, disabled/ghost states. Recolour by setting CSS `color`. |
 | `allotjar-mark-reversed.svg` | **Reversed** — cream jar + gold, for dark/coloured backgrounds. | Any time the mark sits on a dark or saturated surface. |
-| `allotjar-app-icon.svg` | **App icon** — coin jar on a green squircle (160×160). | iOS/Android/desktop app icon, store listings, OG avatar. |
+| `allotjar-app-icon.svg` | **App icon** — the app's glass jar (gold screw lid, wavy gold fill, as on the Dashboard's jar shelf) on the hero card's green, as a squircle (160×160). Raster sizes are made by `client/scripts/make-pwa-icons.mjs`. | iOS/Android/desktop app icon, store listings, OG avatar. |
 | `allotjar-favicon.svg` | **Favicon** — simplified flat mark, no padding. | Browser tab icon (`<link rel="icon">`). |
 | `allotjar-lockup.svg` | **Horizontal lockup** — flat mark + "AllotJar" wordmark ("Jar" in green). | Light backgrounds: site header, email signature, docs, footers. |
 | `allotjar-lockup-reversed.svg` | Lockup for **dark** backgrounds. | Dark site header, dark email, video end-cards. |
