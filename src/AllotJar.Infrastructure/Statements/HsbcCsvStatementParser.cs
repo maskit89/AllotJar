@@ -90,7 +90,7 @@ public partial class HsbcCsvStatementParser : IStatementParser
 
         var entries = new List<ParsedStatementEntry>();
         // Per-signature occurrence counter, so the Nth identical row gets a distinct reference.
-        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var references = new SignatureReferences("hsbc:");
 
         foreach (var line in SplitLines(content))
         {
@@ -144,10 +144,7 @@ public partial class HsbcCsvStatementParser : IStatementParser
 
             var signature = string.Create(CultureInfo.InvariantCulture,
                 $"{postingDate:yyyy-MM-dd}|{purchaseDate:yyyy-MM-dd}|{last4}|{signedAmount:0.00}|{description.ToUpperInvariant()}");
-            var hash = ShortHash(signature);
-            var index = occurrences.TryGetValue(signature, out var seen) ? seen : 0;
-            occurrences[signature] = index + 1;
-            var reference = $"hsbc:{hash}#{index}";
+            var (reference, legacy) = references.Next(signature);
 
             entries.Add(new ParsedStatementEntry(
                 Amount: Math.Abs(signedAmount),
@@ -155,7 +152,10 @@ public partial class HsbcCsvStatementParser : IStatementParser
                 IsCredit: signedAmount > 0,
                 BookingDate: purchaseDate,
                 Payee: description,
-                Reference: reference));
+                Reference: reference)
+            {
+                LegacyReference = legacy,
+            });
         }
 
         if (entries.Count == 0)
@@ -202,13 +202,6 @@ public partial class HsbcCsvStatementParser : IStatementParser
         var match = DetailsPattern().Match(text);
         description = match.Success ? Normalize(match.Groups["desc"].Value) : string.Empty;
         return match.Success && description.Length > 0;
-    }
-
-    /// <summary>First 128 bits of SHA-256 over the signature, as 32 lowercase hex chars.</summary>
-    private static string ShortHash(string signature)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(signature));
-        return Convert.ToHexString(bytes, 0, 16).ToLowerInvariant();
     }
 
     private static string Normalize(string value) =>

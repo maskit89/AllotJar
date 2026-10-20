@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Application.Accounts.Commands.CreateAccount;
+using AllotJar.Application.Accounts.Commands.UpdateAccount;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -66,4 +68,34 @@ public class CardNumberSaveTests
         (await db.Accounts.AsNoTracking().SingleAsync()).Name.Should().Be($"Visa {Masked}");
         (await db.HouseholdMembers.AsNoTracking().SingleAsync()).Name.Should().Be($"Alex {Masked}");
     }
+}
+
+/// <summary>Compliance fix 12: the Account number field refuses a card number and asks for its last four.</summary>
+public class AccountNumberCardTests
+{
+    private static CreateAccountCommand Create(string accountNumber) =>
+        new("Card", AccountType.Current, "EUR", 0m, new DateOnly(2026, 1, 1), AccountNumber: accountNumber);
+
+    [Theory]
+    [InlineData("4111111111111111")]
+    [InlineData("4111 1111 1111 1111")]
+    [InlineData("4111-1111-1111-1111")]
+    public void ACardNumber_IsRefused_OnCreateAndUpdate(string number)
+    {
+        var created = new CreateAccountCommandValidator().Validate(Create(number));
+        var updated = new UpdateAccountCommandValidator().Validate(new UpdateAccountCommand(
+            Guid.NewGuid(), "Card", AccountType.Current, 0m, new DateOnly(2026, 1, 1), AccountNumber: number));
+
+        created.Errors.Should().Contain(e => e.ErrorMessage == "That looks like a card number. Enter only its last four digits.");
+        updated.Errors.Should().Contain(e => e.ErrorMessage == "That looks like a card number. Enter only its last four digits.");
+    }
+
+    [Theory]
+    [InlineData("1111")]
+    [InlineData("12345678")]
+    [InlineData("1234567890128")] // Luhn-valid, but no card scheme issues it
+    [InlineData("4111111111111112")] // fails the Luhn check
+    public void AnAccountNumber_OrALastFour_IsAccepted(string number) =>
+        new CreateAccountCommandValidator().Validate(Create(number)).Errors
+            .Should().NotContain(e => e.PropertyName == "AccountNumber");
 }

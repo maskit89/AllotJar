@@ -62,17 +62,77 @@ public class CardNumberImportTests
         new(row.Reference, row.Date, row.Payee, row.Amount, row.Currency, row.IsCredit, null, null);
 
     [Fact]
-    public async Task Preview_MasksTheCardNumber_AndKeepsTheReferenceTheBanksTextMade()
+    public async Task Preview_MasksTheCardNumber()
     {
         await using var db = NewContext();
         var account = SeedAccount(db, "Current", 500m);
-        var raw = new HsbcCsvStatementParser().Parse(Statement).Entries;
 
         var preview = await PreviewAsync(db, Statement, account.Id);
 
         preview.Items.Select(i => i.Payee).Should().Equal($"AMAZON MKTP {Masked}", "PLANET PLAY RESTAURA");
-        preview.Items.Select(i => i.Reference).Should().Equal(raw.Select(e => e.Reference),
-            "the reference is made from the bank's text before masking, as before fix 12");
+    }
+
+    [Fact]
+    public void TheReference_IsHashedOverTheMaskedText_SoNoCardNumberCanBeRecoveredFromIt()
+    {
+        var parser = new HsbcCsvStatementParser();
+        var withCard = parser.Parse(Statement).Entries;
+        var alreadyMasked = parser.Parse(Statement.Replace(Card, Masked)).Entries;
+
+        // The reference is what the same row printed already masked gets: it holds nothing the
+        // masked payee doesn't. A row with no card number keeps its reference to the character.
+        withCard[0].Reference.Should().Be(alreadyMasked[0].Reference);
+        withCard[1].Reference.Should().Be(alreadyMasked[1].Reference);
+        withCard[1].LegacyReference.Should().BeNull();
+        // What imports before the fix stored (hashed over the bank's text) is kept to recognise them.
+        withCard[0].LegacyReference.Should().NotBeNull().And.NotBe(withCard[0].Reference);
+    }
+
+    [Theory]
+    [InlineData(StatementFormat.HsbcCsv)]
+    [InlineData(StatementFormat.GenericCsv)]
+    [InlineData(StatementFormat.Camt053)]
+    public async Task ARowImportedBeforeTheFix_UnderItsOldReference_IsStillADuplicate(StatementFormat format)
+    {
+        await using var db = NewContext();
+        var account = SeedAccount(db, "Current", 500m);
+        var content = format switch
+        {
+            StatementFormat.HsbcCsv => Statement,
+            StatementFormat.GenericCsv => $"""
+                Date,Description,Amount
+                2026-06-19,AMAZON MKTP {Card},-35.00
+                2026-06-17,PLANET PLAY RESTAURA,-67.75
+                """,
+            _ => Camt053Samples.TwoEurEntries
+                .Replace("<AcctSvcrRef>REF-RENT-001</AcctSvcrRef>", "")
+                .Replace("Landlord GmbH", $"Landlord {Card}"),
+        };
+        var first = (await NewPreview(db).Handle(
+            new PreviewImportCommand(content, format, AccountId: account.Id), CancellationToken.None)).Items[0];
+        first.Payee.Should().Contain(Masked);
+        var parsed = format switch
+        {
+            StatementFormat.HsbcCsv => new HsbcCsvStatementParser().Parse(content),
+            StatementFormat.Camt053 => new Camt053StatementParser().Parse(content),
+            _ => new GenericCsvImporter().Parse(content, new GenericCsvImporter().Detect(content).Suggested),
+        };
+        var legacy = parsed.Entries.Single(e => e.Reference == first.Reference).LegacyReference;
+        legacy.Should().NotBeNull();
+
+        // As an import before fix 12 stored it: under the reference hashed over the bank's text.
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = "user-1", AccountId = account.Id, Type = TransactionType.Expense, Amount = first.Amount,
+            Currency = CurrencyCode.Eur, Date = first.Date, Payee = first.Payee, BankReference = legacy,
+        });
+        await db.SaveChangesAsync();
+
+        var again = await NewPreview(db).Handle(
+            new PreviewImportCommand(content, format, AccountId: account.Id), CancellationToken.None);
+
+        again.SkippedDuplicates.Should().Be(1);
+        again.Items.Should().NotContain(i => i.Reference == first.Reference);
     }
 
     [Fact]

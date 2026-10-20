@@ -577,7 +577,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     Currency = CurrencyCode.From(item.Currency),
                     Type = TransactionType.Transfer,
                     Date = item.Date,
-                    Payee = Truncate(item.Payee, 200),
+                    Payee = Truncate(CardNumberMask.Mask(item.Payee)!, 200),
                     AccountId = source,
                     TransferAccountId = dest,
                     DepartedOn = item.IsCredit ? null : item.Date,
@@ -667,7 +667,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                 Currency = CurrencyCode.From(item.Currency),
                 Type = type,
                 Date = item.Date,
-                Payee = Truncate(item.Payee, 200),
+                Payee = Truncate(CardNumberMask.Mask(item.Payee)!, 200),
                 BankReference = reference,
                 AccountId = request.AccountId,
                 // A split transaction carries no whole-row line/member — the slices do.

@@ -115,6 +115,13 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
         foreach (var entry in statement.Entries)
         {
             var resolution = known.Resolve(entry.Reference, entry.BookingDate, entry.Amount, entry.IsCredit);
+            // A row whose text held a card number was stored, before fix 12, under a reference
+            // hashed over that text: it is the same entry when that reference recorded it.
+            if (!resolution.Duplicate && entry.LegacyReference is string legacy
+                && known.Resolve(legacy, entry.BookingDate, entry.Amount, entry.IsCredit).Duplicate)
+            {
+                continue;
+            }
             if (!resolution.Duplicate)
             {
                 fresh.Add(entry);

@@ -173,8 +173,8 @@ await BackfillOwnerMembersAsync(app);
 // Settles jar moves made before departures were recorded (P3-8).
 await BackfillJarDeparturesAsync(app);
 
-// Masks any card number stored before every save masked them (compliance fix 12; idempotent).
-await BackfillCardNumbersAsync(app);
+// Reports card numbers stored before every save masked them (compliance fix 12); changes nothing.
+await CheckCardNumbersAsync(app);
 
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 
@@ -325,25 +325,26 @@ static async Task BackfillJarDeparturesAsync(WebApplication app)
     }
 }
 
-// Masks card numbers in payees, notes and names saved before fix 12. Idempotent and non-fatal:
-// a failure leaves the text as it was, and the next startup tries again. The count is logged at
-// Warning (see LogEmailProvider) so the Event Log shows it.
-static async Task BackfillCardNumbersAsync(WebApplication app)
+// Reports the rows that hold a card number saved before fix 12, by id, never the text. Read-only
+// and non-fatal. Logged at Warning (see LogEmailProvider) so the Event Log shows it; silent when
+// there is none.
+static async Task CheckCardNumbersAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        var masked = await CardNumberBackfill.BackfillAsync(db);
-        if (masked > 0)
+        foreach (var (table, ids) in await CardNumberCheck.FindAsync(db))
         {
-            logger.LogWarning("Card-number backfill: masked {Texts} stored text(s).", masked);
+            logger.LogWarning(
+                "Card-number check: {Count} row(s) in {Table} hold what looks like a card number, saved before masking: {Ids}.",
+                ids.Count, table, string.Join(", ", ids));
         }
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Card-number backfill failed; nothing was saved. Continuing startup.");
+        logger.LogError(ex, "Card-number check failed; nothing was changed. Continuing startup.");
     }
 }
 
