@@ -26,6 +26,7 @@ param(
     [string]$Name        = 'latest',
     [string]$Database    = 'ZeroBudgetProd',
     [string]$OutDir      = 'C:\deploy\restore-test',
+    [string]$SqlInstance = '.\SQLEXPRESS',
     [string]$Rclone      = 'C:\deploy\rclone\rclone.exe',
     [string]$RcloneConf  = 'C:\deploy\rclone.conf',
     [string]$Remote      = 'r2',
@@ -56,6 +57,17 @@ New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
 if ($IsWindows -ne $false) {
     & icacls.exe $OutDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Could not restrict access to $OutDir (icacls exit $LASTEXITCODE)." }
+    # SQL Server opens the .bak as its own service account (RESTORE HEADERONLY / VERIFYONLY / FROM DISK),
+    # so that account needs read access too or Migrate-FromBak.ps1 fails with OS error 5.
+    $inst = ($SqlInstance -split '\\')[-1]
+    $svcName = if ($inst -and $inst -ne '.' -and $inst -ne 'MSSQLSERVER') { 'MSSQL$' + $inst } else { 'MSSQLSERVER' }
+    $svc = Get-CimInstance Win32_Service -Filter "Name='$svcName'" -ErrorAction SilentlyContinue
+    if (-not $svc) {
+        Write-Warning "SQL Server service $svcName not found on this machine; $OutDir is readable by SYSTEM and Administrators only. Grant your SQL service account read access before Migrate-FromBak.ps1."
+    } elseif ($svc.StartName -and $svc.StartName -ine 'LocalSystem') {
+        & icacls.exe $OutDir /grant ("{0}:(OI)(CI)R" -f $svc.StartName) | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Could not grant $($svc.StartName) read access to $OutDir (icacls exit $LASTEXITCODE)." }
+    }
 }
 $out = Join-Path $OutDir $Name
 Write-Host "Downloading and decrypting ${CryptRemote}:$Name -> $out" -ForegroundColor Cyan
