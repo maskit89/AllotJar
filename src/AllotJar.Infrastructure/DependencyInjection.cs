@@ -145,7 +145,6 @@ public static class DependencyInjection
 
         // Compliance fix 9: delete expired sign-in tokens and long-expired invitations once a day,
         // so the privacy policy's retention periods hold for logins that never come back.
-        services.TryAddSingleton(TimeProvider.System);
         services.AddScoped<ExpiredRecordsPurge>();
         services.AddHostedService<ExpiredRecordsPurgeService>();
 

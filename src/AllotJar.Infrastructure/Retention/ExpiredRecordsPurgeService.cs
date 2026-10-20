@@ -6,9 +6,12 @@ namespace AllotJar.Infrastructure.Retention;
 
 /// <summary>
 /// Runs <see cref="ExpiredRecordsPurge"/> a few minutes after the API starts and then once a day.
-/// The API's app pool is AlwaysRunning, so the daily run keeps going between deploys; a recycle
-/// or deploy starts the clock again with a run soon after. A failed run is logged as an error
-/// (which emails an alert when those are on) and the next day's run tries again.
+/// The app (and this service) starts on the API's first request and stops when IIS idles the
+/// worker: AlwaysRunning restarts the process but does not boot the app. On production the
+/// health-ping task (Register-HealthPingTask.ps1, every 5 minutes) keeps it up, so the daily run
+/// keeps going; staging has no ping, so its purge runs only while requests keep it awake. A
+/// recycle or deploy starts the clock again with a run soon after. A failed run is logged as an
+/// error (which emails an alert when those are on) and the next day's run tries again.
 /// </summary>
 public sealed class ExpiredRecordsPurgeService : BackgroundService
 {
