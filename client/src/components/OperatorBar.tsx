@@ -17,13 +17,16 @@ function isAmountField(el: EventTarget | null): el is HTMLInputElement {
 }
 
 /**
- * Where the bar's bottom edge goes: the top of the on-screen keyboard. iOS keeps the layout
- * viewport full height while the keyboard is up and shrinks only the visual viewport, so a fixed
- * `bottom: 0` would sit behind the keyboard; the visual viewport's bottom is the keyboard's top.
+ * Where the bar's bottom edge goes, from the top of the layout viewport (what `position: fixed`
+ * measures from): the bottom of the visual viewport, which is the top of the on-screen keyboard.
+ * iOS keeps the layout viewport full height while the keyboard is up, so a fixed `bottom: 0` would
+ * sit behind the keyboard; and iOS Safari's `innerHeight` follows the visual viewport, so the
+ * bottom offset can't be worked out from it. Measured from the top, neither matters. Null with no
+ * visualViewport: the bar then sits at the bottom of the screen.
  */
-function keyboardTop(): number {
+function keyboardTop(): number | null {
   const vv = window.visualViewport
-  return vv ? vv.offsetTop + vv.height : window.innerHeight
+  return vv ? vv.offsetTop + vv.height : null
 }
 
 /**
@@ -37,7 +40,7 @@ function keyboardTop(): number {
 export function OperatorBar() {
   const touch = useMediaQuery('(hover: none) and (pointer: coarse)')
   const [field, setField] = useState<HTMLInputElement | null>(null)
-  const [bottom, setBottom] = useState(0)
+  const [edge, setEdge] = useState<number | null>(null)
 
   useEffect(() => {
     if (!touch) return
@@ -64,7 +67,7 @@ export function OperatorBar() {
     const place = () => {
       // A field removed while focused (in a browser that sends no focusout for it) takes the bar.
       if (!field.isConnected) setField(null)
-      else setBottom(window.innerHeight - keyboardTop())
+      else setEdge(keyboardTop())
     }
     place()
     const vv = window.visualViewport
@@ -79,6 +82,7 @@ export function OperatorBar() {
   }, [field])
 
   if (!touch || !field || !field.isConnected) return null
+  const keyboardUp = edge !== null && edge < document.documentElement.clientHeight - 1
 
   // Pressing a key must not take focus from the field (which would close the keyboard and commit
   // an inline edit), nor reach a dialog's "pressed outside" check (which would close the dialog).
@@ -92,8 +96,9 @@ export function OperatorBar() {
       role="toolbar"
       aria-label="Calculator keys"
       data-operator-bar
-      style={{ bottom }}
-      className={`fixed inset-x-0 z-[95] flex gap-1.5 border-t border-slate-200 bg-surface-2/95 pt-1.5 pr-[max(0.5rem,env(safe-area-inset-right))] pl-[max(0.5rem,env(safe-area-inset-left))] ${bottom > 0 ? 'pb-1.5' : 'pb-[max(0.375rem,env(safe-area-inset-bottom))]'} backdrop-blur-md`}
+      // Its bottom edge on the keyboard's top; the home-bar padding only while no keyboard is up.
+      style={edge === null ? { bottom: 0 } : { top: edge, transform: 'translateY(-100%)' }}
+      className={`fixed inset-x-0 z-[95] flex gap-1.5 border-t border-slate-200 bg-surface-2/95 pt-1.5 pr-[max(0.5rem,env(safe-area-inset-right))] pl-[max(0.5rem,env(safe-area-inset-left))] ${keyboardUp ? 'pb-1.5' : 'pb-[max(0.375rem,env(safe-area-inset-bottom))]'} backdrop-blur-md`}
     >
       {KEYS.map((k) => (
         <button

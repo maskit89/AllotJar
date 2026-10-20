@@ -69,6 +69,19 @@ describe('OperatorBar', () => {
       expect(amount.value).toBe('2×0+')
     })
 
+    it('sits on the keyboard: its bottom edge at the bottom of the visual viewport', () => {
+      // iOS with the keyboard up: the page scrolled 120px and 400px left above the keyboard, and
+      // innerHeight following the visual viewport (so it can't be used to measure from the bottom).
+      vi.stubGlobal('visualViewport', Object.assign(new EventTarget(), { offsetTop: 120, height: 400 }))
+      vi.stubGlobal('innerHeight', 400)
+      render(<Form />)
+      act(() => screen.getByRole('textbox', { name: 'Amount' }).focus())
+      const bar = screen.getByRole('toolbar', { name: 'Calculator keys' })
+      expect(bar.style.top).toBe('520px')
+      expect(bar.style.transform).toBe('translateY(-100%)')
+      expect(bar.style.bottom).toBe('')
+    })
+
     it('keeps the field focused when a key is pressed', () => {
       render(<Form />)
       const amount = screen.getByRole('textbox', { name: 'Amount' })
