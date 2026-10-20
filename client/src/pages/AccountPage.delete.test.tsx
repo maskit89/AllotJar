@@ -3,14 +3,17 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
 import type { MeResponse } from '../types'
 
-vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')).apiModule(importOriginal))
+const mockDownload = vi.hoisted(() => vi.fn())
+vi.mock('../lib/api', async (importOriginal) =>
+  (await import('../test/apiMock')).apiModule(importOriginal, { downloadMyData: mockDownload }),
+)
 
 import { mockGet, mockPost, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
 import { AccountPage } from './AccountPage'
 import { ownerMe } from '../test/fixtures/me'
 
-// "Delete my account" (compliance fix 5): a row in the Sign-in card opens a dialog that says what
+// "Delete my account" (compliance fix 5): a row in the Your data card, under Download, opens a dialog that says what
 // goes; "Delete for good" works once the password is entered (a Google-only login types its email).
 // While others share the budget, it says to remove them first and offers nothing to delete.
 let meData: MeResponse = ownerMe
@@ -37,6 +40,7 @@ describe('AccountPage: Delete account', () => {
       return Promise.resolve({ data: meData })
     })
     assign.mockClear()
+    mockDownload.mockReset()
     vi.stubGlobal('location', { ...window.location, assign })
   })
 
@@ -62,6 +66,20 @@ describe('AccountPage: Delete account', () => {
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/delete-account', { password: 'hunter22' }))
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/login?reason=deleted'))
+  })
+
+  it('sits under Download in Your data, and its dialog offers the download first', async () => {
+    mockDownload.mockResolvedValue(undefined)
+    const user = userEvent.setup()
+    renderPage()
+
+    const card = (await screen.findByRole('heading', { name: 'Your data' }, W)).closest('section')!
+    expect(within(card).getByRole('button', { name: 'Delete account' })).toBeInTheDocument()
+    const dialog = await openDelete(user)
+    await user.click(within(dialog).getByRole('button', { name: 'Download my data first' }))
+    expect(mockDownload).toHaveBeenCalledTimes(1)
+    expect(mockPost).not.toHaveBeenCalled()
+    expect(screen.getByRole('dialog', { name: 'Delete your account?' })).toBeInTheDocument()
   })
 
   it('asks a Google-only login to type its email', async () => {

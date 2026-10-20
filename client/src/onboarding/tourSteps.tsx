@@ -20,7 +20,8 @@ const desktopOnly = (copy: ReactNode) => <span className="max-[899.98px]:hidden"
 const phoneOnly = (copy: ReactNode) => <span className="min-[900px]:hidden">{copy}</span>
 
 /**
- * The guided walkthrough. Each page-step spotlights its nav item (the sidebar link on desktop;
+ * The guided walkthrough. The page-steps follow the menu's order (Accounts, Jars, Transactions,
+ * Reports, People), the order a household sets up in. Each page-step spotlights its nav item (the sidebar link on desktop;
  * on phones its tab, or More for the pages that live in the More sheet), so the tour stays on
  * one screen and points at "this menu item → does this". Anchors gracefully centre when
  * missing/off-screen (a section turned off by a feature flag, a page without the month
@@ -69,28 +70,28 @@ export function buildTourSteps(noun: string): TourStep[] {
       body: 'Assign all your income to lines and jars until Remaining to budget reads zero.',
     },
     {
-      id: 'transactions',
-      selector: '[data-tour="nav-transactions"], [data-tour-more~="transactions"]',
-      title: 'Track what you spend',
-      body: 'Log each payment in Transactions and give it a budget line.',
-    },
-    {
       id: 'accounts',
       selector: '[data-tour="nav-accounts"], [data-tour-more~="accounts"]',
-      title: 'Know where your money sits',
-      body: 'Accounts keeps each current account, savings pot, card and cash balance up to date.',
+      title: 'Start with your accounts',
+      body: 'Add each bank account, card and cash you use, with its balance.',
     },
     {
       id: 'jars',
       selector: '[data-tour="nav-jars"], [data-tour-more~="jars"]',
       title: 'Save up with jars',
-      body: 'Jars save for a yearly bill, a holiday or a rainy day, a little each month.',
+      body: 'A jar sits in one of your accounts and saves for a bill, a holiday or a rainy day.',
+    },
+    {
+      id: 'transactions',
+      selector: '[data-tour="nav-transactions"], [data-tour-more~="transactions"]',
+      title: 'Track what you spend',
+      body: 'Log or import each payment in Transactions and give it a budget line.',
     },
     {
       id: 'reports',
       selector: '[data-tour="nav-reports"], [data-tour-more~="reports"]',
       title: 'See the bigger picture',
-      body: 'Reports show income against spending, where the money went and your year at a glance.',
+      body: 'Reports show income against spending, where the money went and what each jar paid.',
     },
     {
       id: 'people',

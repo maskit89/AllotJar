@@ -13,6 +13,7 @@ import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog'
 import { LeaveHouseholdDialog } from '../components/settings/LeaveHouseholdDialog'
 import { DeleteAccountDialog, type DeletePreview, type DeleteProof } from '../components/settings/DeleteAccountDialog'
+import { DownloadDataCard } from '../components/settings/DownloadDataCard'
 import { GoogleMark, OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, SAVE_BUTTON, Tile } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -20,7 +21,7 @@ import { CURRENCY_OPTIONS, NUMBER_FORMAT_OPTIONS } from '../lib/money'
 import { memberHue } from '../lib/categoryColors'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { HOUSEHOLD_ROLE_HINTS, HOUSEHOLD_ROLE_LABELS } from '../types'
-import { api } from '../lib/api'
+import { api, downloadMyData } from '../lib/api'
 
 /** The neutral steel of a sign-in not linked to a person (as the People page draws one). */
 const STEEL = 'var(--color-steel)'
@@ -47,7 +48,8 @@ const LOCK_NOTE = 'Your budget currency is fixed once your budget has accounts, 
  * Last name fields of the same form. On the right: Household (who shares the budget, "Just you"
  * when alone, "Your own budget" for someone with none, Leave household behind the ⋯) and Sign-in
  * (the password, changed in a dialog or set by the forgot-password flow; Google, disconnected from
- * its ⋯; Delete account, which asks in a dialog for the email typed). Phones: the same cards in one column.
+ * its ⋯) and Your data (Download my data, a zip of all you can see; Delete account, which asks in a
+ * dialog for the password, or the email typed). Phones: the same cards in one column.
  *
  * Nothing here is role-gated: every access level edits its own preferences and password, starts a
  * budget of its own and leaves a household it joined.
@@ -152,7 +154,7 @@ export function AccountPage() {
     setConfirmLeave(false)
   }
 
-  // --- Delete account (asks first, in a dialog; the email typed guards it) ---
+  // --- Delete account (asks first, in a dialog; the password, or the email typed, guards it) ---
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [deleteBusy, setDeleteBusy] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
@@ -167,6 +169,21 @@ export function AccountPage() {
       if (data && typeof data.ownsHousehold === 'boolean') setDeletePreview(data)
     } catch {
       // The dialog then names only the sign-in; the delete itself doesn't depend on this read.
+    }
+  }
+
+  // The dialog's "Download my data first" (fix 4's zip), one at a time.
+  const downloading = useRef(false)
+  async function onDownloadFirst() {
+    if (downloading.current) return
+    downloading.current = true
+    setDeleteError(null)
+    try {
+      await downloadMyData()
+    } catch {
+      setDeleteError('Could not prepare your download. Please try again.')
+    } finally {
+      downloading.current = false
     }
   }
 
@@ -675,15 +692,6 @@ export function AccountPage() {
                     </span>
                   </div>
                 )}
-                <div className={ROW}>
-                  <Tile color="var(--color-bad)" tint="10%">
-                    <Trash2 strokeWidth={1.8} />
-                  </Tile>
-                  <h3 className={`${ROW_TITLE} min-w-0 flex-1`}>Delete account</h3>
-                  <button type="button" onClick={() => void askToDelete()} aria-label="Delete account" className={`${OUTLINE_SM} ml-auto text-bad!`}>
-                    Delete
-                  </button>
-                </div>
               </div>
               {/* Disconnecting's outcome, outside the Google row, which goes once Google is disconnected. */}
               {unlinkError && (
@@ -698,6 +706,18 @@ export function AccountPage() {
                 </p>
               )}
             </section>
+
+            <DownloadDataCard>
+              <div className={ROW}>
+                <Tile color="var(--color-bad)" tint="10%">
+                  <Trash2 strokeWidth={1.8} />
+                </Tile>
+                <h3 className={`${ROW_TITLE} min-w-0 flex-1`}>Delete account</h3>
+                <button type="button" onClick={() => void askToDelete()} aria-label="Delete account" className={`${OUTLINE_SM} ml-auto text-bad!`}>
+                  Delete
+                </button>
+              </div>
+            </DownloadDataCard>
           </div>
         </div>
       </div>
@@ -722,6 +742,7 @@ export function AccountPage() {
           error={deleteError}
           onDelete={(proof) => void onDeleteAccount(proof)}
           onClose={() => setConfirmDelete(false)}
+          onDownload={() => void onDownloadFirst()}
         />
       )}
 

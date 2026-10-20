@@ -7,7 +7,8 @@ import { authedSetup, FLAGS } from './mocks'
  * across the top, then the Topics card and (only with the `analytics` flag on) the Privacy card
  * beside it on a wide screen, under it on a phone; a topic row opening in place by mouse and
  * keyboard; the Replay link ("Replay tour" on a phone) opening the welcome dialog and taking focus
- * back; the guide link's attributes; the consent switch's three states; and no WCAG A/AA
+ * back; no user guide link (its GitHub page no longer opens for anyone else); the consent
+ * switch's three states; and no WCAG A/AA
  * violations with a topic and a hint open.
  */
 
@@ -40,7 +41,7 @@ async function openHelp(page: Page) {
 
 /**
  * A topic's panel: the element its row controls, kept in the DOM and `hidden` while closed. Not a
- * landmark (nine topics open independently; nine regions would crowd a screen reader's list).
+ * landmark (eleven topics open independently; eleven regions would crowd a screen reader's list).
  */
 async function panelOf(page: Page, name: string) {
   const id = await page.getByRole('button', { name, exact: true }).getAttribute('aria-controls')
@@ -57,13 +58,15 @@ function coveredAtCentre(el: HTMLElement) {
 
 const TOPICS = [
   'Months & appearance',
-  'Transactions',
-  'Bills & due dates',
   'Accounts',
   'Saving with jars',
+  'Transactions',
+  'Importing a statement',
+  'Bills & due dates',
   'Reports',
   'People & allocation',
   'Your account',
+  'Install the app',
   'Good to know',
 ]
 
@@ -86,7 +89,7 @@ test.describe('Help', () => {
     await expect(page.getByRole('heading', { name: 'Privacy' })).toHaveCount(0)
     await expect(page.getByRole('switch')).toHaveCount(0)
 
-    // Nine rows, all closed, in order.
+    // Eleven rows (every flag on), all closed, in order.
     const rows = topics.getByRole('button', { expanded: false })
     await expect(rows).toHaveText(TOPICS)
     await expect(await panelOf(page, 'Saving with jars')).toBeHidden()
@@ -109,9 +112,10 @@ test.describe('Help', () => {
     // Open, it is still no landmark.
     await expect(page.getByRole('region', { name: 'Saving with jars' })).toHaveCount(0)
     await expect(panel.getByRole('listitem')).toHaveText([
-      'For big or irregular costs: car, holiday, Christmas.',
-      'Give a jar a target and a date, and AllotJar works out what to set aside each month and shows it filling up.',
-      'Its monthly contribution becomes a line in your Savings group, whose balance rolls over month to month.',
+      'A jar saves for a bill, a holiday or a rainy day, and sits in one of your accounts.',
+      'Give it a target and a date, set Repeats for a cost that comes back, or tick Fixed amount each month for a pot you keep topping up.',
+      'AllotJar works out what to set aside each month and puts it on the jar’s line in your Savings group.',
+      'Move money shifts money between jars. Covering an overspend from another jar is a move, not spending.',
     ])
     // The rows below move down to make room; nothing else opened.
     expect((await reports.boundingBox())!.y).toBeGreaterThan(before + 60)
@@ -138,7 +142,7 @@ test.describe('Help', () => {
     await expect(bills).toBeFocused()
     // Tab moves on to the next row: the panel holds nothing focusable.
     await page.keyboard.press('Tab')
-    await expect(page.getByRole('button', { name: 'Accounts' })).toBeFocused()
+    await expect(page.getByRole('button', { name: 'Reports' })).toBeFocused()
     await page.keyboard.press('Shift+Tab')
     await page.keyboard.press('Space')
     await expect(bills).toHaveAttribute('aria-expanded', 'false')
@@ -146,17 +150,12 @@ test.describe('Help', () => {
     await expect(bills).toBeFocused()
   })
 
-  test('the Topics header: Replay opens the welcome and takes focus back; the guide link opens a new tab', async ({ page }) => {
+  test('the Topics header: Replay opens the welcome and takes focus back; no user guide link', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
     await authedSetup(page, 'light')
     await openHelp(page)
 
-    const guide = page.getByRole('link', { name: 'Complete user guide (opens in a new tab)' })
-    await expect(guide).toBeVisible()
-    await expect(guide).toHaveText('User guide')
-    await expect(guide).toHaveAttribute('href', 'https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md')
-    await expect(guide).toHaveAttribute('target', '_blank')
-    await expect(guide).toHaveAttribute('rel', 'noreferrer')
+    await expect(page.getByRole('link', { name: /user guide/i })).toHaveCount(0)
 
     const replay = page.getByRole('button', { name: 'Replay welcome tour' })
     await expect(replay).toBeVisible()
