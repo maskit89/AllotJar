@@ -179,7 +179,7 @@ await BackfillOwnerMembersAsync(app);
 // Settles jar moves made before departures were recorded (P3-8).
 await BackfillJarDeparturesAsync(app);
 
-// Encrypts bank details saved before encryption (compliance fix 10; idempotent).
+// Brings stored bank details onto this site's key (compliance fix 10; idempotent).
 await EncryptBankDetailsAsync(app);
 
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
@@ -331,10 +331,12 @@ static async Task BackfillJarDeparturesAsync(WebApplication app)
     }
 }
 
-// Encrypts the bank details of accounts saved before compliance fix 10, after the migration that
-// widened their columns. Idempotent and non-fatal: a plain value still reads as it is, and the next
-// start tries again. The count is logged at Warning so the deploy's check of the Event Log sees it,
-// and values written with a key this site lacks are an Error (an alert): their account screens fail.
+// Brings stored bank details onto this site's key (compliance fix 10), after the migration that
+// widened their columns: encrypts values saved before encryption and re-encrypts values written
+// with a retired key, so that key can be dropped. Idempotent and non-fatal: a plain value still
+// reads as it is, and the next start tries again. The counts are logged at Warning so the deploy's
+// check of the Event Log sees them; values this site cannot read are an Error (an alert), because
+// their account screens fail.
 static async Task EncryptBankDetailsAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
@@ -342,21 +344,22 @@ static async Task EncryptBankDetailsAsync(WebApplication app)
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
     try
     {
-        var result = await BankDetailsBackfill.EncryptPlaintextAsync(db, CancellationToken.None);
+        var result = await BankDetailsBackfill.BringToCurrentKeyAsync(db, CancellationToken.None);
         logger.LogWarning(
-            "Bank details encryption: key {KeyId}; encrypted {Encrypted} stored value(s) saved before encryption.",
-            BankDetailsCipher.CurrentKeyId, result.Encrypted);
+            "Bank details encryption: key {KeyId}; encrypted {Encrypted} stored value(s) saved before encryption; " +
+            "re-encrypted {ReEncrypted} written with an older key ({FromDevelopmentKey} of them with the public development key).",
+            BankDetailsCipher.CurrentKeyId, result.Encrypted, result.ReEncrypted, result.FromDevelopmentKey);
         if (result.UnreadableKeyValues > 0)
         {
             logger.LogError(
-                "Bank details encryption: {Count} stored value(s) were encrypted with a key this site does not have " +
-                "(it has {KeyId}); the accounts holding them cannot be read. Restore the key that wrote them.",
+                "Bank details encryption: {Count} stored value(s) cannot be decrypted with this site's keys " +
+                "(it writes with {KeyId}); the accounts holding them cannot be read. Restore the key that wrote them.",
                 result.UnreadableKeyValues, BankDetailsCipher.CurrentKeyId);
         }
     }
     catch (Exception ex)
     {
-        logger.LogError(ex, "Bank details encryption backfill failed; plain values stay readable. Continuing startup.");
+        logger.LogError(ex, "Bank details encryption backfill failed; stored values stay as they were. Continuing startup.");
     }
 }
 

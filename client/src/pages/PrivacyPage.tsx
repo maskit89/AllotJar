@@ -67,9 +67,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
-          transactions and match them to an account by its IBAN or account number. The file itself
-          is only read while it uploads and is never kept; only the transactions you import are
-          kept.
+          transactions in the account you choose. The file itself is only read while it uploads and
+          is never kept; only the transactions you import are kept.
         </li>
         <li>
           <strong>People in your household</strong>: names, incomes and pocket money of the people

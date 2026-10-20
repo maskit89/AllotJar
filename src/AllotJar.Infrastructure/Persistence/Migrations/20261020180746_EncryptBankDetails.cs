@@ -7,8 +7,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
     /// <summary>
     /// Compliance fix 10: widens the four bank-identifier columns to hold their encrypted form
     /// (BankDetailsCipher). The rows themselves are encrypted at startup by BankDetailsBackfill,
-    /// which needs the site's key and so cannot run inside the migration. Down would truncate
-    /// encrypted values; it is kept only for the schema shape.
+    /// which needs the site's key and so cannot run inside the migration. Down fails while any
+    /// value is encrypted (SQL Server refuses to narrow a column holding longer text); a rollback
+    /// needs this build, with its key, to decrypt first.
     /// </summary>
     public partial class EncryptBankDetails : Migration
     {

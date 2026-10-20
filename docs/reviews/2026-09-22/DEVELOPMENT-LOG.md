@@ -1497,3 +1497,12 @@ Follow-ups from the review (reviews/pr-380/REVIEW.md):
 - #380 P3-2: a refresh that races Sign out on that same device can outlive the sign-out, because `RefreshToken` has no concurrency token. Fix with a rowversion or a conditional update.
 - #380 P3-3 (cleanup part): expired token rows, which now hold device names, are pruned only when that login next signs in or refreshes. Either prune them in the nightly job, or have the privacy policy say ended sign-ins are deleted within 30 days.
 - #380 P3-4: iPadOS reports a Mac user agent unless it is in the installed app, so an iPad usually reads "Safari on Mac". The client could send a touch hint.
+
+## Bank details encrypted at rest (PR #383, compliance fix 10) — 20 October 2026
+
+An account's IBAN, BIC, sort code and account number are now stored AES-256-GCM encrypted with a key of each site's own (`BankDetailsEncryption:Key`, made from a passphrase in Christopher's password manager). The Data Protection key ring was not used, because it is locked to this VPS and a backup restored anywhere else could not read the bank details. Each start encrypts values saved before encryption and re-encrypts values written with a retired key (review P2-1). Without a key the API won't start and Deploy.ps1 won't deploy. Imports never matched accounts by IBAN; the privacy policy's sentence saying they did is gone (review P3-5). Key changes, a lost key and rollback are in docs/deployment/README.md, section 4.
+
+Follow-ups from the review (reviews/pr-383/REVIEW.md):
+- #383 P3-1 (rest): staging and production still accept a value written with the public development key. Each start re-encrypts such a value under the site key and logs the count, but the development key could be dropped from the ring outside Development (the integration tests rely on keys accumulating in one process, so this needs care there).
+- #383 P3-4: the encrypted value is bound to its column, not its row, so someone with write access to the database could copy one account's IBAN onto another. Binding the row id would mean moving encryption out of the EF value converters. Accepted for now, since database write access is already a full compromise.
+- #383 P3-6 (older than this PR, not verified): `C:\deploy\settings-backups` and the sites' `appsettings.*.json` may be readable by local users or the other site's app pool. Check with `icacls` and lock them to Administrators, SYSTEM and the site's own pool in a reviewed block.

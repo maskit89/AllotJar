@@ -39,6 +39,9 @@ public static class BankDetailsCipher
     public static readonly byte[] DevelopmentKey =
         SHA256.HashData(Encoding.UTF8.GetBytes("AllotJar development bank-details key; public, never used on a real site"));
 
+    /// <summary>The development key's id, so startup can say when a real site re-encrypted values written with it.</summary>
+    public static readonly string DevelopmentKeyId = KeyId(DevelopmentKey);
+
     private static volatile KeyRing _ring = new(DevelopmentKey, []);
 
     /// <summary>The key id of the key new values are written with (eight hex characters).</summary>
