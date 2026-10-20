@@ -748,10 +748,10 @@ describe('PeoplePage — catalog (PPL)', () => {
     renderPage()
 
     await cardsShown()
-    expect(await personItems(user, 'Sam')).not.toContain('Send the email to Sam again')
-    expect(await personItems(user, 'Alex')).not.toContain('Send the email to Alex again')
-    expect(await personItems(user, 'Robin')).toContain('Send the email to Robin again')
-    await personAction(user, 'Robin', 'Send the email to Robin again')
+    expect(await personItems(user, 'Sam')).not.toContain('Send again: Sam')
+    expect(await personItems(user, 'Alex')).not.toContain('Send again: Alex')
+    expect(await personItems(user, 'Robin')).toContain('Send again: Robin')
+    await personAction(user, 'Robin', 'Send again: Robin')
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/access/members/mem2/resend'), { timeout: 5000 })
     expect(await within(personCard('Robin')).findByRole('status', {}, { timeout: 5000 })).toHaveTextContent(
@@ -775,12 +775,12 @@ describe('PeoplePage — catalog (PPL)', () => {
     renderPage()
 
     await cardsShown()
-    await personAction(user, 'Sam', 'Send the email to Sam again')
+    await personAction(user, 'Sam', 'Send again: Sam')
     expect(await within(personCard('Sam')).findByRole('status', {}, { timeout: 5000 })).toHaveTextContent(
       "We've emailed sam@x.eu their link to choose a password again.",
     )
 
-    await personAction(user, 'Sam', 'Send the email to Sam again')
+    await personAction(user, 'Sam', 'Send again: Sam')
     expect(await screen.findByText(/less than a minute ago/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledTimes(2)
   })
@@ -827,8 +827,8 @@ describe('PeoplePage — catalog (PPL)', () => {
     expect(row.getByText('Admin')).toBeInTheDocument()
 
     // Its ⋯: Send again is for a pending invite only; Link to a person, then Remove after a divider.
-    expect(await signInItems(user, 'robin@x.eu')).toEqual(['Link robin@x.eu to a person', 'Remove Robin'])
-    await signInAction(user, 'robin@x.eu', 'Link robin@x.eu to a person')
+    expect(await signInItems(user, 'robin@x.eu')).toEqual(['Link to a person: robin@x.eu', 'Remove Robin'])
+    await signInAction(user, 'robin@x.eu', 'Link to a person: robin@x.eu')
     const linkSelect = await screen.findByRole('combobox', { name: 'Link robin@x.eu to a person' }, { timeout: 5000 })
     // Only the unlinked person (Sam) is offered — Alex is already claimed.
     expect(within(linkSelect).getByRole('option', { name: 'Sam' })).toBeInTheDocument()

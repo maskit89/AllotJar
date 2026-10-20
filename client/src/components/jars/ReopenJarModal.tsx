@@ -54,10 +54,10 @@ export function ReopenJarModal({ jar, currency, onClose, onReopened }: ReopenJar
       onClose={onClose}
       footer={
         <div className={DIALOG_ACTIONS}>
-          <Button variant="ghost" onClick={onClose} aria-label="Keep it completed" className={DIALOG_CANCEL}>
+          <Button variant="ghost" onClick={onClose} className={DIALOG_CANCEL}>
             Cancel
           </Button>
-          <Button onClick={submit} aria-disabled={saving || undefined} aria-label={`Confirm reopen ${jar.name}`} className={DIALOG_PRIMARY}>
+          <Button onClick={submit} aria-disabled={saving || undefined} className={DIALOG_PRIMARY}>
             {saving ? 'Saving…' : 'Reopen'}
           </Button>
         </div>

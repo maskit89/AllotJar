@@ -309,11 +309,11 @@ describe('DashboardPage — income card & spending lines', () => {
     mockLoads({ month: m })
     renderPage()
 
-    const planned = await screen.findByLabelText('Planned amount for Restaurants', {}, { timeout: 5000 })
+    const planned = await screen.findByRole('button', { name: /^Planned amount for Restaurants:/ }, { timeout: 5000 })
     expect(planned.closest('.group')!.textContent).toContain('€100.00 of €90.00')
     expect(planned.closest('.group')!.textContent).toContain('€20.00 refunded')
     // A line with nothing refunded says nothing about refunds.
-    const rent = screen.getByLabelText('Planned amount for Rent')
+    const rent = screen.getByRole('button', { name: /^Planned amount for Rent:/ })
     expect(rent.closest('.group')!.textContent).not.toContain('refunded')
   })
 
@@ -326,7 +326,7 @@ describe('DashboardPage — income card & spending lines', () => {
     // Restaurants: planned 90, spent 120 → "€30.00 over" in the bad red, "€120.00 of €90.00".
     const overRemaining = await screen.findByText('€30.00 over', {}, { timeout: 5000 })
     expect(overRemaining.className).toContain('text-bad')
-    const restaurantsPlanned = screen.getByLabelText('Planned amount for Restaurants')
+    const restaurantsPlanned = screen.getByRole('button', { name: /^Planned amount for Restaurants:/ })
     expect(restaurantsPlanned).toHaveTextContent('€90.00')
     expect(restaurantsPlanned.closest('.group')!.textContent).toContain('€120.00 of €90.00')
 
@@ -351,7 +351,7 @@ describe('DashboardPage — income card & spending lines', () => {
     renderPage()
 
     // Holiday planned 150 → 300: Allotted 1,920 → 2,070, Remaining 1,080 → 930.
-    fireEvent.click(await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Planned amount for Holiday:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })) as HTMLInputElement
     await waitFor(
       () => {
@@ -380,7 +380,7 @@ describe('DashboardPage — planned-amount parsing in-row (parseMinor seam)', ()
     mockPut.mockResolvedValue({ data: {} })
     renderPage()
 
-    fireEvent.click(await screen.findByLabelText('Planned amount for Groceries', {}, { timeout: 5000 }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Planned amount for Groceries:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Groceries', {}, { timeout: 5000 })) as HTMLInputElement
     await waitFor(
       () => {
@@ -399,7 +399,7 @@ describe('DashboardPage — planned-amount parsing in-row (parseMinor seam)', ()
     mockPut.mockResolvedValue({ data: {} })
     renderPage()
 
-    fireEvent.click(await screen.findByLabelText('Planned amount for Groceries', {}, { timeout: 5000 }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Planned amount for Groceries:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Groceries', {}, { timeout: 5000 })) as HTMLInputElement
     await waitFor(
       () => {
@@ -412,7 +412,7 @@ describe('DashboardPage — planned-amount parsing in-row (parseMinor seam)', ()
 
     // Editor closes back to the formatted at-rest value; no PUT and no error strip.
     await waitFor(
-      () => expect(screen.getByLabelText('Planned amount for Groceries')).toHaveTextContent('€400.00'),
+      () => expect(screen.getByRole('button', { name: /^Planned amount for Groceries:/ })).toHaveTextContent('€400.00'),
       { timeout: 5000 },
     )
     expect(mockPut).not.toHaveBeenCalled()
@@ -527,12 +527,12 @@ describe('DashboardPage — reorder gating, templates & jars shelf', () => {
     renderPage()
 
     // Essentials card: aria-label, description, and the "{groups} groups · {lines} lines" formula (2 groups, 5 lines).
-    const essentials = await screen.findByLabelText('Start from the Essentials template', {}, { timeout: 5000 })
+    const essentials = await screen.findByRole('button', { name: /^Start from the template: Essentials/ }, { timeout: 5000 })
     expect(essentials.textContent).toContain('Essentials')
     expect(essentials.textContent).toContain('A clean starting point covering the bills most households share.')
     expect(essentials.textContent).toContain('2 groups · 5 lines')
 
-    const student = screen.getByLabelText('Start from the Student template')
+    const student = screen.getByRole('button', { name: /^Start from the template: Student/ })
     expect(student.textContent).toContain('1 groups · 1 lines')
 
     // A first-ever month (no strictly-earlier month) offers no Copy button.

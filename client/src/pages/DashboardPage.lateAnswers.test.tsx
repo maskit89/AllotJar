@@ -132,7 +132,7 @@ function renderWithNav() {
   )
 }
 
-const rentPlanned = () => screen.getByLabelText('Planned amount for Rent')
+const rentPlanned = () => screen.getByRole('button', { name: /^Planned amount for Rent:/ })
 
 // The current month's grid is on screen.
 async function currentMonthShown() {
@@ -175,7 +175,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     await lineAction(user, 'Holiday', 'Archive jar')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     slow = true
-    await user.click(dialog.getByLabelText('Confirm archive Holiday'))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/jar-holiday/archive', { archived: true }))
     await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === `/budget/${YEAR}/${MONTH}`).length).toBe(2))
 
@@ -198,7 +198,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     await lineAction(user, 'Holiday', 'Archive jar')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     slow = true
-    await user.click(dialog.getByLabelText('Confirm archive Holiday'))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
     await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => url === `/budget/${YEAR}/${MONTH}`).length).toBe(2))
 
     await goToPreviousMonth(user)
@@ -217,7 +217,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
     const user = userEvent.setup()
     renderWithNav()
 
-    await user.click(await screen.findByLabelText('Start from the Essentials template', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Start from the template: Essentials/ }, { timeout: 5000 }))
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
 
     await goToPreviousMonth(user)
@@ -414,7 +414,7 @@ describe('DashboardPage — an answer that lands after the user changed month le
 
     await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(await dialog.findByLabelText('Skip Holiday this month', {}, { timeout: 5000 }))
+    await user.click(await dialog.findByRole('button', { name: 'Skip this month' }, { timeout: 5000 }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday/skip', { skipped: true }))
 
     await goToPreviousMonth(user)

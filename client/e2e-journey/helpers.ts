@@ -82,7 +82,7 @@ export async function startFromEssentialsTemplate(page: Page): Promise<void> {
   const created = page.waitForResponse(
     (r) => r.request().method() === 'POST' && r.url().endsWith('/api/budget') && r.ok(),
   )
-  await page.getByRole('button', { name: 'Start from the Essentials template' }).click()
+  await page.getByRole('button', { name: /^Start from the template: Essentials/ }).click()
   await created
   await expect(page.getByText('Remaining to budget')).toBeVisible()
 }
@@ -128,8 +128,8 @@ export async function jarAction(page: Page, jar: string, item: string): Promise<
 
 /**
  * Picks `item` from the ⋯ menu of the account card named `account` on the Accounts page (restyle
- * PR 6). Each item's name says which account it acts on: "Edit Joint", "Make Joint private",
- * "Share Joint with the household", "Delete Joint".
+ * PR 6). Each item's name says which account it acts on: "Edit Joint", "Make private: Joint",
+ * "Share with household: Joint", "Delete Joint".
  */
 export async function accountAction(page: Page, account: string, item: string): Promise<void> {
   await rowAction(page, `${account}: more actions`, item)
@@ -138,7 +138,7 @@ export async function accountAction(page: Page, account: string, item: string): 
 /**
  * Picks `item` from the ⋯ menu of the person card named `person` on the People page (restyle
  * PR 8). Each item's name says whom it acts on where the visible text doesn't: "This is me",
- * "This isn't me", "Invite to sign in", "Send the email to Robin again", "Edit Robin",
+ * "This isn't me", "Invite to sign in", "Send again: Robin", "Edit Robin",
  * "Archive Robin". Desktop only: on a phone the ⋯ opens a bottom sheet.
  */
 export async function personAction(page: Page, person: string, item: string): Promise<void> {

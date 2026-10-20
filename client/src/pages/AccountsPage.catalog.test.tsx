@@ -552,7 +552,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
     renderPage()
 
     await accountAction(user, 'Everyday', 'Delete Everyday')
-    await user.click(await screen.findByRole('button', { name: 'Confirm delete Everyday' }))
+    await user.click(await screen.findByRole('button', { name: 'Delete account' }))
 
     expect(await screen.findByText('Could not delete that account.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Everyday')).toBeInTheDocument()
@@ -568,7 +568,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
     renderPage()
 
     await accountAction(user, 'Everyday', 'Delete Everyday')
-    await user.click(await screen.findByRole('button', { name: 'Confirm delete Everyday' }))
+    await user.click(await screen.findByRole('button', { name: 'Delete account' }))
 
     // While the request is pending the ⋯'s Delete is disabled (prevents a double-submit).
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/accounts/a1'))

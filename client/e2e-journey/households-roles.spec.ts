@@ -187,11 +187,11 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   await txDialog.getByRole('button', { name: 'Add transaction' }).click()
   await txCreated
   await expect(txDialog).toBeHidden()
-  await expect(guest.getByText('Tesco')).toBeVisible()
+  await expect(guest.getByText('Tesco', { exact: true })).toBeVisible()
 
   // The write landed in the SHARED household — the owner's register shows it too.
   await page.goto('/transactions')
-  await expect(page.getByText('Tesco')).toBeVisible()
+  await expect(page.getByText('Tesco', { exact: true })).toBeVisible()
 
   // --- PPL-035: the owner demotes Robin to Read-only mid-session ---
   await page.goto('/people')
@@ -226,7 +226,7 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   await guest.reload()
   await expect(guest.getByText(/Read-only access: you can view everything/)).toBeVisible()
   await expect(guest.getByRole('button', { name: 'Add transaction' })).toHaveCount(0)
-  await expect(guest.getByText('Tesco')).toBeVisible() // full view parity, zero controls
+  await expect(guest.getByText('Tesco', { exact: true })).toBeVisible() // full view parity, zero controls
   // PPL-070: the profile card's access-level chip (Your account) reflects the new access level.
   await guest.goto('/account')
   await expect(guest.getByText('Read-only', { exact: true })).toBeVisible()

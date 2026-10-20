@@ -1,4 +1,4 @@
-import { forwardRef, useId, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react'
+import { forwardRef, type ButtonHTMLAttributes, type CSSProperties, type ReactNode } from 'react'
 import { Plus } from 'lucide-react'
 
 /*
@@ -68,22 +68,22 @@ export function CategoryChip({ color, icon, line = false, children }: { color: s
 /**
  * The row's assign control, one button whichever way it looks, so focus stays on it when a save
  * turns "+ Assign" into the category chip: `color` set, the category chip (Reassign); unset, the
- * dashed gold "+ Assign". The page names it ("Reassign Lidl"); the category it shows is its
- * accessible description, so a screen reader still hears the row's category. A disabled chip fades
+ * dashed gold "+ Assign". The page names it ("Reassign Lidl"); a chip's name goes on to the category
+ * it shows ("Reassign Lidl: Groceries"), so the visible words are in the spoken name (WCAG 2.5.3)
+ * and a screen reader still hears the row's category. A disabled chip fades
  * to 60%; `fade={false}` (opt-in, the Import review's unticked row, restyle PR 14) keeps its colour,
  * so a line already drawn in the muted colour stays readable.
  */
 export const AssignChip = forwardRef<
   HTMLButtonElement,
   ButtonHTMLAttributes<HTMLButtonElement> & { color?: string; icon?: ReactNode; line?: boolean; label: ReactNode; fade?: boolean }
->(function AssignChip({ color, icon, line = false, label, className = '', fade = true, ...rest }, ref) {
-  const labelId = useId()
+>(function AssignChip({ color, icon, line = false, label, className = '', fade = true, 'aria-label': name, ...rest }, ref) {
   return (
     <button
       ref={ref}
       type="button"
       data-assign-chip=""
-      aria-describedby={color ? labelId : undefined}
+      aria-label={color ? undefined : name}
       className={`${HIT} ${
         color
           ? line
@@ -97,9 +97,12 @@ export const AssignChip = forwardRef<
       {color ? (
         <>
           <Lead color={color} icon={icon} />
-          <span id={labelId} className="truncate">
-            {label}
-          </span>
+          {name && (
+            <>
+              <span className="sr-only">{name}:</span>{' '}
+            </>
+          )}
+          <span className="truncate">{label}</span>
         </>
       ) : (
         <>

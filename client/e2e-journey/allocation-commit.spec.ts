@@ -391,7 +391,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await startBlankBudget(page)
   // The jar line is the FundJars input the engine reads (planned 500.00).
   await expect(page.getByRole('textbox', { name: 'Rename Holiday', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toContainText('500.00')
+  await expect(page.getByRole('button', { name: /^Planned amount for Holiday:/ })).toContainText('500.00')
   // Envelopes: one expense line planned 2,000.00.
   await addExpenseGroup(page, 'Essentials')
   await addLine(page, 'Essentials', 'Rent')

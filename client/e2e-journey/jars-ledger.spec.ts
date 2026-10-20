@@ -80,7 +80,7 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   const moved = page.waitForResponse(
     (r) => r.request().method() === 'POST' && r.url().endsWith('/api/jars/reallocations') && r.ok(),
   )
-  await move.getByRole('button', { name: 'Confirm move' }).click()
+  await move.getByRole('button', { name: 'Move money' }).click()
   await moved
   await expect(move).toBeHidden()
   await expect(jarCard(page, 'Holiday')).toContainText('350.00')
@@ -91,15 +91,15 @@ test('a jar divides its account, a payment on its line draws from it, Move money
   const over = page.getByRole('dialog')
   await expect(over.getByLabel('Move from')).toHaveValue(/.+/)
   await over.getByLabel('Move amount').fill('500')
-  await over.getByRole('button', { name: 'Confirm move' }).click()
+  await over.getByRole('button', { name: 'Move money' }).click()
   await expect(over.getByRole('alert')).toBeVisible()
   await over.getByRole('button', { name: 'Cancel move' }).click()
 
   // --- Rule 26: archiving is refused while the jar holds money ---
   await jarAction(page, 'Holiday', 'Edit')
   const edit = page.getByRole('dialog')
-  await edit.getByRole('button', { name: 'Archive Holiday' }).click()
-  await edit.getByRole('button', { name: 'Confirm archive Holiday' }).click()
+  await edit.getByRole('button', { name: 'Archive jar' }).click()
+  await edit.getByRole('button', { name: 'Really archive?' }).click()
   await expect(edit.getByRole('alert')).toContainText(/still holds 350/)
   await edit.getByRole('button', { name: 'Cancel edit' }).click()
   await expect(page.getByRole('heading', { name: 'Holiday', exact: true })).toBeVisible()

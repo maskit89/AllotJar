@@ -60,12 +60,12 @@ async function addLine(page: Page, group: string, name: string) {
 
 /** Set a line's planned amount through the click-to-edit control (whole units only). */
 async function setPlanned(page: Page, line: string, value: string) {
-  await page.getByRole('button', { name: `Planned amount for ${line}`, exact: true }).click()
+  await page.getByRole('button', { name: new RegExp(`^Planned amount for ${line}: `) }).click()
   const input = page.getByRole('textbox', { name: `Planned amount for ${line}`, exact: true })
   await input.fill(value)
   await input.press('Enter')
   await expect(
-    page.getByRole('button', { name: `Planned amount for ${line}`, exact: true }),
+    page.getByRole('button', { name: new RegExp(`^Planned amount for ${line}: `) }),
   ).toContainText(`${value}.00`)
 }
 

@@ -757,7 +757,7 @@ export function AllocationPage() {
           hint={`${money(unattributedMinor)} of ${monthName}’s income isn’t assigned to a person, so it’s treated as shared equally. Assign income lines on the Dashboard for an accurate split.`}
           hintLabel="About unassigned income"
           action={
-            <StripAction label="Assign on the Dashboard" ariaLabel="Assign income lines on the Dashboard" onClick={() => navigate('/')} />
+            <StripAction label="Assign on the Dashboard" ariaLabel="Assign on the Dashboard: income lines" onClick={() => navigate('/')} />
           }
         >
           {money(unattributedMinor)} of income isn’t assigned to a person
@@ -1302,7 +1302,7 @@ export function AllocationPage() {
                 <Button
                   onClick={saveProfile}
                   disabled={busy}
-                  aria-label="Save allocation settings"
+                  aria-label={profile ? 'Save allocation settings' : undefined}
                   className={`${PRIMARY_BUTTON} h-10! min-w-[104px] px-[18px]! max-[699.98px]:h-11! max-[699.98px]:flex-1`}
                 >
                   {profile ? 'Save' : 'Set up'}

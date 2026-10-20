@@ -179,7 +179,7 @@ describe('ImportPage (catalog supplemental)', () => {
     await screen.findByText('E-BANKING PAYMENT')
 
     // Mark it a transfer → the Transfer dialog (the account select + Undo); the category chip is gone.
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     expect(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /^(Assign|Reassign) E-BANKING PAYMENT on 2026-06-16$/ })).not.toBeInTheDocument()
     expect(screen.queryByText('Looks like a transfer')).not.toBeInTheDocument()
@@ -196,7 +196,7 @@ describe('ImportPage (catalog supplemental)', () => {
     expect((await rowItems(user, 'E-BANKING PAYMENT on 2026-06-16')).map((i) => i.name)).toContain('Mark as transfer')
 
     // Marked again, the row's ⋯ offers Edit transfer and Undo transfer instead; Undo from there too.
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await user.click(screen.getByRole('button', { name: 'Done' }))
     expect((await rowItems(user, 'E-BANKING PAYMENT on 2026-06-16')).map((i) => i.name)).toEqual(['Edit transfer', 'Undo transfer'])
     await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Undo transfer for E-BANKING PAYMENT on 2026-06-16')

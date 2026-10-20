@@ -1825,7 +1825,7 @@ export function TransactionsPage() {
           ) : null
         })()}
         <div className="flex flex-wrap items-center gap-1.5">
-          <Button size="sm" variant="secondary" onClick={addSplitRow} aria-label="Add split line" className={EDITOR_BUTTON}>
+          <Button size="sm" variant="secondary" onClick={addSplitRow} className={EDITOR_BUTTON}>
             <Plus aria-hidden className="size-3.5" /> Add line
           </Button>
           {t.isSplit && (
@@ -2176,7 +2176,6 @@ export function TransactionsPage() {
                   <button
                     type="button"
                     onClick={addAddRow}
-                    aria-label="Add split line"
                     className="rounded-md border border-slate-300 px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-surface"
                   >
                     + Add line

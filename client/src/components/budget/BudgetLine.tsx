@@ -682,11 +682,11 @@ export function BudgetLine({
       <button
         type="button"
         data-planned-button=""
-        aria-label={`Planned amount for ${item.name}`}
         onClick={() => openPlanned('planned')}
         className="-mr-1.5 rounded-md px-1.5 py-0.5 text-sm font-semibold text-slate-900 tabular-nums transition hover:bg-surface-2 dark:hover:bg-foreground/7"
       >
-        {money(item.plannedMinor)}
+        {/* "Planned amount for Rent: €1,100.00", the amount shown inside the spoken name. */}
+        <span className="sr-only">Planned amount for {item.name}:</span> {money(item.plannedMinor)}
       </button>
     )
   } else {
