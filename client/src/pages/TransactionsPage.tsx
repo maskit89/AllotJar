@@ -1877,7 +1877,7 @@ export function TransactionsPage() {
   }
 
   return (
-    <AppShell list active="transactions" title="Transactions" month actions={desktop ? addButton || undefined : undefined}>
+    <AppShell active="transactions" title="Transactions" month actions={desktop ? addButton || undefined : undefined}>
       <KpiRow tiles={1}>
         <KpiTile
           hero

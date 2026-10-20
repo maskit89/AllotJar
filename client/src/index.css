@@ -189,16 +189,6 @@
    columns as it widens. */
 :root {
   --content-max: clamp(1240px, calc(100vw - var(--sidebar-w, 0px) - 160px), 3440px);
-  --list-max: 1440px;
-}
-/* A page that is one long list or form (AppShell `list`: Transactions, an account's page, People,
-   Allocation, Import, Help, Account settings) keeps its content, and its top bar's, to 1440px from
-   the column's left edge: wider, a row's amount sits too far from its name. The right gutter takes
-   the rest of the column (the column's width is min(--content-max, 100%) of the room). */
-@media (min-width: 900px) {
-  .list-column {
-    padding-right: max(40px, calc(min(var(--content-max), 100%) - 40px - var(--list-max)));
-  }
 }
 
 /* Enables `dark:` utilities to key off a `.dark` class on <html>. */

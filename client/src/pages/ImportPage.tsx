@@ -2255,7 +2255,7 @@ export function ImportPage() {
   const FileIcon = format === 'camt' ? FileCode : FileSpreadsheet
 
   return (
-    <AppShell list active="import" title="Import transactions" actions={desktop ? importButton : undefined}>
+    <AppShell active="import" title="Import transactions" actions={desktop ? importButton : undefined}>
       {error && (
         <div ref={errorRef}>
           <ErrorBanner>{error}</ErrorBanner>
