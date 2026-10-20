@@ -57,6 +57,8 @@ describe('PrivacyPage', () => {
     expect(screen.getByRole('heading', { name: /how long we keep it/i })).toBeInTheDocument()
     expect(screen.getByText(/14 days/)).toBeInTheDocument()
     expect(screen.getByText(/fonts are served from our own server/i)).toBeInTheDocument()
+    // Any login, including one an owner gives a household person, is for 16 and over (review P2-1).
+    expect(screen.getByText(/anyone you give one must be 16 or over/)).toBeInTheDocument()
   })
 
   // The constants only the operator can confirm start as [TO CONFIRM: ...]; none may ship.

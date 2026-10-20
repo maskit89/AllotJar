@@ -4,18 +4,32 @@ import { LegalLayout } from './LegalLayout'
  * Public privacy policy (/privacy), rewritten 20 Oct 2026 (compliance fix 6) to describe what the
  * app actually does: statement imports and bank details, Google sign-in, the email provider,
  * encrypted off-site backups and when they expire, self-hosted fonts, where the server is and the
- * transfer safeguard, real retention periods, "Download my data" and "Delete my account".
+ * transfer safeguard, real retention periods, "Download my data" and "Delete account".
  *
  * Before charging, a Maltese data-protection lawyer checks this text (compliance review, "Where a
  * lawyer is needed"). That note stays here, never on the public page.
  *
- * The constants below are the facts only the operator can confirm on the server. A value in
- * [brackets] is a placeholder: none may reach production.
+ * The constants below are facts the operator confirms on the server or in a provider's dashboard.
+ * A value in [brackets] is a placeholder, and a test fails while any is left, so none can reach
+ * production. Emails go through Cloudflare (Email:Provider on both stacks, checked 4 Oct 2026).
  */
+// The VPS data centre (InterServer control panel).
 const SERVER_LOCATION = '[TO CONFIRM: the VPS data centre]'
-const EMAIL_PROVIDER = '[TO CONFIRM: Cloudflare or Resend]'
-// The R2 lifecycle rule for encrypted backups (#368).
-const OFFSITE_BACKUP_DAYS = 35
+// The R2 bucket's location (Cloudflare dashboard, bucket allotjar, Settings).
+const BACKUP_LOCATION = '[TO CONFIRM: the R2 bucket location]'
+// #368's R2 lifecycle rule for db-backups-enc/; true only once it is set.
+const OFFSITE_BACKUP_DAYS = '[TO CONFIRM: 35, once the R2 expiry rule is set]'
+// IIS logs and error-alert emails; true only once the log clean-up task runs.
+const LOG_RETENTION = '[TO CONFIRM: up to 90 days, once the log clean-up runs]'
+// Google Analytics admin > Data settings > Data retention.
+const ANALYTICS_RETENTION = '[TO CONFIRM: 2 or 14 months]'
+// The mailbox ErrorAlerts:Recipient points at: its provider receives user emails in error reports.
+const ALERT_MAILBOX = '[TO CONFIRM: the error-alert mailbox provider]'
+// True only once each provider's data processing terms are accepted and filed.
+const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement]'
+// The safeguard for the US transfer: the EU-US Data Privacy Framework if InterServer is
+// certified, otherwise Standard Contractual Clauses signed with it.
+const TRANSFER_SAFEGUARD = '[TO CONFIRM: the Data Privacy Framework or Standard Contractual Clauses]'
 
 export function PrivacyPage() {
   return (
@@ -51,7 +65,8 @@ export function PrivacyPage() {
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
           transactions and match them to an account by its IBAN or account number. The file itself
-          is read in memory and never saved; only the transactions you import are kept.
+          is only read while it uploads and is never kept; only the transactions you import are
+          kept.
         </li>
         <li>
           <strong>People in your household</strong>: names, incomes and pocket money of the people
@@ -98,21 +113,24 @@ export function PrivacyPage() {
         When you add a partner, child or anyone else to your household, you give us data about them:
         their name, income or pocket money. We hold it on your behalf so you can budget as a
         household, on the basis of your legitimate interest in managing your family’s money. Please
-        only add what you need and let them know. Children appear in AllotJar only as household
-        members a parent adds; they never get an account of their own.
+        only add what you need and let them know. You can also give a person in your household
+        their own login: anyone you give one must be 16 or over, so younger children should only
+        appear as people in your budget.
       </p>
 
       <h2>Cookies and analytics</h2>
       <p>
         One <strong>strictly necessary cookie</strong> keeps you signed in. It is HTTP-only, cannot
         be read by scripts, and cannot be switched off without signing you out. Your theme, display
-        settings and analytics choice are remembered in your browser’s own storage.
+        settings, onboarding progress and analytics choice are remembered in your browser’s own
+        storage.
       </p>
       <p>
         <strong>Google Analytics 4</strong> runs only after you accept it. Until then it is denied by
         default (Google Consent Mode v2) and nothing is sent to Google. Advertising features are off,
-        IDs are removed from page addresses and your user ID is hashed before it is sent. You can
-        change your choice at any time in Help.
+        IDs are removed from page addresses and your user ID is hashed before it is sent. Once you
+        accept, Google sets its <code>_ga</code> and <code>_ga_…</code> cookies, which last up to 2
+        years. You can change your choice at any time in Help.
       </p>
       <p>
         Our fonts are served from our own server, so opening AllotJar sends nothing to Google. The
@@ -122,8 +140,8 @@ export function PrivacyPage() {
 
       <h2>Who else handles it</h2>
       <p>
-        We never sell your data. We use these providers (“processors”), each under a data processing
-        agreement, only to run AllotJar:
+        We never sell your data. We use these providers (“processors”) only to run AllotJar,{' '}
+        {PROCESSOR_TERMS}:
       </p>
       <ul>
         <li>
@@ -131,11 +149,11 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Cloudflare</strong> carries all traffic to the site (encryption, caching and
-          protection against attacks) and stores our encrypted backups.
+          protection against attacks), stores our encrypted backups in {BACKUP_LOCATION}, and sends
+          our emails, so it sees your email address and the message.
         </li>
         <li>
-          <strong>{EMAIL_PROVIDER}</strong> sends our emails, so it sees your email address and the
-          message.
+          <strong>{ALERT_MAILBOX}</strong> hosts the mailbox our error reports go to.
         </li>
         <li>
           <strong>Google</strong> confirms who you are if you choose to sign in with Google, and runs
@@ -149,11 +167,11 @@ export function PrivacyPage() {
 
       <h2>Where your data is</h2>
       <p>
-        Our server is in {SERVER_LOCATION}. Where a provider handles data outside the European
-        Economic Area, the transfer is protected by the EU-US Data Privacy Framework where the
-        provider is certified under it, and otherwise by the EU Standard Contractual Clauses. Ask us
-        at <a href="mailto:privacy@allotjar.com">privacy@allotjar.com</a> for a copy of the
-        safeguard that applies.
+        Our server is in {SERVER_LOCATION}, and our encrypted backups are in {BACKUP_LOCATION}. Where
+        data is handled outside the European Economic Area, the transfer is protected by{' '}
+        {TRANSFER_SAFEGUARD}. Ask us at{' '}
+        <a href="mailto:privacy@allotjar.com">privacy@allotjar.com</a> for a copy of the safeguard
+        that applies.
       </p>
 
       <h2>How long we keep it</h2>
@@ -162,7 +180,8 @@ export function PrivacyPage() {
           <strong>Your account and budget</strong>: until you delete your account. Deleting it at
           once removes your sign-in, your own budget with everything in it, and your private
           accounts in households you joined. In a household you joined, what the others could
-          already see stays, so their figures don’t change.
+          already see stays, including you as a person in their budget, so their figures don’t
+          change.
         </li>
         <li>
           <strong>Backups</strong>: a nightly copy of the database is kept on the server for 14 days,
@@ -177,7 +196,10 @@ export function PrivacyPage() {
           <strong>Invitations</strong>: an invitation link works for 7 days.
         </li>
         <li>
-          <strong>Server logs and error reports</strong>: up to 90 days.
+          <strong>Server logs and error reports</strong>: {LOG_RETENTION}.
+        </li>
+        <li>
+          <strong>Analytics</strong>: Google keeps it for {ANALYTICS_RETENTION}.
         </li>
         <li>
           <strong>Statement files</strong>: never stored.
@@ -216,8 +238,8 @@ export function PrivacyPage() {
 
       <h2>Children</h2>
       <p>
-        AllotJar accounts are for people aged 16 and over, and we do not knowingly let anyone younger
-        sign up.
+        AllotJar logins, including ones an owner gives to people in their household, are only for
+        people aged 16 and over, and we do not knowingly let anyone younger use one.
       </p>
 
       <h2>Changes to this policy</h2>
