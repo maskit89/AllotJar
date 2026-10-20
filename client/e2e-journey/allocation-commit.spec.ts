@@ -801,5 +801,5 @@ test('the first-run Set up allocation modal opens from the no-profile empty stat
   await expect(page.getByText('No allocation set up yet')).toBeVisible()
   await page.getByRole('button', { name: 'Set up allocation', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Set up allocation' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Save allocation settings', exact: true })).toHaveText('Set up')
+  await expect(page.getByRole('button', { name: 'Set up', exact: true })).toBeVisible()
 })

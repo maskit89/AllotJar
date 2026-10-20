@@ -323,9 +323,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // drop its line.
   await page.getByRole('link', { name: 'Jars' }).click()
   await jarAction(page, 'Old Boiler', 'Edit')
-  await page.getByRole('button', { name: 'Archive Old Boiler' }).click()
+  await page.getByRole('button', { name: 'Archive jar' }).click()
   await committed(page, 'PUT', '/archive', () =>
-    page.getByRole('button', { name: 'Archive jar' }).click(),
+    page.getByRole('button', { name: 'Really archive?' }).click(),
   )
   await expect(page.getByRole('heading', { name: 'Old Boiler' })).toHaveCount(0)
 

@@ -210,7 +210,7 @@ test('a re-scan carries per-row work forward for unchanged rows, and the commit 
   expect(groceriesId).toMatch(/.+/)
   await category.selectOption({ label: 'Groceries' })
   await expect(category).toHaveCount(0)
-  await expect(categoryChip(page, bakery)).toHaveText('Groceries')
+  await expect(categoryChip(page, bakery)).toHaveText(`Reassign ${bakery}: Groceries`)
   await page.getByLabel('Include NIGHT MARKET on 2026-06-11').uncheck()
 
   // --- IMP-064: editing the Number format (under the Columns dialog's More options; a control
@@ -226,7 +226,7 @@ test('a re-scan carries per-row work forward for unchanged rows, and the commit 
   // unchanged references, so the category choice AND the untick carry forward.
   await columns.getByRole('button', { name: 'Apply changes & re-scan' }).click()
   await expect(columns).toBeHidden()
-  await expect(categoryChip(page, bakery)).toHaveText('Groceries')
+  await expect(categoryChip(page, bakery)).toHaveText(`Reassign ${bakery}: Groceries`)
   await categoryChip(page, bakery).click()
   await expect(category).toHaveValue(groceriesId!)
   await page.keyboard.press('Escape') // leaves the pick as it is
