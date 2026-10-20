@@ -134,17 +134,16 @@ export function RemoveJarLineModal({ item, month, currency, onClose, onSkipped, 
               variant="ghost"
               onClick={() => switchTo('skip')}
               disabled={saving !== null}
-              aria-label={`Skip ${item.name} this month instead`}
               className={DIALOG_QUIET}
             >
               Skip this month instead
             </Button>
           ) : item.savingsId ? (
-            <Button variant="ghost" onClick={() => switchTo('archive')} disabled={saving !== null} aria-label={`Archive ${item.name}`} className={DIALOG_QUIET}>
+            <Button variant="ghost" onClick={() => switchTo('archive')} disabled={saving !== null} className={DIALOG_QUIET}>
               Archive jar
             </Button>
           ) : null}
-          <Button variant="ghost" onClick={onClose} aria-label={archiving ? `Keep ${item.name}` : `Keep ${item.name} this month`} className={DIALOG_CANCEL}>
+          <Button variant="ghost" onClick={onClose} className={DIALOG_CANCEL}>
             Cancel
           </Button>
           {archiving ? (
@@ -154,7 +153,6 @@ export function RemoveJarLineModal({ item, month, currency, onClose, onSkipped, 
               type="button"
               onClick={archive}
               aria-disabled={saving !== null || undefined}
-              aria-label={`Confirm archive ${item.name}`}
               className={DIALOG_BAD}
             >
               {saving === 'archive' ? 'Archiving…' : 'Archive jar'}
@@ -165,7 +163,6 @@ export function RemoveJarLineModal({ item, month, currency, onClose, onSkipped, 
               onClick={skip}
               disabled={previewError !== null}
               aria-disabled={saving !== null || undefined}
-              aria-label={`Skip ${item.name} this month`}
               className={DIALOG_PRIMARY}
             >
               {saving === 'skip' ? 'Saving…' : 'Skip this month'}

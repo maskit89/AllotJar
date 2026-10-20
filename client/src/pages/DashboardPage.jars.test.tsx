@@ -209,7 +209,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await waitFor(() => expect(jarReads().length).toBe(1))
 
     // The jar's line: the shelf's "+€/mo" is this figure (rule 14), so it is re-read.
-    await user.click(screen.getByLabelText('Planned amount for Holiday'))
+    await user.click(screen.getByRole('button', { name: /^Planned amount for Holiday:/ }))
     const holiday = (await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement
     await user.clear(holiday)
     await user.type(holiday, '200')
@@ -218,7 +218,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     await waitFor(() => expect(jarReads().length).toBe(2))
 
     // An expense line moves no jar figure: no re-read.
-    await user.click(screen.getByLabelText('Planned amount for Rent'))
+    await user.click(screen.getByRole('button', { name: /^Planned amount for Rent:/ }))
     const rent = (await screen.findByLabelText('Planned amount for Rent')) as HTMLInputElement
     await user.clear(rent)
     await user.type(rent, '1200')
@@ -257,7 +257,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     slow = true
     await act(async () => { screen.getByText('go-current').click() })
     // The current month's grid: Holiday's plan is €150.00 there (€100.00 on the previous month).
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveTextContent('€150.00'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveTextContent('€150.00'))
     expect(screen.queryByText('€300.00 saved')).toBeNull()
     expect(screen.queryByRole('heading', { name: 'Jars' })).toBeNull()
 
@@ -283,7 +283,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     slow = true
     await act(async () => { screen.getByText('go-current').click() })
     // The current month's grid: Holiday's plan is €150.00 there (€100.00 on the previous month).
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveTextContent('€150.00'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveTextContent('€150.00'))
     expect(screen.queryByRole('heading', { name: 'Jars' })).toBeNull()
     expect(screen.queryByText('Set up your budget')).toBeNull()
 
@@ -302,7 +302,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     renderWithNav()
     expect(await screen.findByText('€450.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('Planned amount for Holiday'))
+    await user.click(screen.getByRole('button', { name: /^Planned amount for Holiday:/ }))
     const holiday = (await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement
     await user.clear(holiday)
     await user.type(holiday, '200')
@@ -362,7 +362,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     expect(await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('Planned amount for Holiday'))
+    await user.click(screen.getByRole('button', { name: /^Planned amount for Holiday:/ }))
     const holiday = (await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement
     await user.clear(holiday)
     await user.type(holiday, '200')
@@ -448,7 +448,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     mockLoads(m, [jar({ plannedThisMonth: 125, contributedThisMonth: 50, remainingThisMonth: 75 })])
     renderPage()
 
-    const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
+    const planned = await screen.findByRole('button', { name: /^Planned amount for Holiday:/ }, { timeout: 5000 })
     const line = lineOf(planned)
     expect(line.textContent).toContain('€50.00 in of €125.00')
     expect(line.textContent).toContain('€75.00 to go')
@@ -466,10 +466,10 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     mockLoads(m, [jar({ plannedThisMonth: 125, contributedThisMonth: 50, remainingThisMonth: 75 })])
     renderPage()
 
-    const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
+    const planned = await screen.findByRole('button', { name: /^Planned amount for Holiday:/ }, { timeout: 5000 })
     expect(lineOf(planned).textContent).toContain('€50.00 in of €125.00')
     // Car's jar is not in the read: its line shows only its plan, nothing in or to go.
-    const car = lineOf(await screen.findByLabelText('Planned amount for Car'))
+    const car = lineOf(await screen.findByRole('button', { name: /^Planned amount for Car:/ }))
     expect(car.textContent).toContain('€75.00')
     expect(car.textContent).not.toContain('to go')
     expect(car.textContent).not.toContain('in of')
@@ -487,7 +487,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     })
     renderPage()
 
-    const planned = await screen.findByLabelText('Planned amount for Holiday', {}, { timeout: 5000 })
+    const planned = await screen.findByRole('button', { name: /^Planned amount for Holiday:/ }, { timeout: 5000 })
     expect(lineOf(planned).textContent).toContain('€125.00')
     expect(lineOf(planned).textContent).not.toContain('to go')
     expect(lineOf(planned).textContent).not.toContain('in of')
@@ -501,7 +501,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
 
     renderPage()
     await screen.findByRole('heading', { name: 'Jars' }, { timeout: 5000 })
-    await user.click(screen.getByLabelText('Planned amount for Holiday'))
+    await user.click(screen.getByRole('button', { name: /^Planned amount for Holiday:/ }))
     const holiday = (await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement
     await user.clear(holiday)
     await user.type(holiday, '200')
@@ -509,6 +509,6 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
 
     expect(await screen.findByText(reason)).toBeInTheDocument()
     expect(screen.queryByText(/Could not save that change/)).not.toBeInTheDocument()
-    expect(((await screen.findByLabelText('Planned amount for Holiday')) as HTMLInputElement).value).not.toContain('200')
+    expect(await screen.findByRole('button', { name: /^Planned amount for Holiday:/ })).not.toHaveTextContent('200')
   })
 })

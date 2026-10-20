@@ -377,7 +377,7 @@ export function MoveMoneyModal({ jar, fromPage = false, currency, accounts = [],
             <Button variant="ghost" onClick={onClose} aria-label="Cancel move">
               Cancel
             </Button>
-            <Button onClick={submit} disabled={saving} aria-label="Confirm move">
+            <Button onClick={submit} disabled={saving}>
               {crossAccount ? 'Record transfer' : 'Move money'}
             </Button>
           </div>

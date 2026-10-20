@@ -163,7 +163,7 @@ describe('JarsPage — the jar ⋯ menu, its phone sheet and the page actions', 
 
     await jarAction(user, 'Holiday', 'Archive')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    const confirm = dialog.getByRole('button', { name: 'Confirm archive Holiday' })
+    const confirm = dialog.getByRole('button', { name: 'Really archive?' })
     await waitFor(() => expect(confirm).toHaveFocus())
     expect(mockPut).not.toHaveBeenCalled()
     await user.keyboard('{Enter}')
@@ -181,19 +181,19 @@ describe('JarsPage — the jar ⋯ menu, its phone sheet and the page actions', 
 
     // The middle card: the card that takes its place gets the focus, not the page.
     await jarAction(user, 'Holiday', 'Archive')
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: 'Confirm archive Holiday' }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: 'Really archive?' }))
     await waitFor(() => expect(screen.queryByRole('article', { name: 'Holiday' })).not.toBeInTheDocument(), { timeout: 5000 })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sofa: more actions' })).toHaveFocus())
 
     // The last card (deleted): the one before it.
     await jarAction(user, 'Sofa', 'Delete')
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: 'Confirm delete Sofa' }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: 'Really delete?' }))
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/jars/g2'))
     await waitFor(() => expect(screen.getByRole('button', { name: 'Home insurance: more actions' })).toHaveFocus(), { timeout: 5000 })
 
     // The only card: the empty page's New jar.
     await jarAction(user, 'Home insurance', 'Archive')
-    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: 'Confirm archive Home insurance' }))
+    await user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: 'Really archive?' }))
     await waitFor(() => expect(screen.getByRole('button', { name: 'New jar' })).toHaveFocus(), { timeout: 5000 })
     expect(screen.getByText('No jars yet')).toBeInTheDocument()
   })
@@ -205,9 +205,9 @@ describe('JarsPage — the jar ⋯ menu, its phone sheet and the page actions', 
 
     await jarAction(user, 'Holiday', 'Delete')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await waitFor(() => expect(dialog.getByRole('button', { name: 'Confirm delete Holiday' })).toHaveFocus())
+    await waitFor(() => expect(dialog.getByRole('button', { name: 'Really delete?' })).toHaveFocus())
     // The other ending is still on offer, unarmed.
-    expect(dialog.getByRole('button', { name: 'Archive Holiday' })).toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Archive jar' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Holiday: more actions' })).toHaveFocus())
@@ -215,9 +215,9 @@ describe('JarsPage — the jar ⋯ menu, its phone sheet and the page actions', 
     // Edit opens the same form with neither ending asked.
     await jarAction(user, 'Holiday', 'Edit')
     const edit = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    expect(edit.getByRole('button', { name: 'Delete Holiday' })).toBeInTheDocument()
-    expect(edit.queryByRole('button', { name: 'Confirm delete Holiday' })).not.toBeInTheDocument()
-    expect(edit.queryByRole('button', { name: 'Confirm archive Holiday' })).not.toBeInTheDocument()
+    expect(edit.getByRole('button', { name: 'Delete jar' })).toBeInTheDocument()
+    expect(edit.queryByRole('button', { name: 'Really delete?' })).not.toBeInTheDocument()
+    expect(edit.queryByRole('button', { name: 'Really archive?' })).not.toBeInTheDocument()
   })
 
   it('on a phone, the ⋯ opens a sheet titled with the jar\'s name, its note under the title; a pick gives focus back to the ⋯', { timeout: 15000 }, async () => {

@@ -190,7 +190,7 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     await goToReview(user)
 
     expect(await openJars(user, 'Include SALARY on 2026-06-01')).toBeInTheDocument()
-    await rowAction(user, 'SALARY on 2026-06-01', 'Mark SALARY on 2026-06-01 as a transfer')
+    await rowAction(user, 'SALARY on 2026-06-01', 'Mark as transfer: SALARY on 2026-06-01')
     await chooseMatch(user, 'SALARY on 2026-06-01', /Returned: transfer to Joint Savings/)
     await done(user)
     expect(screen.queryByRole('group', { name: 'Put into jars in HSBC Current' })).not.toBeInTheDocument()
@@ -231,7 +231,7 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     expect((await rowItems(user, 'AUTOMARKET on 2026-06-17')).filter((i) => i.name === 'From jar…')).toHaveLength(1)
 
     // A debit marked as a transfer to another account asks which jar the money leaves.
-    await rowAction(user, 'WOLT on 2026-06-15', 'Mark WOLT on 2026-06-15 as a transfer')
+    await rowAction(user, 'WOLT on 2026-06-15', 'Mark as transfer: WOLT on 2026-06-15')
     await user.selectOptions(screen.getByLabelText('Transfer account for WOLT on 2026-06-15'), 'acc2')
     await done(user)
     await rowAction(user, 'WOLT on 2026-06-15', 'From jar for WOLT on 2026-06-15')
@@ -251,7 +251,7 @@ describe('ImportPage — jars (rules 78/79) and held rows (rule 74)', () => {
     renderPage()
     await goToReview(user)
 
-    await rowAction(user, 'SALARY on 2026-06-01', 'Mark SALARY on 2026-06-01 as a transfer')
+    await rowAction(user, 'SALARY on 2026-06-01', 'Mark as transfer: SALARY on 2026-06-01')
     await user.selectOptions(screen.getByLabelText('Transfer account for SALARY on 2026-06-01'), 'acc2')
     await done(user)
     const fields = within(await openJars(user, 'Include SALARY on 2026-06-01'))
