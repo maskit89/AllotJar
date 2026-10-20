@@ -1165,7 +1165,7 @@ export function ImportPage() {
         actions.push({
           key: 'transfer',
           label: 'Mark as transfer',
-          ariaLabel: `Mark ${name} as a transfer`,
+          ariaLabel: `Mark as transfer: ${name}`,
           icon: <ArrowLeftRight aria-hidden />,
           disabled: !r.include,
           after: 'dialog',
@@ -1252,10 +1252,11 @@ export function ImportPage() {
         <button
           type="button"
           onClick={() => setTransferFor(r.key)}
-          aria-label={`Edit transfer for ${name}`}
           title={problem}
           className={`group/x relative flex min-w-0 items-center gap-2 rounded-lg after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] ${phone ? 'z-10' : ''}`}
         >
+          {/* "Edit transfer for Lidl: Transfer to Savings", the visible words inside the spoken name. */}
+          <span className="sr-only">Edit transfer for {name}:</span>{' '}
           {/* On a phone the icon alone says "transfer" (the mock-up's row), the chip only on a wide screen. */}
           {!phone && (
             <StatusChip tone={incomplete ? 'bad' : 'line'}>
@@ -1300,10 +1301,10 @@ export function ImportPage() {
         <button
           type="button"
           onClick={() => setSplitOpen(r.key)}
-          aria-label={`Edit split for ${name}`}
           title={`Split: ${slices.join(' · ')}`}
           className={`relative min-w-0 after:absolute after:-inset-x-1 after:-inset-y-2.5 after:content-[''] ${phone ? 'z-10' : ''}`}
         >
+          <span className="sr-only">Edit split for {name}:</span>{' '}
           <StatusChip tone={info.valid ? 'line' : 'bad'} className={GIVES_WAY}>
             <Split aria-hidden strokeWidth={2} />
             <span className="sr-only">Split: </span>

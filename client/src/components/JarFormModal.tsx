@@ -681,7 +681,6 @@ export function JarFormModal({
                   type="button"
                   onClick={() => (confirmArchive ? archive() : setConfirmArchive(true))}
                   disabled={saving}
-                  aria-label={confirmArchive ? `Confirm archive ${jar.name}` : `Archive ${jar.name}`}
                   className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
                     confirmArchive
                       ? 'bg-rose-50 text-rose-600 hover:bg-rose-100'
@@ -698,7 +697,6 @@ export function JarFormModal({
                   type="button"
                   onClick={() => (confirmDelete ? remove() : setConfirmDelete(true))}
                   disabled={saving}
-                  aria-label={confirmDelete ? `Confirm delete ${jar.name}` : `Delete ${jar.name}`}
                   title="This jar has never held money, so it can be deleted with its planned lines."
                   className={`rounded-lg px-2 py-1.5 text-sm font-semibold transition disabled:opacity-50 ${
                     confirmDelete

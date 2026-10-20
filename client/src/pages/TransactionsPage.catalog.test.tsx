@@ -294,7 +294,7 @@ describe('TransactionsPage catalog — register load, hero & list rendering', ()
     await screen.findByText('Assigned', {}, { timeout: 5000 })
 
     // Assigned → a Reassign button carrying the line name.
-    const reassign = screen.getByRole('button', { name: 'Reassign Assigned' })
+    const reassign = screen.getByRole('button', { name: /^Reassign Assigned:/ })
     expect(reassign).toHaveTextContent('Groceries')
     // Split → the Split chip + slice summary.
     expect(within(rowFor('Split one')).getByText('Split')).toBeInTheDocument()
@@ -489,7 +489,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-groceries' }),
     )
-    expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Reassign Tesco:/ }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // #350 P3-1 — the keyboard arrows through the picker (Chrome fires change on a closed select for
@@ -512,7 +512,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     fireEvent.keyDown(select, { key: 'Enter' })
     fireEvent.keyDown(select, { key: 'Enter' })
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-internet' }))
-    expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toHaveTextContent('Internet')
+    expect(await screen.findByRole('button', { name: /^Reassign Tesco:/ }, { timeout: 5000 })).toHaveTextContent('Internet')
     expect(mockPut).toHaveBeenCalledTimes(1)
   })
 
@@ -546,14 +546,14 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Reassign Tesco:/ }, { timeout: 5000 }))
     await user.selectOptions(await screen.findByLabelText('Assign Tesco', {}, { timeout: 5000 }), 'i-internet')
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/transactions/t1/assignment', { budgetItemId: 'i-internet' }),
     )
     // Relabels to the new line and now carries the Bill tag (Internet has a due day).
-    expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toHaveTextContent('Internet')
+    expect(await screen.findByRole('button', { name: /^Reassign Tesco:/ }, { timeout: 5000 })).toHaveTextContent('Internet')
     expect(within(rowFor('Tesco')).getByText('Bill')).toBeInTheDocument()
   })
 
@@ -564,7 +564,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await user.click(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Reassign Tesco:/ }, { timeout: 5000 }))
     const select = await screen.findByLabelText('Assign Tesco', {}, { timeout: 5000 })
     await user.selectOptions(select, within(select).getByRole('option', { name: 'Unassigned' }))
 
@@ -608,7 +608,7 @@ describe('TransactionsPage catalog — inline assign picker', () => {
         acknowledgeCrossMonth: true,
       }),
     )
-    expect(await screen.findByRole('button', { name: 'Reassign Tesco' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Reassign Tesco:/ }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   // Re-review F1 — an EDIT that moves an assigned transaction across months gets the same
@@ -718,7 +718,7 @@ describe('TransactionsPage catalog — split editor', () => {
     // At the 2-row minimum, no remove buttons.
     expect(screen.queryByLabelText('Remove split line 1')).not.toBeInTheDocument()
 
-    await user.click(screen.getByLabelText('Add split line'))
+    await user.click(screen.getByRole('button', { name: 'Add line' }))
     expect(await screen.findByLabelText('Split line 3 category', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByLabelText('Remove split line 1')).toBeInTheDocument()
 
@@ -843,7 +843,7 @@ describe('TransactionsPage catalog — split editor', () => {
     renderPage()
 
     await txAction(user, 'Dinner', 'Split transaction: Dinner')
-    await user.click(screen.getByLabelText('Add split line'))
+    await user.click(screen.getByRole('button', { name: 'Add line' }))
     await user.selectOptions(screen.getByLabelText('Split line 1 category'), 'i-groceries')
     await user.type(screen.getByLabelText('Split line 1 amount'), '3.33')
     await user.selectOptions(screen.getByLabelText('Split line 2 category'), 'i-internet')
@@ -1412,7 +1412,7 @@ describe('TransactionsPage catalog — refunds (rules 38/39, W12)', () => {
     expect(refundItems).not.toContain('Split transaction: Tesco refund')
     expect(await txItems(user, 'Tesco')).toContain('Split transaction: Tesco')
 
-    await user.click(screen.getByRole('button', { name: 'Reassign Tesco refund' }))
+    await user.click(screen.getByRole('button', { name: /^Reassign Tesco refund:/ }))
     const picker = screen.getByLabelText('Assign Tesco refund') as HTMLSelectElement
     const lines = within(picker).getAllByRole('option').map((o) => o.textContent)
     expect(lines).toContain('Groceries')

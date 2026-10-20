@@ -529,7 +529,7 @@ export function AccountsPage() {
       actions.push({
         key: 'share',
         label: 'Share with household',
-        ariaLabel: `Share ${a.name} with the household`,
+        ariaLabel: `Share with household: ${a.name}`,
         icon: <Users aria-hidden />,
         disabled: saving,
         onSelect: () => setSharing(a, false),
@@ -538,7 +538,7 @@ export function AccountsPage() {
       actions.push({
         key: 'private',
         label: 'Make private',
-        ariaLabel: `Make ${a.name} private`,
+        ariaLabel: `Make private: ${a.name}`,
         icon: <Lock aria-hidden />,
         disabled: saving,
         onSelect: () => setSharing(a, true),
@@ -894,7 +894,6 @@ export function AccountsPage() {
                 remove(deleting.id)
               }}
               disabled={savingId === deleting.id}
-              aria-label={`Confirm delete ${deleting.name}`}
             >
               Delete account
             </Button>
@@ -950,7 +949,6 @@ export function AccountsPage() {
                 variant="danger"
                 onClick={() => erase(acct.id, eraseName)}
                 disabled={!matches || erasing}
-                aria-label={`Confirm erase ${acct.name}`}
               >
                 {erasing ? 'Erasing…' : 'Erase for good'}
               </Button>

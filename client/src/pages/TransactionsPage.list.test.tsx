@@ -230,7 +230,7 @@ describe('TransactionsPage list — focus stays in place', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Assign Cafe' })).toHaveFocus())
     await user.click(screen.getByRole('button', { name: 'Assign Cafe' }))
     await user.selectOptions(screen.getByRole('combobox', { name: 'Assign Cafe' }), 'i-groceries')
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Reassign Cafe' })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Reassign Cafe:/ })).toHaveFocus())
 
     // The € amount dialog gives focus back to its chip.
     await user.click(screen.getByRole('button', { name: 'Enter amount in EUR: London Cab' }))
@@ -303,8 +303,8 @@ describe('TransactionsPage list — what a screen reader hears of a row', () => 
     const [first, second] = screen.getAllByRole('button', { name: 'Tesco: more actions' })
     expect(first).toHaveAccessibleDescription('Today −€40.00')
     expect(second).toHaveAccessibleDescription('Yesterday −€12.00')
-    // The chip is named for what it does; the category it shows is its description.
-    expect(screen.getByRole('button', { name: 'Reassign Tesco' })).toHaveAccessibleDescription('Groceries')
+    // The chip is named for what it does, then the category it shows.
+    expect(screen.getByRole('button', { name: /^Reassign Tesco:/ })).toHaveAccessibleName('Reassign Tesco: Groceries')
     expect(screen.getByRole('button', { name: 'Assign Tesco' })).toHaveAccessibleDescription('')
   })
 })

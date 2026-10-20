@@ -102,7 +102,7 @@ test('the account floor refuses an overdraw, income asks for jars, a non-jar lin
   const transferred = page.waitForResponse(
     (r) => r.request().method() === 'POST' && r.url().endsWith('/api/transactions/transfer') && r.ok(),
   )
-  await move.getByRole('button', { name: 'Confirm move' }).click()
+  await move.getByRole('button', { name: 'Record transfer' }).click()
   await transferred
   await expect(move).toBeHidden()
   await expect(jarCard(page, 'Holiday')).toContainText('500.00')

@@ -66,7 +66,7 @@ const createMonthUrl = (u: string) => u.endsWith('/api/budget')
  * editor appearing, which unmounts the editor — reopen once if that race hits.
  */
 async function setPlanned(page: Page, lineName: string, value: string): Promise<void> {
-  const button = page.getByRole('button', { name: `Planned amount for ${lineName}` })
+  const button = page.getByRole('button', { name: new RegExp(`^Planned amount for ${lineName}: `) })
   const input = page.getByRole('textbox', { name: `Planned amount for ${lineName}` })
   await button.click()
   try {
@@ -160,13 +160,13 @@ test('creating from the Essentials template builds its catalogue structure with 
 
   // DASH-009 / BUDG-021: the real /api/budget/templates catalogue renders the three
   // cards; Essentials carries its exact description and groups·lines count.
-  const essentials = page.getByRole('button', { name: 'Start from the Essentials template' })
+  const essentials = page.getByRole('button', { name: /^Start from the template: Essentials/ })
   await expect(essentials).toContainText(
     'A clean starting point covering the bills most households share.',
   )
   await expect(essentials).toContainText('5 groups · 12 lines')
-  await expect(page.getByRole('button', { name: 'Start from the Student template' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Start from the Family template' })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Start from the template: Student/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Start from the template: Family/ })).toBeVisible()
 
   // BUDG-020 / DASH-010: Essentials builds Income / Housing / Food / Transport /
   // Lifestyle with the template's named lines, every planned amount zero. Rule 81:
@@ -196,7 +196,7 @@ test('creating from the Essentials template builds its catalogue structure with 
   await expect(page.getByText('Emergency Fund')).toHaveCount(0)
   const setup = page.getByRole('region', { name: 'Set up your budget' })
   await expect(setup.getByRole('link', { name: 'Go to accounts' })).toBeVisible()
-  await expect(setup.getByRole('button', { name: 'Add a jar from an account' })).toBeDisabled()
+  await expect(setup.getByRole('button', { name: 'Add jar' })).toBeDisabled()
 })
 
 test('a jar-owning household’s blank month is born over-budgeted with an accrual-planned savings line', async ({
@@ -235,15 +235,16 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
   await expect(page.getByRole('heading', { name: 'Income' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Rename group Savings' })).toBeVisible()
   await expect(page.getByRole('textbox', { name: 'Rename Holiday' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€100.00',
+  await expect(page.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveText(
+    'Planned amount for Holiday: €100.00',
   )
 
   // JAR-060 / DASH-027: the current-month shelf (the Jars card) shows the jar with its monthly
   // set-aside (no status chip for a healthy OnTrack jar — chip and +/mo are exclusive). The
-  // line's name is an input's value, so the only text "Holiday" is the jar on the shelf.
+  // line's name is an input's value and its planned amount's screen-reader text only contains it,
+  // so the only text that is exactly "Holiday" is the jar on the shelf.
   await expect(page.getByRole('heading', { name: 'Jars', exact: true })).toBeVisible()
-  await expect(page.getByText('Holiday')).toBeVisible()
+  await expect(page.getByText('Holiday', { exact: true })).toBeVisible()
   await expect(page.getByText('+€100.00/mo')).toBeVisible()
 })
 
@@ -269,11 +270,11 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
     page.getByRole('button', { name: 'Start a blank budget' }).click(),
   )
   // Both jars were appended into the fresh month at their accrual requirements.
-  await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€91.66',
+  await expect(page.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveText(
+    'Planned amount for Holiday: €91.66',
   )
-  await expect(page.getByRole('button', { name: 'Planned amount for Old Boiler' })).toHaveText(
-    '€50.00',
+  await expect(page.getByRole('button', { name: /^Planned amount for Old Boiler:/ })).toHaveText(
+    'Planned amount for Old Boiler: €50.00',
   )
 
   // Income: Salary planned 2,500.00 (the add row reconciles from the POST response). The add
@@ -322,9 +323,9 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // drop its line.
   await page.getByRole('link', { name: 'Jars' }).click()
   await jarAction(page, 'Old Boiler', 'Edit')
-  await page.getByRole('button', { name: 'Archive Old Boiler' }).click()
+  await page.getByRole('button', { name: 'Archive jar' }).click()
   await committed(page, 'PUT', '/archive', () =>
-    page.getByRole('button', { name: 'Confirm archive Old Boiler' }).click(),
+    page.getByRole('button', { name: 'Really archive?' }).click(),
   )
   await expect(page.getByRole('heading', { name: 'Old Boiler' })).toHaveCount(0)
 
@@ -341,13 +342,13 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(
     page.getByRole('textbox', { name: 'Income source name', exact: true }),
   ).toHaveValue('Salary')
-  await expect(page.getByRole('button', { name: 'Planned amount for Salary' })).toHaveText(
-    '€2,500.00',
+  await expect(page.getByRole('button', { name: /^Planned amount for Salary:/ })).toHaveText(
+    'Planned amount for Salary: €2,500.00',
   )
   await expect(page.getByRole('group', { name: 'Income', exact: true })).toContainText('€0.00 received')
   await expect(page.getByRole('textbox', { name: 'Rename group Housing' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Planned amount for Rent' })).toHaveText(
-    '€1,000.00',
+  await expect(page.getByRole('button', { name: /^Planned amount for Rent:/ })).toHaveText(
+    'Planned amount for Rent: €1,000.00',
   )
 
   // BUDG-008: the due day carried (Rent is still a bill) but paid state did NOT —
@@ -362,8 +363,8 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   // this month's saved plan (rule 13 / HANDOVER P27): the 100.00 set aside (the month's
   // opening, SC-P2-1) + 200.00 planned. (1,200 − 300) over the eleven remaining contribution
   // months = 81.81 (rule 35 floors to the cent; the remainder lands in the final month).
-  await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€81.81',
+  await expect(page.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveText(
+    'Planned amount for Holiday: €81.81',
   )
 
   // BUDG-017 / BUDG-032: the archived jar's line was dropped and not re-appended.
@@ -399,8 +400,8 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   ).toHaveValue('Consulting')
   await expect(page.getByRole('textbox', { name: 'Rename group Home' })).toBeVisible()
   await expect(page.getByLabel('Remaining to budget: €2,418.19')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toHaveText(
-    '€81.81',
+  await expect(page.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveText(
+    'Planned amount for Holiday: €81.81',
   )
   await expect(page.getByRole('textbox', { name: 'Rename Rent' })).toHaveCount(0)
   await expect(page.getByRole('group', { name: 'Bills left', exact: true })).toHaveCount(0)
@@ -424,8 +425,8 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // (rule 46); hand-edit this month's line to 300.00.
   await expect(page.getByRole('textbox', { name: 'Rename Emergency Fund' })).toBeVisible()
   await expect(
-    page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
-  ).toHaveText('€250.00')
+    page.getByRole('button', { name: /^Planned amount for Emergency Fund:/ }),
+  ).toHaveText('Planned amount for Emergency Fund: €250.00')
   await setPlanned(page, 'Emergency Fund', '300')
   // Income 3,000 so the copied month has 800.00 left to budget after the 2,200 below.
   await groupAction(page, 'Income', 'Add income source')
@@ -467,8 +468,8 @@ test('month navigation moves every screen together; the jars shelf follows the m
   // BUDG-016: the Emergency Fund pot is re-planned at its fixed 250.00 (rule 16) — the 300.00
   // hand edit is not carried flat. Remaining = 3,000 − (1,950 + 250).
   await expect(
-    page.getByRole('button', { name: 'Planned amount for Emergency Fund' }),
-  ).toHaveText('€250.00')
+    page.getByRole('button', { name: /^Planned amount for Emergency Fund:/ }),
+  ).toHaveText('Planned amount for Emergency Fund: €250.00')
   await expect(page.getByLabel('Remaining to budget: €800.00')).toBeVisible()
 
   // DASH-028 / DASH-074 / JAR-061 (W05, rule 48): a loaded month that has not begun keeps the

@@ -561,7 +561,7 @@ describe('AllocationPage restyle (PR 10)', () => {
     previewData = { ...mkPreview({ members: [alex(), robin()] }), unattributedIncome: 350 }
     renderPage()
     await findSteps('July')
-    const action = within(strip('unattributed')!).getByRole('button', { name: 'Assign income lines on the Dashboard' })
+    const action = within(strip('unattributed')!).getByRole('button', { name: 'Assign on the Dashboard: income lines' })
     expect(action).toHaveTextContent('Assign on the Dashboard')
   })
 
