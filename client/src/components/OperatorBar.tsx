@@ -41,6 +41,7 @@ export function OperatorBar() {
   const touch = useMediaQuery('(hover: none) and (pointer: coarse)')
   const [field, setField] = useState<HTMLInputElement | null>(null)
   const [edge, setEdge] = useState<number | null>(null)
+  const [keyboardUp, setKeyboardUp] = useState(false)
 
   useEffect(() => {
     if (!touch) return
@@ -67,7 +68,13 @@ export function OperatorBar() {
     const place = () => {
       // A field removed while focused (in a browser that sends no focusout for it) takes the bar.
       if (!field.isConnected) setField(null)
-      else setEdge(keyboardTop())
+      else {
+        setEdge(keyboardTop())
+        // The keyboard shrinks the visual viewport: judged by its height, not by the bar's edge,
+        // which reaches the screen's bottom when the page is scrolled to its end with it up.
+        const vv = window.visualViewport
+        setKeyboardUp(!!vv && vv.height < document.documentElement.clientHeight - 1)
+      }
     }
     place()
     const vv = window.visualViewport
@@ -82,7 +89,6 @@ export function OperatorBar() {
   }, [field])
 
   if (!touch || !field || !field.isConnected) return null
-  const keyboardUp = edge !== null && edge < document.documentElement.clientHeight - 1
 
   // Pressing a key must not take focus from the field (which would close the keyboard and commit
   // an inline edit), nor reach a dialog's "pressed outside" check (which would close the dialog).
