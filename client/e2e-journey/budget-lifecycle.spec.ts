@@ -66,7 +66,7 @@ const createMonthUrl = (u: string) => u.endsWith('/api/budget')
  * editor appearing, which unmounts the editor — reopen once if that race hits.
  */
 async function setPlanned(page: Page, lineName: string, value: string): Promise<void> {
-  const button = page.getByRole('button', { name: `Planned amount for ${lineName}` })
+  const button = page.getByRole('button', { name: new RegExp(`^Planned amount for ${lineName}: `) })
   const input = page.getByRole('textbox', { name: `Planned amount for ${lineName}` })
   await button.click()
   try {

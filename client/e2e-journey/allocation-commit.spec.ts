@@ -116,7 +116,7 @@ async function addLine(page: Page, group: string, name: string) {
  * grouped at-rest rendering ("2,000.00") — the raw value has no thousands separator.
  */
 async function setPlanned(page: Page, line: string, value: string, formatted: string) {
-  const button = page.getByRole('button', { name: `Planned amount for ${line}`, exact: true })
+  const button = page.getByRole('button', { name: new RegExp(`^Planned amount for ${line}: `) })
   const input = page.getByRole('textbox', { name: `Planned amount for ${line}`, exact: true })
   await button.click()
   try {

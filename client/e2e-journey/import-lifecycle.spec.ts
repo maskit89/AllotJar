@@ -56,12 +56,12 @@ async function cancelColumns(page: Page): Promise<void> {
 }
 
 /**
- * A row's line is a chip (restyle PR 14): "Assign {row}" while it has none, "Reassign {row}" once
- * it has one, reading the line's name. Clicking it reveals the select "Category for {row}", which
+ * A row's line is a chip (restyle PR 14): "Assign {row}" while it has none, "Reassign {row}: {line}"
+ * once it has one. Clicking it reveals the select "Category for {row}", which
  * closes again on a pick.
  */
 function categoryChip(page: Page, row: string): Locator {
-  return page.getByRole('button', { name: new RegExp(`^(Assign|Reassign) ${row}$`) })
+  return page.getByRole('button', { name: new RegExp(`^(Assign ${row}|Reassign ${row}: .+)$`) })
 }
 
 /**
