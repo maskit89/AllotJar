@@ -24,10 +24,11 @@ const BACKUP_LOCATION = 'Western Europe'
 const OFFSITE_BACKUP_DAYS = 60
 const LOG_RETENTION = 'up to 90 days'
 const ANALYTICS_RETENTION = '2 months'
-// True only once each provider's data processing terms are accepted and filed, InterServer's too.
-// The Gmail alert inbox has none (consumer Gmail), so Google's bullet says so; move the alerts to a
-// mailbox with a DPA before charging.
-const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement except where noted]'
+// Data processing terms, 20 Oct 2026: Cloudflare's DPA is part of its self-serve terms and
+// Google Analytics' data processing terms are accepted. InterServer has no DPA yet (asked for one),
+// so its bullet says it works under its own terms and DPF commitments: change it when the DPA
+// arrives. The Gmail alert inbox has none (consumer Gmail): move the alerts to a mailbox with a DPA
+// before charging, then drop that note.
 // InterServer's privacy policy carries an EU-U.S. DPF statement (effective 1 Jan 2026), as
 // processor too; Cloudflare and Google are certified as well (checked 20 Oct 2026).
 const TRANSFER_SAFEGUARD = 'the EU-US Data Privacy Framework, under which each of these providers is certified'
@@ -141,22 +142,25 @@ export function PrivacyPage() {
 
       <h2>Who else handles it</h2>
       <p>
-        We never sell your data. We use these providers (“processors”) only to run AllotJar,{' '}
-        {PROCESSOR_TERMS}:
+        We never sell your data. We use these providers (“processors”) only to run AllotJar:
       </p>
       <ul>
         <li>
-          <strong>InterServer</strong> hosts our server and its database, in {SERVER_LOCATION}.
+          <strong>InterServer</strong> hosts our server and its database, in {SERVER_LOCATION},
+          under its own terms and its EU-US Data Privacy Framework commitments while we put a data
+          processing agreement in place.
         </li>
         <li>
           <strong>Cloudflare</strong> carries all traffic to the site (encryption, caching and
           protection against attacks), stores our encrypted backups in {BACKUP_LOCATION}, and sends
-          our emails, so it sees your email address and the message.
+          our emails, so it sees your email address and the message. It does this under its data
+          processing agreement.
         </li>
         <li>
           <strong>Google</strong> confirms who you are if you choose to sign in with Google, runs
-          analytics if you accept them, and hosts the Gmail mailbox our error reports go to (under Google’s standard terms, not a
-          data processing agreement).
+          analytics if you accept them (under its data processing terms), and hosts the Gmail
+          mailbox our error reports go to (under Google’s standard terms, not a data processing
+          agreement).
         </li>
       </ul>
       <p>
