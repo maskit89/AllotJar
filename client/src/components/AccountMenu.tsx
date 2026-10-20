@@ -72,8 +72,6 @@ export function AccountMenu({ variant, current = false }: { variant: 'sidebar' |
     <DropdownMenu modal={false}>
       {sidebar ? (
         <DropdownMenuTrigger
-          // One spoken name for the button, the visible name and household included.
-          aria-label={`Account menu: ${[name, householdLabel].filter(Boolean).join(', ')}`}
           // On the Account page the button is where you are: pressed (raised), like the current
           // nav item, and marked as the current page.
           aria-current={current ? 'page' : undefined}
@@ -84,8 +82,17 @@ export function AccountMenu({ variant, current = false }: { variant: 'sidebar' |
           }`}
         >
           <AccountAvatar />
+          {/* One spoken name for the button, "Account menu: name, household": the visible words
+              read inside it (WCAG 2.5.3), the rest is screen-reader text. */}
           <span className="flex min-w-0 flex-1 flex-col">
-            {name && <span className="truncate text-sm font-semibold text-slate-900">{name}</span>}
+            <span className="sr-only">Account menu:</span>{' '}
+            {name && (
+              <span className="truncate text-sm font-semibold text-slate-900">
+                {name}
+                {/* A 0px comma, not sr-only: Chrome reads an absolutely placed span as a block ("Alex , household"). */}
+                {householdLabel && <span className="text-[0px]">,</span>}
+              </span>
+            )}{' '}
             <span className="truncate text-xs">{householdLabel}</span>
           </span>
           <ChevronsUpDown aria-hidden strokeWidth={1.8} className="size-3.5 shrink-0" />

@@ -669,7 +669,7 @@ describe('JarsPage', () => {
     fireEvent.change(dialog.getByLabelText('Move date'), { target: { value: '2026-09-20' } })
     await user.type(dialog.getByLabelText('Move note'), 'Top up')
     fundsData = [jar({ currentBalance: 500 })]
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Move money' }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/jars/reallocations', {
@@ -701,7 +701,7 @@ describe('JarsPage', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await dialog.findByLabelText('Move from', {}, { timeout: 5000 })
     await user.type(dialog.getByLabelText('Move amount'), '150')
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Move money' }))
 
     expect(await dialog.findByText('Home insurance holds 100; it cannot supply 150.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument() // still open for a correction
@@ -719,7 +719,7 @@ describe('JarsPage', () => {
     await dialog.findByLabelText('Move from', {}, { timeout: 5000 })
     await user.selectOptions(dialog.getByLabelText('Move to'), 'f1')
     await user.type(dialog.getByLabelText('Move amount'), '10')
-    await user.click(dialog.getByRole('button', { name: 'Confirm move' }))
+    await user.click(dialog.getByRole('button', { name: 'Move money' }))
 
     expect(await dialog.findByText(/Choose two different places/)).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
@@ -738,9 +738,9 @@ describe('JarsPage', () => {
     await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // Archiving takes two clicks: the first arms the button, the second acts.
-    await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
     expect(mockPut).not.toHaveBeenCalled()
-    await user.click(dialog.getByRole('button', { name: 'Confirm archive Home insurance' }))
+    await user.click(dialog.getByRole('button', { name: 'Really archive?' }))
 
     await waitFor(() =>
       expect(mockPut).toHaveBeenCalledWith('/jars/f1/archive', { archived: true }),
@@ -759,8 +759,8 @@ describe('JarsPage', () => {
 
     await jarAction(user, 'Home insurance', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByRole('button', { name: 'Archive Home insurance' }))
-    await user.click(dialog.getByRole('button', { name: 'Confirm archive Home insurance' }))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
+    await user.click(dialog.getByRole('button', { name: 'Really archive?' }))
 
     expect(await dialog.findByText(/still holds 350/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Home insurance')).toBeInTheDocument() // still listed

@@ -116,7 +116,7 @@ async function addLine(page: Page, group: string, name: string) {
  * grouped at-rest rendering ("2,000.00") — the raw value has no thousands separator.
  */
 async function setPlanned(page: Page, line: string, value: string, formatted: string) {
-  const button = page.getByRole('button', { name: `Planned amount for ${line}`, exact: true })
+  const button = page.getByRole('button', { name: new RegExp(`^Planned amount for ${line}: `) })
   const input = page.getByRole('textbox', { name: `Planned amount for ${line}`, exact: true })
   await button.click()
   try {
@@ -391,7 +391,7 @@ test('a two-member household walks the waterfall: solo gate, no-source guard, re
   await startBlankBudget(page)
   // The jar line is the FundJars input the engine reads (planned 500.00).
   await expect(page.getByRole('textbox', { name: 'Rename Holiday', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Planned amount for Holiday' })).toContainText('500.00')
+  await expect(page.getByRole('button', { name: /^Planned amount for Holiday:/ })).toContainText('500.00')
   // Envelopes: one expense line planned 2,000.00.
   await addExpenseGroup(page, 'Essentials')
   await addLine(page, 'Essentials', 'Rent')
@@ -801,5 +801,5 @@ test('the first-run Set up allocation modal opens from the no-profile empty stat
   await expect(page.getByText('No allocation set up yet')).toBeVisible()
   await page.getByRole('button', { name: 'Set up allocation', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Set up allocation' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Save allocation settings', exact: true })).toHaveText('Set up')
+  await expect(page.getByRole('button', { name: 'Set up', exact: true })).toBeVisible()
 })

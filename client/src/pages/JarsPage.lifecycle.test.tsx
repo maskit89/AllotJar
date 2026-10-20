@@ -96,14 +96,14 @@ describe('JarsPage — completion and deletion (W04)', () => {
     // What the user is told: what the jar holds, the money stays, the plan stops from this month on.
     expect(hint.getByText(/holds €400\.00 of its €1,000\.00 target, €600\.00 short/)).toBeInTheDocument()
     expect(hint.getByText(/stops the planned contributions from this month on/)).toBeInTheDocument()
-    // One primary beside Cancel ("Keep saving"), and nothing else to press but the (i) and Close.
+    // One primary beside Cancel, and nothing else to press but the (i) and Close.
     expect(dialog.getAllByRole('button').map((b) => b.getAttribute('aria-label') ?? b.textContent)).toEqual([
       'About completing a jar',
       'Close',
-      'Keep saving',
-      'Confirm complete New laptop',
+      'Cancel',
+      'Mark completed',
     ])
-    await user.click(dialog.getByLabelText('Confirm complete New laptop'))
+    await user.click(dialog.getByRole('button', { name: 'Mark completed' }))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/complete'))
     expect(await screen.findByText('Completed', {}, { timeout: 5000 })).toBeInTheDocument()
@@ -184,9 +184,9 @@ describe('JarsPage — completion and deletion (W04)', () => {
         'New laptop is €20.00 overdrawn. Cover the €20.00 shortfall from another jar or unallocated funds first, then mark it completed.',
       ),
     ).toBeInTheDocument()
-    expect(dialog.queryByLabelText('Confirm complete New laptop')).not.toBeInTheDocument()
-    // Only a quiet Close (named "Keep saving") to press.
-    expect(dialog.getByRole('button', { name: 'Keep saving' })).toHaveTextContent('Close')
+    expect(dialog.queryByRole('button', { name: 'Mark completed' })).not.toBeInTheDocument()
+    // Only a quiet Close to press, beside the dialog's own ×.
+    expect(dialog.getAllByRole('button', { name: 'Close' }).map((b) => b.textContent)).toEqual(['', 'Close'])
     expect(mockPost).not.toHaveBeenCalled()
   })
 
@@ -208,7 +208,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     fireEvent.focus(dialog.getByRole('button', { name: 'About reopening a jar' }))
     expect(within(await dialog.findByRole('tooltip')).getByText(/holds €400\.00\. Reopening makes it active again/)).toBeInTheDocument()
     expect(mockPost).not.toHaveBeenCalled()
-    await user.click(dialog.getByLabelText('Confirm reopen New laptop'))
+    await user.click(dialog.getByRole('button', { name: 'Reopen' }))
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/g1/reopen'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
@@ -225,7 +225,7 @@ describe('JarsPage — completion and deletion (W04)', () => {
     renderPage()
     await jarAction(user, 'New laptop', 'Mark completed')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByLabelText('Confirm complete New laptop'))
+    await user.click(dialog.getByRole('button', { name: 'Mark completed' }))
 
     expect(
       await dialog.findByText(
@@ -247,10 +247,10 @@ describe('JarsPage — completion and deletion (W04)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
     // Both endings are offered: archive keeps history, delete removes the jar and its planned lines.
-    expect(dialog.getByLabelText('Archive New laptop')).toBeInTheDocument()
-    await user.click(dialog.getByLabelText('Delete New laptop'))
+    expect(dialog.getByRole('button', { name: 'Archive jar' })).toBeInTheDocument()
+    await user.click(dialog.getByRole('button', { name: 'Delete jar' }))
     expect(mockDelete).not.toHaveBeenCalled()
-    await user.click(dialog.getByLabelText('Confirm delete New laptop'))
+    await user.click(dialog.getByRole('button', { name: 'Really delete?' }))
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/jars/g1'))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -265,8 +265,8 @@ describe('JarsPage — completion and deletion (W04)', () => {
     await jarAction(user, 'New laptop', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
 
-    expect(dialog.getByLabelText('Archive New laptop')).toBeInTheDocument()
-    expect(dialog.queryByLabelText('Delete New laptop')).not.toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Archive jar' })).toBeInTheDocument()
+    expect(dialog.queryByRole('button', { name: 'Delete jar' })).not.toBeInTheDocument()
     await user.click(dialog.getByRole('button', { name: 'Cancel edit' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
     // Nor does its ⋯ offer Delete; it offers Archive.
@@ -283,8 +283,8 @@ describe('JarsPage — completion and deletion (W04)', () => {
     renderPage()
     await jarAction(user, 'New laptop', 'Edit')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(dialog.getByLabelText('Delete New laptop'))
-    await user.click(dialog.getByLabelText('Confirm delete New laptop'))
+    await user.click(dialog.getByRole('button', { name: 'Delete jar' }))
+    await user.click(dialog.getByRole('button', { name: 'Really delete?' }))
 
     expect(
       await dialog.findByText('New laptop has held money, so it cannot be deleted. Archive it instead to keep its history.', {}, { timeout: 5000 }),

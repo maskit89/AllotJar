@@ -164,7 +164,7 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     const input = await screen.findByRole('textbox', { name: 'Planned amount for Utilities' }, { timeout: 5000 })
     await waitFor(() => expect(input).toHaveFocus())
     await user.keyboard('{Escape}')
-    expect(await screen.findByRole('button', { name: 'Planned amount for Utilities' })).toHaveTextContent('€150.00')
+    expect(await screen.findByRole('button', { name: /^Planned amount for Utilities:/ })).toHaveTextContent('€150.00')
     expect(mockPut).not.toHaveBeenCalled()
     // Focus goes back to the ⋯ the editor was opened from, not to the page.
     await waitFor(() => expect(more).toHaveFocus())
@@ -178,12 +178,12 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     renderPage()
 
     // The amount opened from itself: Enter saves and focus returns to the amount.
-    await user.click(await screen.findByRole('button', { name: 'Planned amount for Utilities' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Planned amount for Utilities:/ }, { timeout: 5000 }))
     const input = await screen.findByRole('textbox', { name: 'Planned amount for Utilities' })
     await user.clear(input)
     await user.type(input, '175{Enter}')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-util', { plannedAmount: 175, version: null }))
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Planned amount for Utilities' })).toHaveFocus())
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Planned amount for Utilities:/ })).toHaveFocus())
 
     // The due day from the ⋯: Escape closes it and focus returns to the ⋯.
     const rentMore = screen.getByRole('button', { name: 'Rent: more actions' })
@@ -339,11 +339,11 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     mockLoads(undefined, m, [holiday(), car])
     renderPage()
 
-    const carLine = (await screen.findByRole('button', { name: 'Planned amount for Car' }, { timeout: 5000 })).closest('.group') as HTMLElement
+    const carLine = (await screen.findByRole('button', { name: /^Planned amount for Car:/ }, { timeout: 5000 })).closest('.group') as HTMLElement
     expect(carLine.textContent).not.toContain('to go')
     // Read out all the same: what went in, of the plan.
     expect(within(carLine).getByText('€50.00 in of €50.00')).toHaveClass('sr-only')
-    const holidayLine = screen.getByRole('button', { name: 'Planned amount for Holiday' }).closest('.group') as HTMLElement
+    const holidayLine = screen.getByRole('button', { name: /^Planned amount for Holiday:/ }).closest('.group') as HTMLElement
     expect(within(holidayLine).getByText('€150.00 to go')).toBeInTheDocument()
   })
 
@@ -369,7 +369,7 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     const rent = await screen.findByRole('button', { name: 'Rent' }, { timeout: 5000 })
     // No ⋯ on a phone line, and the amount is not a button of its own.
     expect(screen.queryByRole('button', { name: 'Rent: more actions' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Planned amount for Rent' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Planned amount for Rent:/ })).not.toBeInTheDocument()
 
     await user.click(rent)
     const sheet = await screen.findByRole('dialog', { name: 'Rent' }, { timeout: 5000 })
@@ -423,7 +423,7 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     // Skip opens the skip dialog (titled "Skip Holiday this month") once the sheet has closed.
     await user.click(within(sheet).getByRole('button', { name: 'Skip this month' }))
     const skip = await screen.findByRole('dialog', { name: 'Skip Holiday this month' }, { timeout: 5000 })
-    expect(within(skip).getByRole('button', { name: 'Skip Holiday this month' })).toBeInTheDocument()
+    expect(within(skip).getByRole('button', { name: 'Skip this month' })).toBeInTheDocument()
   })
 
   it('Limited access: a bill line’s ⋯ offers only Mark paid; nothing else in the budget is editable', { timeout: 15000 }, async () => {
@@ -436,7 +436,7 @@ describe('DashboardPage row actions (restyle PR 3)', () => {
     expect(screen.queryByRole('button', { name: 'Utilities: more actions' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Holiday: more actions' })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /group: more actions$/ })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Planned amount for Rent' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Planned amount for Rent:/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Rename Rent' })).not.toBeInTheDocument()
 
     await user.click(more)

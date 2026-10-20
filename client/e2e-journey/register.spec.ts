@@ -22,7 +22,7 @@ test('a new user starts with an empty budget and builds a first month', async ({
   const setup = page.getByRole('region', { name: 'Set up your budget' })
   await expect(setup).toBeVisible()
   await expect(setup.getByRole('link', { name: 'Go to accounts' })).toBeVisible()
-  await expect(setup.getByRole('button', { name: 'Add a jar from an account' })).toBeDisabled()
+  await expect(setup.getByRole('button', { name: 'Add jar' })).toBeDisabled()
 
   // The create-month hero offers a blank start and the quick-start templates (no copy button —
   // a brand-new user has no previous month).

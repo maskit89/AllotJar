@@ -75,11 +75,11 @@ export function CompleteJarModal({ jar, currency, onClose, onCompleted }: Comple
       onClose={onClose}
       footer={
         <div className={DIALOG_ACTIONS}>
-          <Button variant="ghost" onClick={onClose} aria-label="Keep saving" className={DIALOG_CANCEL}>
+          <Button variant="ghost" onClick={onClose} className={DIALOG_CANCEL}>
             {overdrawn > 0 ? 'Close' : 'Cancel'}
           </Button>
           {overdrawn === 0 && (
-            <Button onClick={submit} aria-disabled={saving || undefined} aria-label={`Confirm complete ${jar.name}`} className={DIALOG_PRIMARY}>
+            <Button onClick={submit} aria-disabled={saving || undefined} className={DIALOG_PRIMARY}>
               {saving ? 'Saving…' : 'Mark completed'}
             </Button>
           )}

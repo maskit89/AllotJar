@@ -26,9 +26,9 @@ export async function rowItems(user: UserEvent, row: string): Promise<{ name: st
   return items
 }
 
-/** The row's category chip: "Assign {row}" while it has no line, "Reassign {row}" once it has one. */
+/** The row's category chip: "Assign {row}" while it has no line, "Reassign {row}: {line}" once it has one. */
 export const categoryChip = (row: string): HTMLElement =>
-  screen.getByRole('button', { name: (n) => n === `Assign ${row}` || n === `Reassign ${row}` })
+  screen.getByRole('button', { name: (n) => n === `Assign ${row}` || n.startsWith(`Reassign ${row}: `) })
 
 /** Opens the row's category chip and picks `value` from the select it reveals (which closes again). */
 export async function pickCategory(user: UserEvent, row: string, value: string): Promise<void> {

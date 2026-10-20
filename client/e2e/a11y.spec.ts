@@ -114,7 +114,7 @@ for (const theme of ['light', 'dark'] as const) {
         name: 'tx.csv', mimeType: 'text/csv', buffer: Buffer.from('19/06/2026,SHOP,-5.00'),
       })
       await page.getByRole('button', { name: 'Review transactions' }).click()
-      await page.getByText('AUTOMARKET').waitFor() // the review list is up
+      await page.getByText('AUTOMARKET', { exact: true }).waitFor() // the review list is up
       await expectNoViolations(page)
       // The include box answers a real pointer click on itself (its 40px target sits behind it):
       // unticking a row takes it out of the count, ticking it back puts it in.
@@ -148,7 +148,7 @@ for (const theme of ['light', 'dark'] as const) {
       // The flagged row marked as a transfer: the Transfer dialog (counterparty picker, the
       // "Already recorded?" radios, the status line), with the row's chip behind it.
       await page.getByRole('button', { name: 'WOLT on 2026-06-15: more actions' }).click()
-      await page.getByRole('menuitem', { name: 'Mark WOLT on 2026-06-15 as a transfer' }).click()
+      await page.getByRole('menuitem', { name: 'Mark as transfer: WOLT on 2026-06-15' }).click()
       const transfer = page.getByRole('dialog', { name: 'Transfer' })
       await transfer.getByLabel('Transfer account for WOLT on 2026-06-15').waitFor()
       await transfer.getByLabel('Match recorded transfer for WOLT on 2026-06-15').waitFor()
@@ -167,7 +167,7 @@ for (const theme of ['light', 'dark'] as const) {
         name: 'tx.csv', mimeType: 'text/csv', buffer: Buffer.from('19/06/2026,SHOP,-5.00'),
       })
       await page.getByRole('button', { name: 'Review transactions' }).click()
-      await page.getByText('AUTOMARKET').waitFor()
+      await page.getByText('AUTOMARKET', { exact: true }).waitFor()
       await page.getByRole('button', { name: 'Columns' }).click()
       const columns = page.getByRole('dialog', { name: 'Columns' })
       await columns.getByText('More options').click()
@@ -242,7 +242,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('menuitem', { name: 'Edit' }).waitFor()
       await expectNoViolations(page)
       await page.getByRole('menuitem', { name: 'Edit' }).click()
-      await page.getByRole('dialog').getByRole('button', { name: 'Archive Home insurance' }).waitFor()
+      await page.getByRole('dialog').getByRole('button', { name: 'Archive jar' }).waitFor()
       await expectNoViolations(page)
     })
 

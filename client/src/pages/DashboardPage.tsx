@@ -760,7 +760,6 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
           <Button
             size="sm"
             variant="secondary"
-            aria-label="Create this month's budget"
             className="h-8"
             onClick={() => {
               const target = document.getElementById('start-blank-budget') ?? document.getElementById('create-month')
@@ -786,7 +785,6 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             <Button
               size="sm"
               variant="secondary"
-              aria-label="Add a jar from an account"
               className="h-8"
               disabled={!hasAccounts}
               onClick={() => openJarForm(null)}
@@ -900,9 +898,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                             type="button"
                             onClick={() => createFromTemplate(t.key)}
                             disabled={creating}
-                            aria-label={`Start from the ${t.name} template`}
                             className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
                           >
+                            {/* The card's words all read inside its spoken name, after "Start from the template:". */}
+                            <span className="sr-only">Start from the template:</span>{' '}
                             <span className="text-sm font-semibold text-slate-900">{t.name}</span>
                             <span className="text-[13px] text-slate-500">{t.description}</span>
                             <span className="mt-1 text-xs font-semibold text-slate-500 tabular-nums">

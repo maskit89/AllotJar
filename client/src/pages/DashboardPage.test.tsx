@@ -53,7 +53,7 @@ describe('DashboardPage optimistic editing', () => {
     renderPage()
 
     // The planned amount reads as clean text; click it to reveal the editor.
-    fireEvent.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    fireEvent.click(await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     // Set the planned amount to €3.000 and commit on blur. The dashboard fires
     // three loads on mount (/budget/{y}/{m}, /budget/months, /budget/templates);
@@ -88,7 +88,7 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     await user.clear(input)
     await user.type(input, '3000')
@@ -98,7 +98,7 @@ describe('DashboardPage optimistic editing', () => {
     // the editor closes, so the at-rest "€1,100.00" control shows the rollback.
     expect(await screen.findByText(/reverted to the previous value/, {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(
-      () => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,100.00'),
+      () => expect(screen.getByRole('button', { name: /^Planned amount for Rent:/ })).toHaveTextContent('1,100.00'),
       { timeout: 5000 },
     )
   })
@@ -112,7 +112,7 @@ describe('DashboardPage optimistic editing', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     await user.clear(input)
     await user.type(input, '1100.555')
@@ -133,7 +133,7 @@ describe('DashboardPage optimistic editing', () => {
     renderPage()
 
     // Open the editor; it mounts autofocused with the current value selected.
-    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     await waitFor(() => expect(input).toHaveFocus(), { timeout: 5000 })
     expect(input.selectionStart).toBe(0)
@@ -605,9 +605,9 @@ describe('DashboardPage jars and first-run checklist', () => {
     expect(card.getByText('Add a jar from an account')).toBeInTheDocument()
     expect(card.getAllByText('(to do)')).toHaveLength(3)
     expect(card.getByRole('link', { name: 'Go to accounts' })).toHaveAttribute('href', '/accounts')
-    expect(card.getByRole('button', { name: "Create this month's budget" })).toBeEnabled()
+    expect(card.getByRole('button', { name: 'Create budget' })).toBeEnabled()
     // No account yet ⇒ a jar can't be created (rule 73).
-    expect(card.getByRole('button', { name: 'Add a jar from an account' })).toBeDisabled()
+    expect(card.getByRole('button', { name: 'Add jar' })).toBeDisabled()
   })
 
   it('first-run checklist: accounts + month done leaves only the jar step, whose button opens the jar form', { timeout: 15000 }, async () => {
@@ -622,7 +622,7 @@ describe('DashboardPage jars and first-run checklist', () => {
     expect(card.getByText('Add a jar from an account').closest('li')!.textContent).toContain('(to do)')
     // Done steps carry no action; the open one does.
     expect(card.queryByRole('link', { name: 'Go to accounts' })).not.toBeInTheDocument()
-    const addJar = card.getByRole('button', { name: 'Add a jar from an account' })
+    const addJar = card.getByRole('button', { name: 'Add jar' })
     expect(addJar).toBeEnabled()
     await user.click(addJar)
     const dialog = within(await screen.findByRole('dialog', { name: 'New jar' }, { timeout: 5000 }))
@@ -641,7 +641,7 @@ describe('DashboardPage jars and first-run checklist', () => {
 
     renderPage()
 
-    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })
     expect(screen.queryByRole('region', { name: 'Set up your budget' })).not.toBeInTheDocument()
     expect(screen.queryByText('Set up your budget')).not.toBeInTheDocument()
   })
@@ -689,7 +689,7 @@ describe('DashboardPage month navigation', () => {
 
     renderPage()
 
-    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })
     await user.click(screen.getByLabelText('Next month'))
 
     expect(await screen.findByText(/No budget for .* yet/, {}, { timeout: 5000 })).toBeInTheDocument()
@@ -701,7 +701,7 @@ describe('DashboardPage month navigation', () => {
         expect.objectContaining({ year: ny, month: nm, copyFromPrevious: true }),
       ),
     )
-    expect(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })).toBeInTheDocument()
   })
 
   it('offers quick-start templates for an empty month and creates from one', { timeout: 15000 }, async () => {
@@ -729,7 +729,7 @@ describe('DashboardPage month navigation', () => {
 
     renderPage()
 
-    await user.click(await screen.findByLabelText('Start from the Essentials template', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Start from the template: Essentials/ }, { timeout: 5000 }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith('/budget', {
@@ -760,7 +760,7 @@ describe('DashboardPage month navigation', () => {
 
     renderPage()
 
-    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })
     // The picker opens from the line's ⋯ (restyle PR 3): a solo household is never offered it,
     // and no line names an earner.
     const user = userEvent.setup()
@@ -785,7 +785,7 @@ describe('DashboardPage month navigation', () => {
 
     // Shared household: every income line offers the picker (its ⋯ "Who earns"); expense lines
     // never do.
-    await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })
+    await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })
     expect((await menuItems(user, 'Rent: more actions')).map((i) => i.name)).not.toContain('Who earns')
     await user.keyboard('{Escape}')
     await lineAction(user, 'Take-home Pay', 'Who earns')
@@ -833,7 +833,7 @@ describe('DashboardPage edit conflicts (D11)', () => {
     })
 
   async function editRent(user: ReturnType<typeof userEvent.setup>, amount: string) {
-    await user.click(await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }))
     const input = (await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 })) as HTMLInputElement
     await user.clear(input)
     await user.type(input, amount)
@@ -872,7 +872,7 @@ describe('DashboardPage edit conflicts (D11)', () => {
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
     // Corrected before the first answer arrives: the line is still editable ...
     await editRent(user, '1250')
-    expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,250.00')
+    expect(screen.getByRole('button', { name: /^Planned amount for Rent:/ })).toHaveTextContent('1,250.00')
     // ... and the correction waits for that answer rather than going out with the same version.
     expect(mockPut).toHaveBeenCalledTimes(1)
     expect(mockPut.mock.calls[0][1]).toEqual({ plannedAmount: 1200, version: 'v1' })
@@ -880,7 +880,7 @@ describe('DashboardPage edit conflicts (D11)', () => {
     answerFirst({ data: versioned('v2', 1200) })
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(2))
     expect(mockPut.mock.calls[1]).toEqual(['/budget/items/i-rent', { plannedAmount: 1250, version: 'v2' }])
-    await waitFor(() => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('1,250.00'))
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Planned amount for Rent:/ })).toHaveTextContent('1,250.00'))
     expect(screen.queryByText('Someone else changed this. Reload and try again.')).not.toBeInTheDocument()
     expect(screen.queryByText(/Could not save/)).not.toBeInTheDocument()
   })
@@ -901,6 +901,6 @@ describe('DashboardPage edit conflicts (D11)', () => {
     await editRent(user, '1200')
     expect(await screen.findByText('Someone else changed this. Reload and try again.', {}, { timeout: 5000 })).toBeInTheDocument()
     // The grid shows what the other login saved, not the rolled-back value.
-    await waitFor(() => expect(screen.getByLabelText('Planned amount for Rent')).toHaveTextContent('950.00'), { timeout: 5000 })
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Planned amount for Rent:/ })).toHaveTextContent('950.00'), { timeout: 5000 })
   })
 })

@@ -573,7 +573,7 @@ test('archiving a jar from its ⋯ by keyboard leaves focus on the next card\'s 
   await page.keyboard.press('End')
   await expect(menu.getByRole('menuitem', { name: 'Archive' })).toBeFocused()
   await page.keyboard.press('Enter')
-  await expect(page.getByRole('dialog').getByRole('button', { name: 'Confirm archive Holiday' })).toBeFocused()
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Really archive?' })).toBeFocused()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Holiday', exact: true })).toHaveCount(0)
@@ -597,7 +597,7 @@ test('a transaction\'s ⋯ shows to the keyboard, works from it and gives focus 
   expect(box!.height).toBeGreaterThanOrEqual(24)
 
   // Tab from the row's category chip lands on its ⋯, which shows.
-  await page.getByRole('button', { name: 'Reassign Welbees Supermarket' }).focus()
+  await page.getByRole('button', { name: /^Reassign Welbees Supermarket:/ }).focus()
   await expect.poll(opacity).toBe('1')
   await page.keyboard.press('Tab')
   await expect(more).toBeFocused()
@@ -717,7 +717,7 @@ test('an account\'s ⋯ works from the keyboard and gives focus back after the e
   await page.keyboard.press('Enter')
   await dialog.waitFor()
   await animationsSettled(dialog)
-  const confirm = dialog.getByRole('button', { name: 'Confirm delete Joint Current' })
+  const confirm = dialog.getByRole('button', { name: 'Delete account' })
   await confirm.focus()
   await page.keyboard.press('Enter')
   await expect(page.getByRole('link', { name: 'View Joint Current', exact: true })).toHaveCount(0)

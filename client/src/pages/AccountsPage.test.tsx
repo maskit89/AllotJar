@@ -107,12 +107,12 @@ describe('AccountsPage', () => {
     const savingsNote = await accountNote(user, 'Savings')
     expect(savingsNote).toContain(SAVINGS_REASON)
     expect(savingsNote.filter((line) => /visible/i.test(line))).toEqual([SAVINGS_REASON])
-    expect((await accountItems(user, 'Savings')).map((i) => i.name)).not.toContain('Make Savings private')
+    expect((await accountItems(user, 'Savings')).map((i) => i.name)).not.toContain('Make private: Savings')
 
-    await accountAction(user, 'Pocket', 'Share Pocket with the household')
+    await accountAction(user, 'Pocket', 'Share with household: Pocket')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/p1/sharing', { isPrivate: false }))
     await waitFor(() => expect(within(accountCard('Pocket')).queryByText('Private')).not.toBeInTheDocument())
-    expect((await accountItems(user, 'Pocket')).map((i) => i.name)).toContain('Make Pocket private')
+    expect((await accountItems(user, 'Pocket')).map((i) => i.name)).toContain('Make private: Pocket')
   })
 
   // P59 (Christopher, 30 September 2026): the owner sees accounts private to a login that left
@@ -137,7 +137,7 @@ describe('AccountsPage', () => {
 
     await user.click(section.getByRole('button', { name: 'Erase Sam’s wallet' }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    const confirm = dialog.getByRole('button', { name: 'Confirm erase Sam’s wallet' })
+    const confirm = dialog.getByRole('button', { name: 'Erase for good' })
     expect(confirm).toBeDisabled()
     await user.type(dialog.getByLabelText(/Type .* to confirm/), 'Sam’s wal')
     expect(confirm).toBeDisabled()
@@ -169,7 +169,7 @@ describe('AccountsPage', () => {
     await user.click(await screen.findByRole('button', { name: 'Erase Wallet' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     await user.type(dialog.getByLabelText(/Type .* to confirm/), 'wallet')
-    await user.click(dialog.getByRole('button', { name: 'Confirm erase Wallet' }))
+    await user.click(dialog.getByRole('button', { name: 'Erase for good' }))
 
     expect(await dialog.findByText(/1 refund in another account is linked/)).toBeInTheDocument()
     expect(screen.getByTestId('unreachable-accounts')).toBeInTheDocument()
@@ -246,7 +246,7 @@ describe('AccountsPage', () => {
     await accountAction(user, 'Everyday', 'Delete Everyday')
     // Deleting now asks for confirmation, explaining transactions are kept.
     expect(await screen.findByText(/transactions are kept/i)).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Confirm delete Everyday' }))
+    await user.click(screen.getByRole('button', { name: 'Delete account' }))
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/accounts/a1'))
     await waitFor(() => expect(screen.queryByText('Everyday')).not.toBeInTheDocument())

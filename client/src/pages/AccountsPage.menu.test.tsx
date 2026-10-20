@@ -88,8 +88,8 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
 
     const names = async (account: string) => (await accountItems(user, account)).map((i) => i.name)
     expect(await names('Everyday')).toEqual(['Edit Everyday', 'Delete Everyday'])
-    expect(await names('Pocket')).toEqual(['Edit Pocket', 'Share Pocket with the household', 'Delete Pocket'])
-    expect(await names('Savings')).toEqual(['Edit Savings', 'Make Savings private', 'Delete Savings'])
+    expect(await names('Pocket')).toEqual(['Edit Pocket', 'Share with household: Pocket', 'Delete Pocket'])
+    expect(await names('Savings')).toEqual(['Edit Savings', 'Make private: Savings', 'Delete Savings'])
     // A jar uses it: it stays shared, so there is no Make private (P55).
     expect(await names('Holiday fund')).toEqual(['Edit Holiday fund', 'Delete Holiday fund'])
 
@@ -152,7 +152,7 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
     const menu = await screen.findByRole('menu')
     await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'Edit Savings' })).toHaveFocus())
     await user.keyboard('{ArrowDown}')
-    expect(within(menu).getByRole('menuitem', { name: 'Make Savings private' })).toHaveFocus()
+    expect(within(menu).getByRole('menuitem', { name: 'Make private: Savings' })).toHaveFocus()
     await user.keyboard('{ArrowDown}')
     expect(within(menu).getByRole('menuitem', { name: 'Delete Savings' })).toHaveFocus()
     await user.keyboard('{Escape}')
@@ -212,11 +212,11 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
     const user = userEvent.setup()
     renderPage()
 
-    await accountAction(user, 'Savings', 'Make Savings private')
+    await accountAction(user, 'Savings', 'Make private: Savings')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/s1/sharing', { isPrivate: true }))
     expect(await within(accountCard('Savings')).findByText('Private')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByRole('button', { name: 'Savings: more actions' })).toHaveFocus())
-    expect((await accountItems(user, 'Savings')).map((i) => i.name)).toContain('Share Savings with the household')
+    expect((await accountItems(user, 'Savings')).map((i) => i.name)).toContain('Share with household: Savings')
   })
 
   it('once an account is deleted, focus moves to the next card\'s ⋯ (or the one before), else to Add account', { timeout: 20000 }, async () => {
@@ -226,7 +226,7 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
     renderPage()
 
     const confirm = async (name: string) =>
-      user.click(within(await screen.findByRole('dialog', {}, { timeout: 5000 })).getByRole('button', { name: `Confirm delete ${name}` }))
+      user.click(within(await screen.findByRole('dialog', { name: `Delete ${name}?` }, { timeout: 5000 })).getByRole('button', { name: 'Delete account' }))
 
     // The middle card: the card that takes its place gets the focus, not the page.
     await accountAction(user, 'Savings', 'Delete Savings')
@@ -262,7 +262,7 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
       .getAllByRole('button')
       .filter((b) => b.textContent)
       .map((b) => b.getAttribute('aria-label') ?? b.textContent)
-    expect(buttons).toEqual(['Edit Savings', 'Make Savings private', 'Delete Savings'])
+    expect(buttons).toEqual(['Edit Savings', 'Make private: Savings', 'Delete Savings'])
     expect(within(sheet).getByRole('button', { name: 'Delete Savings' }).className).toMatch(/text-bad/)
 
     // Escape closes the sheet and gives focus back to the ⋯.
@@ -468,8 +468,8 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
     await screen.findByRole('article', { name: 'Savings' }, { timeout: 5000 })
     await waitFor(() => expect(screen.queryByRole('button', { name: 'Everyday: more actions' })).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'About Everyday' })).toBeInTheDocument()
-    expect(await accountItems(user, 'Savings')).toEqual([{ name: 'Make Savings private', disabled: false }])
-    await accountAction(user, 'Savings', 'Make Savings private')
+    expect(await accountItems(user, 'Savings')).toEqual([{ name: 'Make private: Savings', disabled: false }])
+    await accountAction(user, 'Savings', 'Make private: Savings')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/s1/sharing', { isPrivate: true }))
   })
 
