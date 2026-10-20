@@ -30,20 +30,23 @@ export interface NavItem {
   group: 'main' | 'more' | 'help'
 }
 
+// The order follows how a household sets up: accounts first, then jars, then the transactions
+// (and their import), then the reports; People and Allocation sit below the divider.
 const ALL: NavItem[] = [
   { key: 'budget', to: '/', label: 'Dashboard', icon: House, group: 'main' },
-  { key: 'transactions', to: '/transactions', label: 'Transactions', icon: ArrowLeftRight, group: 'main' },
-  { key: 'jars', to: '/jars', label: 'Jars', icon: JarNavIcon, group: 'main' },
   { key: 'accounts', to: '/accounts', label: 'Accounts', icon: Landmark, group: 'main' },
+  { key: 'jars', to: '/jars', label: 'Jars', icon: JarNavIcon, group: 'main' },
+  { key: 'transactions', to: '/transactions', label: 'Transactions', icon: ArrowLeftRight, group: 'main' },
+  { key: 'import', to: '/import', label: 'Import', icon: Download, group: 'main' },
   { key: 'reports', to: '/reports', label: 'Reports', icon: ChartColumn, group: 'main' },
   { key: 'people', to: '/people', label: 'People', icon: Users, group: 'more' },
   { key: 'allocation', to: '/allocation', label: 'Allocation', icon: Split, group: 'more' },
-  { key: 'import', to: '/import', label: 'Import', icon: Download, group: 'more' },
   { key: 'help', to: '/help', label: 'Help', icon: CircleHelp, group: 'help' },
 ]
 
-/** The phone tab bar's slots, in priority order: the first four visible pages get a tab. */
-const TAB_PRIORITY: NavKey[] = ['budget', 'transactions', 'jars', 'reports', 'accounts', 'people', 'allocation', 'import']
+/** Which pages get the phone tab bar's slots, in priority order: the first four visible pages
+ *  get a tab (the everyday pages first; Accounts is set up once and lives under More). */
+const TAB_PRIORITY: NavKey[] = ['budget', 'jars', 'transactions', 'reports', 'accounts', 'people', 'allocation', 'import']
 const TAB_COUNT = 4
 
 /**
@@ -73,16 +76,17 @@ export function useNavItems(): NavItem[] {
 }
 
 /**
- * The phone layout's split of the same pages: four tabs in the bottom bar (Dashboard,
- * Transactions, Jars, Reports when all are on; a page whose flag is off gives its tab to the
- * next one in TAB_PRIORITY), and everything else in the More sheet, Help last.
+ * The phone layout's split of the same pages: four tabs in the bottom bar (Dashboard, Jars,
+ * Transactions, Reports when all are on; a page whose flag is off gives its tab to the next one
+ * in TAB_PRIORITY), and everything else in the More sheet, Help last. Both keep the sidebar's
+ * order.
  */
 export function splitForPhone(items: NavItem[]): { tabs: NavItem[]; more: NavItem[] } {
   const byKey = new Map(items.map((i) => [i.key, i]))
-  const tabs = TAB_PRIORITY.map((k) => byKey.get(k))
-    .filter((i): i is NavItem => !!i)
-    .slice(0, TAB_COUNT)
-  const tabKeys = new Set(tabs.map((t) => t.key))
+  const tabKeys = new Set(
+    TAB_PRIORITY.filter((k) => byKey.has(k)).slice(0, TAB_COUNT),
+  )
+  const tabs = items.filter((i) => tabKeys.has(i.key))
   const more = items.filter((i) => !tabKeys.has(i.key))
   return { tabs, more }
 }

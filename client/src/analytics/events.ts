@@ -58,9 +58,8 @@ export const EVENTS = {
   accountCreated: 'account_created',
   accountEdited: 'account_edited',
 
-  // Reports / help
+  // Reports
   reportViewed: 'report_viewed',
-  helpGuideOpened: 'help_guide_opened',
 
   // Onboarding
   onboardingStarted: 'onboarding_started',
