@@ -128,10 +128,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         // holder put it on a household budget line (P56). Only money that stays entirely inside
         // another login's private accounts, off the budget, is hidden.
         // What stays of a deleted login's private purchase that a refund elsewhere still nets (no
-        // account, marked; PrivateAccountErase) is no one's to see, as it was while private.
+        // account, marked, its payee "Erased purchase"; PrivateAccountErase) is no one's to see, as
+        // it was while private. A kept shared side whose account is deleted later stays visible.
         builder.Entity<Transaction>().HasQueryFilter(t =>
             ViewerId == null
-            || (!(t.AccountId == null && t.CounterpartyErased)
+            || (!(t.AccountId == null && t.CounterpartyErased && t.Payee == PrivateAccountErase.ErasedPurchasePayee)
                 && (!AccountPrivacies.Any(p => p.AccountId == t.AccountId && p.UserId != ViewerId)
                     || (t.TransferAccountId != null
                         && !AccountPrivacies.Any(p => p.AccountId == t.TransferAccountId && p.UserId != ViewerId))

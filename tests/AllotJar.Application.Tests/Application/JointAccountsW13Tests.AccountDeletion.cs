@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Accounts;
+using AllotJar.Application.Accounts.Commands.DeleteAccount;
 using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
@@ -255,5 +256,25 @@ public partial class JointAccountsW13Tests
     {
         await using var db = As(Chris);
         return await new GetMonthReportQueryHandler(db, Chris).Handle(new GetMonthReportQuery(2026, 6), CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task A_kept_transfer_side_stays_in_the_register_after_its_shared_account_is_deleted()
+    {
+        // Review probe E: the stub filter hides only "Erased purchase" stubs, not a kept shared side
+        // that DeleteAccount later leaves without an account.
+        SeedLogins();
+        var (joint, _, transfer) = await SeedSamsPrivateMoneyAsync();
+        await Deletion.DeleteAsync(SamLogin, CancellationToken.None);
+        (await TransactionsAsync(Chris)).Select(t => t.Id).Should().Contain(transfer);
+        var report = await MonthReportAsync();
+
+        await using (var db = As(Chris))
+        {
+            await new DeleteAccountCommandHandler(db, Chris).Handle(new DeleteAccountCommand(joint), CancellationToken.None);
+        }
+
+        (await MonthReportAsync()).Should().BeEquivalentTo(report);
+        (await TransactionsAsync(Chris)).Select(t => t.Id).Should().Contain(transfer, "DeleteAccount keeps entries for the register");
     }
 }
