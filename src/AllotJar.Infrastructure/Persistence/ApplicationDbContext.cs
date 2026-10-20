@@ -80,7 +80,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         {
             return null;
         }
-        var transaction = await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken);
+        // Inside a transaction the caller already holds (an account deletion), the locks join it and
+        // last until the caller commits.
+        var transaction = Database.CurrentTransaction is null
+            ? await Database.BeginTransactionAsync(System.Data.IsolationLevel.ReadCommitted, cancellationToken)
+            : null;
         // Hold each account row until commit: a second writer on the same account waits here and
         // then validates against the committed money, never against a stale read. Always in id
         // order, so two writers sharing accounts wait for each other instead of deadlocking.
@@ -92,10 +96,11 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         return new LedgerWrite(transaction);
     }
 
-    private sealed class LedgerWrite(IDbContextTransaction transaction) : ILedgerWrite
+    private sealed class LedgerWrite(IDbContextTransaction? transaction) : ILedgerWrite
     {
-        public Task CommitAsync(CancellationToken cancellationToken) => transaction.CommitAsync(cancellationToken);
-        public ValueTask DisposeAsync() => transaction.DisposeAsync();
+        public Task CommitAsync(CancellationToken cancellationToken) =>
+            transaction?.CommitAsync(cancellationToken) ?? Task.CompletedTask;
+        public ValueTask DisposeAsync() => transaction?.DisposeAsync() ?? ValueTask.CompletedTask;
     }
 
     protected override void OnModelCreating(ModelBuilder builder)
@@ -122,13 +127,17 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         // with a shared account shows on that account, P57), when it has no account, or when its
         // holder put it on a household budget line (P56). Only money that stays entirely inside
         // another login's private accounts, off the budget, is hidden.
+        // What stays of a deleted login's private purchase that a refund elsewhere still nets (no
+        // account, marked, its payee "Erased purchase"; PrivateAccountErase) is no one's to see, as
+        // it was while private. A kept shared side whose account is deleted later stays visible.
         builder.Entity<Transaction>().HasQueryFilter(t =>
             ViewerId == null
-            || !AccountPrivacies.Any(p => p.AccountId == t.AccountId && p.UserId != ViewerId)
-            || (t.TransferAccountId != null
-                && !AccountPrivacies.Any(p => p.AccountId == t.TransferAccountId && p.UserId != ViewerId))
-            || t.BudgetItemId != null
-            || t.Splits.Any(s => s.BudgetItemId != null));
+            || (!(t.AccountId == null && t.CounterpartyErased && t.Payee == PrivateAccountErase.ErasedPurchasePayee)
+                && (!AccountPrivacies.Any(p => p.AccountId == t.AccountId && p.UserId != ViewerId)
+                    || (t.TransferAccountId != null
+                        && !AccountPrivacies.Any(p => p.AccountId == t.TransferAccountId && p.UserId != ViewerId))
+                    || t.BudgetItemId != null
+                    || t.Splits.Any(s => s.BudgetItemId != null))));
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)

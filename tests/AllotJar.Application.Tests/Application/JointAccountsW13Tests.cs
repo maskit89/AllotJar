@@ -57,7 +57,7 @@ namespace AllotJar.Application.Tests.Application;
 /// a household budget line, or it is one side of a transfer with a shared account, both of which
 /// read "Private account" and stay read-only to the others. A jar keeps its account visible.
 /// </summary>
-public class JointAccountsW13Tests
+public partial class JointAccountsW13Tests
 {
     private const string Household = "chris-login";
     private const string SamLogin = "sam-login";

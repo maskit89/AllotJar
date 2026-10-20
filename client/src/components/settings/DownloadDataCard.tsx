@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Download } from 'lucide-react'
 import { InfoHint } from '../InfoHint'
 import { CARD_TITLE, DASH_CARD } from '../budget/card'
@@ -8,9 +8,10 @@ import { OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, Tile } from './parts'
 /**
  * Account settings' "Your data" card (compliance fix 4): one row, Download my data, which saves the
  * server's zip of everything this login can see in the household it is viewing. What is in it sits
- * behind the (i), as the page's other explanations do.
+ * behind the (i), as the page's other explanations do. `children` are further rows under it (the
+ * page's Delete account).
  */
-export function DownloadDataCard() {
+export function DownloadDataCard({ children }: { children?: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -49,6 +50,7 @@ export function DownloadDataCard() {
             {busy ? 'Preparing…' : 'Download'}
           </button>
         </div>
+        {children}
       </div>
       {error && (
         <p role="alert" className="auth-error mt-2">
