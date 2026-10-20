@@ -37,9 +37,32 @@ describe('PrivacyPage', () => {
     expect(contact[0]).toHaveAttribute('href', 'mailto:privacy@allotjar.com')
   })
 
-  it('covers GDPR data-subject rights', () => {
+  it('covers GDPR data-subject rights, with the in-app export and delete', () => {
     render(<PrivacyPage />)
     expect(screen.getByRole('heading', { name: /your rights/i })).toBeInTheDocument()
+    expect(screen.getByText(/download my data/i)).toBeInTheDocument()
+    expect(screen.getByText(/delete my account/i)).toBeInTheDocument()
+  })
+
+  // Compliance fix 6: the policy names what the app really does with data.
+  it('names imports and bank details, the providers, where the server is and real retention periods', () => {
+    render(<PrivacyPage />)
+    expect(screen.getByText(/CAMT\.053 or CSV/)).toBeInTheDocument()
+    expect(screen.getAllByText(/IBAN/).length).toBeGreaterThan(0)
+    for (const name of ['InterServer', 'Cloudflare', 'Google']) {
+      expect(screen.getAllByText(new RegExp(name)).length).toBeGreaterThan(0)
+    }
+    expect(screen.getByRole('heading', { name: /where your data is/i })).toBeInTheDocument()
+    expect(screen.getByText(/standard contractual clauses/i)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: /how long we keep it/i })).toBeInTheDocument()
+    expect(screen.getByText(/14 days/)).toBeInTheDocument()
+    expect(screen.getByText(/fonts are served from our own server/i)).toBeInTheDocument()
+  })
+
+  // The constants only the operator can confirm start as [TO CONFIRM: ...]; none may ship.
+  it('has no unconfirmed placeholder left', () => {
+    const { container } = render(<PrivacyPage />)
+    expect(container.textContent).not.toMatch(/TO CONFIRM/)
   })
 })
 
@@ -96,7 +119,7 @@ describe('LegalLayout in the warm look (restyle PR 16)', () => {
     const main = screen.getByRole('main')
     const card = within(main).getByRole('article')
     const h1 = within(card).getByRole('heading', { level: 1, name: 'Privacy Policy' })
-    const date = within(card).getByText('Last updated: 1 July 2026')
+    const date = within(card).getByText(/^Last updated: /)
     const prose = card.querySelector('.legal-prose')!
     expect(h1.nextElementSibling).toBe(date)
     expect(date.nextElementSibling).toBe(prose)
