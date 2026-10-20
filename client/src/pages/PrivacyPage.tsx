@@ -72,9 +72,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
-          transactions and match them to an account by its IBAN or account number. The file itself
-          is only read while it uploads and is never kept; only the transactions you import are
-          kept.
+          transactions in the account you choose. The file itself is only read while it uploads and
+          is never kept; only the transactions you import are kept.
         </li>
         <li>
           <strong>People in your household</strong>: names, incomes and pocket money of the people
@@ -225,7 +224,8 @@ export function PrivacyPage() {
       <h2>How we protect it</h2>
       <p>
         Everything travels encrypted (TLS). Passwords and sign-in tokens are stored only as hashes,
-        backups are encrypted before they leave our server, and sign-in is protected by rate limits,
+        bank details on your accounts are encrypted in our database, backups are encrypted before
+        they leave our server, and sign-in is protected by rate limits,
         a lockout after repeated wrong passwords and a check against known breached passwords. No
         system is perfectly secure; if a breach puts your data at risk, we will tell you and the
         regulator as the law requires.

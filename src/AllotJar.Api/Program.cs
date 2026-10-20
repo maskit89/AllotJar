@@ -17,6 +17,7 @@ using AllotJar.Infrastructure.Alerts;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
+using AllotJar.Infrastructure.Persistence.Encryption;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,11 @@ const string RefreshRateLimitPolicy = "auth-refresh";
 // --- Layer composition ------------------------------------------------------
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Bank details (IBAN, BIC, sort code, account number) are encrypted at rest with this site's own
+// key (compliance fix 10). Outside Development a missing or development key stops startup here,
+// before anything could be written with a key anyone can read.
+BankDetailsEncryption.Configure(builder.Configuration, builder.Environment.IsDevelopment());
 
 // Error alerts: with ErrorAlerts:Recipient set, every Error-level log entry (an unhandled exception
 // answered as a 500, a rejected email send, a startup step that failed and let the API go on) is
@@ -172,6 +178,9 @@ await BackfillOwnerMembersAsync(app);
 
 // Settles jar moves made before departures were recorded (P3-8).
 await BackfillJarDeparturesAsync(app);
+
+// Brings stored bank details onto this site's key (compliance fix 10; idempotent).
+await EncryptBankDetailsAsync(app);
 
 // Reports card numbers stored before every save masked them (compliance fix 12); changes nothing.
 await CheckCardNumbersAsync(app);
@@ -322,6 +331,38 @@ static async Task BackfillJarDeparturesAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogError(ex, "Jar-departure backfill failed; nothing was saved. Continuing startup.");
+    }
+}
+
+// Brings stored bank details onto this site's key (compliance fix 10), after the migration that
+// widened their columns: encrypts values saved before encryption and re-encrypts values written
+// with a retired key, so that key can be dropped. Idempotent and non-fatal: a plain value still
+// reads as it is, and the next start tries again. The counts are logged at Warning so the deploy's
+// check of the Event Log sees them; values this site cannot read are an Error (an alert), because
+// their account screens fail.
+static async Task EncryptBankDetailsAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var result = await BankDetailsBackfill.BringToCurrentKeyAsync(db, CancellationToken.None);
+        logger.LogWarning(
+            "Bank details encryption: key {KeyId}; encrypted {Encrypted} stored value(s) saved before encryption; " +
+            "re-encrypted {ReEncrypted} written with an older key ({FromDevelopmentKey} of them with the public development key).",
+            BankDetailsCipher.CurrentKeyId, result.Encrypted, result.ReEncrypted, result.FromDevelopmentKey);
+        if (result.UnreadableKeyValues > 0)
+        {
+            logger.LogError(
+                "Bank details encryption: {Count} stored value(s) cannot be decrypted with this site's keys " +
+                "(it writes with {KeyId}); the accounts holding them cannot be read. Restore the key that wrote them.",
+                result.UnreadableKeyValues, BankDetailsCipher.CurrentKeyId);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Bank details encryption backfill failed; stored values stay as they were. Continuing startup.");
     }
 }
 

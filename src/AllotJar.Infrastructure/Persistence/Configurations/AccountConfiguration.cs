@@ -1,8 +1,10 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.ValueObjects;
 using AllotJar.Infrastructure.Persistence.Converters;
+using AllotJar.Infrastructure.Persistence.Encryption;
 
 namespace AllotJar.Infrastructure.Persistence.Configurations;
 
@@ -37,11 +39,13 @@ public class AccountConfiguration : IEntityTypeConfiguration<Account>
         // the ledger reads a missing date as "balance unavailable", never as an inferred date.
         builder.Property(a => a.OpeningDate);
 
-        // Optional bank identifiers (rule 76): bounded text, format-checked by the validators.
-        builder.Property(a => a.Iban).HasMaxLength(34);
-        builder.Property(a => a.Bic).HasMaxLength(11);
-        builder.Property(a => a.SortCode).HasMaxLength(8);
-        builder.Property(a => a.AccountNumber).HasMaxLength(34);
+        // Optional bank identifiers (rule 76), format-checked by the validators and encrypted at rest
+        // (compliance fix 10, BankDetailsCipher). The column holds the encrypted text, so it is wider
+        // than the identifier itself: a 34-character IBAN is stored as about 100 characters.
+        builder.Property(a => a.Iban).HasMaxLength(EncryptedLength).HasConversion(Encrypted("Accounts.Iban"));
+        builder.Property(a => a.Bic).HasMaxLength(EncryptedLength).HasConversion(Encrypted("Accounts.Bic"));
+        builder.Property(a => a.SortCode).HasMaxLength(EncryptedLength).HasConversion(Encrypted("Accounts.SortCode"));
+        builder.Property(a => a.AccountNumber).HasMaxLength(EncryptedLength).HasConversion(Encrypted("Accounts.AccountNumber"));
 
         builder.HasIndex(a => a.OwnerId);
 
@@ -52,4 +56,11 @@ public class AccountConfiguration : IEntityTypeConfiguration<Account>
             .HasForeignKey(t => t.AccountId)
             .OnDelete(DeleteBehavior.SetNull);
     }
+
+    /// <summary>Room for the longest identifier (34 characters) once encrypted, with margin.</summary>
+    public const int EncryptedLength = 256;
+
+    private static ValueConverter<string?, string?> Encrypted(string column) => new(
+        plain => plain == null ? null : BankDetailsCipher.Protect(plain, column),
+        stored => stored == null ? null : BankDetailsCipher.Unprotect(stored, column));
 }

@@ -58,7 +58,11 @@ public static class CardNumberCheck
         where T : BaseEntity
     {
         IQueryable<T> rows = db.Set<T>().IgnoreQueryFilters().AsNoTracking();
-        if (db.Database.IsSqlServer())
+        // An encrypted column (Account's bank details, compliance fix 10) holds ciphertext in SQL, so
+        // LIKE cannot see its digits: such a table is read whole and checked after decryption.
+        var entityType = db.Model.FindEntityType(typeof(T))!;
+        var encrypted = properties.Any(p => entityType.FindProperty(p)?.GetValueConverter() is not null);
+        if (db.Database.IsSqlServer() && !encrypted)
         {
             rows = rows.Where(MayHoldCardNumber<T>(properties));
         }

@@ -1506,3 +1506,12 @@ Follow-ups from the review (reviews/pr-382/REVIEW.md; P3-1 and P3-2 fixed in the
 - #382 P3-1 (server part): the purge runs only while the API is up. On production the 5-minute health-ping task keeps it up; staging idles. Setting the API pools' `idleTimeout` to 0, or turning on preload, would not depend on the ping. This is a server step and needs Christopher's go.
 - #382 P3-3: once an invitation is purged, its link reads "invalid or has already been used" instead of "expired". Possible copy change: "invalid, expired or already used".
 - #382 P3-4 (pre-existing): a refresh at its token's exact expiry can lose to the purge's delete and return a 500. This is the same missing concurrency token as #380 P3-2.
+
+## Bank details encrypted at rest (PR #383, compliance fix 10) — 20 October 2026
+
+An account's IBAN, BIC, sort code and account number are now stored AES-256-GCM encrypted with a key of each site's own (`BankDetailsEncryption:Key`, made from a passphrase in Christopher's password manager). The Data Protection key ring was not used, because it is locked to this VPS and a backup restored anywhere else could not read the bank details. Each start encrypts values saved before encryption and re-encrypts values written with a retired key (review P2-1). Without a key the API won't start and Deploy.ps1 won't deploy. Imports never matched accounts by IBAN; the privacy policy's sentence saying they did is gone (review P3-5). Key changes, a lost key and rollback are in docs/deployment/README.md, section 4.
+
+Follow-ups from the review (reviews/pr-383/REVIEW.md):
+- #383 P3-1 (rest): staging and production still accept a value written with the public development key. Each start re-encrypts such a value under the site key and logs the count, but the development key could be dropped from the ring outside Development (the integration tests rely on keys accumulating in one process, so this needs care there).
+- #383 P3-4: the encrypted value is bound to its column, not its row, so someone with write access to the database could copy one account's IBAN onto another. Binding the row id would mean moving encryption out of the EF value converters. Accepted for now, since database write access is already a full compromise.
+- #383 P3-6 (older than this PR, not verified): `C:\deploy\settings-backups` and the sites' `appsettings.*.json` may be readable by local users or the other site's app pool. Check with `icacls` and lock them to Administrators, SYSTEM and the site's own pool in a reviewed block.
