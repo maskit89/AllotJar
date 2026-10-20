@@ -17,8 +17,9 @@ import { LegalLayout } from './LegalLayout'
 const SERVER_LOCATION = '[TO CONFIRM: the VPS data centre]'
 // The R2 bucket's location (Cloudflare dashboard, bucket allotjar, Settings).
 const BACKUP_LOCATION = '[TO CONFIRM: the R2 bucket location]'
-// #368's R2 lifecycle rule for db-backups-enc/; true only once it is set.
-const OFFSITE_BACKUP_DAYS = '[TO CONFIRM: 35, once the R2 expiry rule is set]'
+// The longer of #368's R2 lifecycle rule for db-backups-enc/ (35 days) and the bucket lock
+// (retention) period, since nothing can be deleted while the lock holds; true only once both are known.
+const OFFSITE_BACKUP_DAYS = '[TO CONFIRM: the longer of 35 and the R2 bucket lock period]'
 // IIS logs and error-alert emails; true only once the log clean-up task runs.
 const LOG_RETENTION = '[TO CONFIRM: up to 90 days, once the log clean-up runs]'
 // Google Analytics admin > Data settings > Data retention.
