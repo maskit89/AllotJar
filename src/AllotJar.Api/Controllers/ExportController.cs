@@ -26,9 +26,13 @@ public class ExportController : ControllerBase
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IRefreshTokenService _refreshTokens;
 
-    public ExportController(ISender mediator, UserManager<ApplicationUser> userManager, ApplicationDbContext db, ICurrentUser currentUser)
+    public ExportController(
+        ISender mediator, UserManager<ApplicationUser> userManager, ApplicationDbContext db, ICurrentUser currentUser,
+        IRefreshTokenService refreshTokens)
     {
+        _refreshTokens = refreshTokens;
         _mediator = mediator;
         _userManager = userManager;
         _db = db;
@@ -72,7 +76,12 @@ public class ExportController : ControllerBase
             household,
             (_currentUser.Role ?? HouseholdRole.Owner).ToString());
 
-        var export = await _mediator.Send(new ExportMyDataQuery(profile), ct);
+        // The devices it is signed in on, as the Devices card lists them.
+        var signIns = (await _refreshTokens.ListActiveAsync(user.Id, null, ct))
+            .Select(s => new ExportedSignIn(s.Device, s.StartedUtc, s.LastActiveUtc))
+            .ToList();
+
+        var export = await _mediator.Send(new ExportMyDataQuery(profile, SignIns: signIns), ct);
         // Never cached: it is personal data, and a second download should be today's.
         Response.Headers.CacheControl = "no-store";
         return File(DataExportArchive.Build(export), "application/zip", DataExportArchive.FileName(export.ExportedUtc));

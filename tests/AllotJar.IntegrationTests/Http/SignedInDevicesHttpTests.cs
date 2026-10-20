@@ -17,6 +17,7 @@ public class SignedInDevicesHttpTests
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36";
 
     private readonly HttpApiFixture _fixture;
+    private string _lastPassword = string.Empty;
 
     public SignedInDevicesHttpTests(HttpApiFixture fixture) => _fixture = fixture;
 
@@ -31,6 +32,7 @@ public class SignedInDevicesHttpTests
 
         var email = $"dev-{Guid.NewGuid():N}"[..16] + "@devices.test";
         var password = HttpApiFixture.StrongPassword();
+        _lastPassword = password;
         var register = await laptop.PostAsJsonAsync("/api/auth/register", new
         {
             email, password, firstName = "Dev", lastName = "Ices", preferredCurrency = "EUR", numberFormat = (string?)null, acceptedTerms = true,
@@ -98,6 +100,27 @@ public class SignedInDevicesHttpTests
             // Ending it again, or a sign-in that isn't there, is a 404.
             (await HttpApiFixture.SendAsync(laptop, HttpMethod.Delete, $"/api/auth/sessions/{phoneSession}", newToken))
                 .StatusCode.Should().Be(HttpStatusCode.NotFound);
+        }
+    }
+
+    [Fact]
+    public async Task Signing_in_again_over_a_cookie_still_set_replaces_that_sign_in()
+    {
+        var (laptop, laptopToken, phone, _) = await TwoDevicesAsync();
+        using (laptop)
+        using (phone)
+        {
+            var email = (await HttpApiFixture.ReadJsonAsync(await HttpApiFixture.SendAsync(laptop, HttpMethod.Get, "/api/auth/me", laptopToken)))
+                .RootElement.GetProperty("email").GetString();
+            var before = await ListAsync(laptop, laptopToken);
+
+            // The phone signs in again while its cookie is still set (the same path disconnecting Google takes).
+            var again = await phone.PostAsJsonAsync("/api/auth/login", new { email, password = _lastPassword }, HttpApiFixture.Json);
+            again.StatusCode.Should().Be(HttpStatusCode.OK);
+
+            var after = await ListAsync(laptop, laptopToken);
+            after.Should().HaveCount(before.Count, "the phone's old sign-in ended with its cookie");
+            after.Select(s => s.Device).Should().BeEquivalentTo(before.Select(s => s.Device));
         }
     }
 

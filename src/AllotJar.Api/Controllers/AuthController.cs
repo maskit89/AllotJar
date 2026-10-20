@@ -1170,6 +1170,14 @@ public class AuthController : ControllerBase
     /// <summary>Starts a sign-in on this device: a fresh refresh token, written to the HttpOnly cookie.</summary>
     private async Task IssueRefreshCookieAsync(string userId, CancellationToken ct)
     {
+        // The cookie being replaced ends with it, or its sign-in lingers as a second row for this
+        // device (disconnecting Google, signing in again over a cookie still set).
+        var replaced = Request.Cookies[RefreshCookieName];
+        if (!string.IsNullOrEmpty(replaced))
+        {
+            await _refreshTokens.RevokeAsync(replaced, ct);
+        }
+
         var raw = await _refreshTokens.IssueAsync(userId, CurrentDevice(), ct);
         SetRefreshCookie(raw);
     }

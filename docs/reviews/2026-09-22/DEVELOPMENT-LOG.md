@@ -1488,3 +1488,12 @@ All twenty-three Deploy runs and, in the end, twenty-two of the twenty-three CI 
 - #357 P3-1 (Back from Privacy/Terms loses the landing's scroll position), P3-2 (focus and announcement after in-app navigation; app-wide).
 - Closed with no action: #344's six P3s (all fixed in #356), #352 P3-1 (Christopher's Keep), #352 P3-2/P3-3 and #355 P3-1/P3-2 (fixed in #356), #353 and #354 (all fixed in the PR).
 - Unchanged from the previous record: #323 P3-5, #325 P3-3 and #331 P3-2.
+
+## Sign-ins last at most 90 days; signed-in devices on Account settings (PR #380) — 20 October 2026
+
+Christopher asked whether staying signed in for days was safe, and chose a 90-day cap with a list of signed-in devices and Sign out everywhere. Each sign-in now ends after 30 days unused or 90 days after it began. Account settings lists every device with its own Sign out, and Download my data includes `sign-ins.csv`. Disconnecting Google, or signing in over a cookie that is still set, now ends the replaced sign-in instead of leaving it alive (review P3-1).
+
+Follow-ups from the review (reviews/pr-380/REVIEW.md):
+- #380 P3-2: a refresh that races Sign out on that same device can outlive the sign-out, because `RefreshToken` has no concurrency token. Fix with a rowversion or a conditional update.
+- #380 P3-3 (cleanup part): expired token rows, which now hold device names, are pruned only when that login next signs in or refreshes. Either prune them in the nightly job, or have the privacy policy say ended sign-ins are deleted within 30 days.
+- #380 P3-4: iPadOS reports a Mac user agent unless it is in the installed app, so an iPad usually reads "Safari on Mac". The client could send a touch hint.
