@@ -6,7 +6,7 @@ import { authedSetup } from './mocks'
  * The Account settings page's restyle (PR 12), in a real browser on the mocked API (e2e/mocks.ts):
  * two columns on a wide screen (you and your preferences; Household and Sign-in), one on a phone;
  * the pencil that turns the name into fields; the Change password dialog (focus, Tab trap, Enter,
- * Escape, and the 375x667 bottom sheet); the ⋯ menus (Leave household, Disconnect disabled with
+ * Escape, and the 375x667 bottom sheet); Download my data; the ⋯ menus (Leave household, Disconnect disabled with
  * its reason) and the Leave dialog; and no WCAG A/AA violations with a menu or a dialog open.
  *
  * The mocked owner is Alex (e2e@allotjar.app): a password, no Google, the currency locked (EUR),
@@ -315,7 +315,7 @@ test.describe('Account settings', () => {
     await openAccount(page)
 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(320)
-    for (const name of ['Your own budget', 'Password', 'Google']) {
+    for (const name of ['Your own budget', 'Password', 'Google', 'Download my data']) {
       const title = page.getByRole('heading', { name, exact: true })
       await expect(title).toBeVisible()
       // Not cut with an ellipsis: the title's text fits its box.
@@ -325,6 +325,28 @@ test.describe('Account settings', () => {
     await link.scrollIntoViewIfNeeded()
     await expect(link).toBeInViewport({ ratio: 1 })
     expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(40)
+  })
+
+  test('Download my data saves the server’s zip under its own name, below Sign-in', async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await authedSetup(page, 'light')
+    await page.route(/\/api\/export$/, (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/zip',
+        headers: { 'Content-Disposition': 'attachment; filename=allotjar-data-2026-10-20.zip' },
+        body: Buffer.from('PK\u0005\u0006' + '\u0000'.repeat(18), 'binary'),
+      }),
+    )
+    await openAccount(page)
+
+    const data = page.getByRole('region', { name: 'Your data' })
+    const signIn = page.getByRole('region', { name: 'Sign-in' })
+    expect((await data.boundingBox())!.y).toBeGreaterThan((await signIn.boundingBox())!.y)
+    const saved = page.waitForEvent('download')
+    await data.getByRole('button', { name: 'Download', exact: true }).click()
+    expect((await saved).suggestedFilename()).toBe('allotjar-data-2026-10-20.zip')
+    await expect(data.getByRole('button', { name: 'Download', exact: true })).toBeEnabled()
   })
 
   for (const theme of ['light', 'dark'] as const) {
@@ -360,6 +382,33 @@ test.describe('Account settings', () => {
         await page.getByRole('button', { name: 'Household: more actions' }).click()
         await page.getByRole('menuitem', { name: 'Leave household' }).click()
         await expect(page.getByRole('dialog').getByRole('alert')).toContainText('You keep 2 private accounts')
+        await expectNoViolations(page)
+      })
+
+      test('the Delete account dialog, its password entered', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/delete-preview$/, (route) =>
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 0, hasPassword: true })),
+        )
+        await openAccount(page)
+        await page.getByRole('button', { name: 'Delete account' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
+        await expect(dialog.getByText('Your sign-in and your budget go for good.')).toBeVisible()
+        await expect(dialog.getByRole('button', { name: 'Delete for good' })).toHaveAttribute('aria-disabled', 'true')
+        await dialog.getByLabel('Your password').fill('hunter22')
+        await expect(dialog.getByRole('button', { name: 'Delete for good' })).not.toHaveAttribute('aria-disabled')
+        await expectNoViolations(page)
+      })
+
+      test('the Delete account dialog while others share the budget', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/delete-preview$/, (route) =>
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 1, hasPassword: true })),
+        )
+        await openAccount(page)
+        await page.getByRole('button', { name: 'Delete account' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
+        await expect(dialog.getByRole('link', { name: 'People' })).toBeVisible()
         await expectNoViolations(page)
       })
 

@@ -25,7 +25,11 @@
     Restoring an older backup onto a newer SQL Server (dev -> SQL 2025) is supported.
     Prompts for the target DB name to confirm before overwriting; pass -Force to skip.
 
+    Backups kept in R2 are encrypted: get a plain .bak with Get-BackupFromR2.ps1 first (it decrypts
+    with the key in rclone.conf); this script refuses a still-encrypted file.
+
     Example:
+        .\Get-BackupFromR2.ps1 -Bucket allotjar          # prints the decrypted .bak's path
         .\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\migrate.bak
 #>
 [CmdletBinding()]
@@ -64,6 +68,10 @@ foreach ($other in @($envMap.Keys | Where-Object { $_ -ne $Environment })) {
 }
 
 if (-not (Test-Path $BakPath)) { throw "Backup file not found: $BakPath" }
+# Backups in R2 are encrypted (rclone crypt). A raw download is not a .bak: decrypt it first.
+if (Test-RcloneCryptFile -Path $BakPath) {
+    throw "$BakPath is an encrypted rclone file, not a SQL Server backup. Fetch it decrypted with Get-BackupFromR2.ps1 (it prints the path to pass here)."
+}
 
 Info "Target [$Environment]: RESTORE [$Database] on $SqlInstance (pool $ApiPool, health $HealthUrl)"
 Info "Source: $BakPath"

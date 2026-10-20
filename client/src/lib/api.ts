@@ -223,3 +223,22 @@ export async function commitImport(
   const { data } = await api.post<ImportStatementResult>('/import/commit', { accountId, items })
   return data
 }
+
+/**
+ * "Download my data": the server's zip of everything this login can see (JSON plus a CSV per
+ * table), saved under the name the server gives it.
+ */
+export async function downloadMyData(): Promise<void> {
+  const response = await api.get<Blob>('/export', { responseType: 'blob' })
+  const disposition = String(response.headers['content-disposition'] ?? '')
+  const name = /filename="?([^";]+)"?/i.exec(disposition)?.[1] ?? 'allotjar-data.zip'
+  const url = URL.createObjectURL(response.data)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = name
+  document.body.appendChild(link)
+  link.click()
+  link.remove()
+  // Some browsers start the save after click() returns: free the blob once they have it.
+  setTimeout(() => URL.revokeObjectURL(url), 30_000)
+}
