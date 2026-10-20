@@ -339,14 +339,15 @@ describe('LoginPage (REG catalog)', () => {
     ])
   })
 
-  // REG-031 — the two selects preselect from the browser locale (detectLocaleDefaults, computed
-  // once on mount); the room's line reads "euro" whatever the locale (restyle PR 16: the app is
-  // euro-first, as the landing page already read since PR 15), never the locale's noun.
-  it('REG-031: the browser locale preselects the currency and number format; the line reads euro always', () => {
+  // REG-031 — the currency select preselects the euro whatever the browser locale (the app works
+  // mainly in the eurozone); the number format still follows the locale (detectLocaleDefaults,
+  // computed once on mount). The room's line reads "euro" always (restyle PR 16), never the
+  // locale's noun.
+  it('REG-031: the euro is preselected whatever the locale; the number format follows it; the line reads euro always', () => {
     const cases = [
-      { lang: 'en-GB', currency: 'GBP', format: 'comma-dot', noun: 'pound' },
-      { lang: 'de-DE', currency: 'EUR', format: 'dot-comma', noun: 'euro' },
-      { lang: 'en-US', currency: 'USD', format: 'comma-dot', noun: 'dollar' },
+      { lang: 'en-GB', currency: 'EUR', format: 'comma-dot' },
+      { lang: 'de-DE', currency: 'EUR', format: 'dot-comma' },
+      { lang: 'en-US', currency: 'EUR', format: 'comma-dot' },
     ]
     for (const c of cases) {
       const spy = vi.spyOn(navigator, 'language', 'get').mockReturnValue(c.lang)
@@ -771,8 +772,9 @@ describe('LoginPage (REG catalog)', () => {
     await waitFor(() => expect(screen.getByText('HOME')).toBeInTheDocument())
     // Pin the CONCRETE locale-detected values (not just "some string"): the server applies these
     // as a new Google user's home currency, so forwarding the wrong field/a hardcoded value must
-    // fail here. jsdom's navigator.language is en-US → GBP/EUR-agnostic detectLocaleDefaults output.
+    // fail here. The currency is the euro whatever jsdom's navigator.language says.
     const detected = detectLocaleDefaults()
+    expect(detected.currency).toBe('EUR')
     expect(mockPost).toHaveBeenCalledWith('/auth/google', {
       credential: 'google-credential-xyz',
       preferredCurrency: detected.currency,

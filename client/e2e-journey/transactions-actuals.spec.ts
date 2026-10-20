@@ -10,8 +10,8 @@ import { accountAction, groupAction, lineAction, register, txAction, txRows } fr
  * the all-months register that never refetches on a month switch, and the
  * income-transactions-never-balance-a-month rule (PR #172) observed end-to-end.
  *
- * Money assertions are symbol-agnostic ("140.00", not "€140.00") because the
- * registration form pre-selects the currency from the browser locale.
+ * Money assertions are symbol-agnostic ("140.00", not "€140.00") so they hold
+ * whatever currency a spec registers with.
  */
 
 const MONTH_NAMES = [

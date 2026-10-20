@@ -30,8 +30,9 @@ public record AuthResponse(
 
 /// <summary>
 /// Exchanges a Google Identity Services ID token (the button's `credential`) for an AllotJar
-/// session. The optional currency/format are the CLIENT's locale-detected defaults, applied only
-/// when this sign-in creates the account (mirrors the register form's pre-selection).
+/// session. The optional currency/format are the CLIENT's sign-up defaults (EUR, and the
+/// locale-detected number format), applied only when this sign-in creates the account (mirrors
+/// the register form's pre-selection).
 /// </summary>
 public record GoogleLoginRequest(
     [Required] string Credential,

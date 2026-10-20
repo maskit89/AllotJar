@@ -377,7 +377,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   async function loginWithGoogle(credential: string) {
-    // Send the browser's locale-detected money defaults along — applied only if this sign-in
+    // Send the sign-up form's money defaults along (euro, locale-detected format) — applied only if this sign-in
     // CREATES the account (register-form parity; the server ignores them otherwise).
     const localeDefaults = detectLocaleDefaults()
     const { data } = await api.post<AuthResponse>('/auth/google', {

@@ -135,22 +135,14 @@ export function currencyNoun(currency: string | null | undefined): string {
 }
 
 // --- Browser-locale detection ------------------------------------------------
-// A welcoming first guess for the sign-up form + the anonymous landing tagline:
-// read the visitor's browser locale and pre-select their likely currency + number
-// format. Always fully overridable, and EUR / euro-style stays the fallback so the
-// front door still greets in euros when detection is unavailable or unrecognised.
+// A welcoming first guess for the sign-up form: the euro is always preselected
+// (AllotJar works mainly in the eurozone), and the number format follows the
+// visitor's browser locale. Both are fully overridable; comma-dot is the format
+// fallback when detection is unavailable or unrecognised.
 
 /** The app's neutral fallbacks, shared by detection + the sign-up form + AuthContext. */
 export const DEFAULT_CURRENCY_CODE = 'EUR'
 export const DEFAULT_FORMAT_KEY: NumberFormatKey = 'comma-dot'
-
-/** Region (ISO 3166 alpha-2) → the currency we offer for it. Unlisted regions fall back to EUR. */
-const REGION_CURRENCY: Record<string, string> = {
-  US: 'USD', GB: 'GBP', CH: 'CHF', LI: 'CHF', CA: 'CAD', AU: 'AUD', NZ: 'NZD',
-  JP: 'JPY', IN: 'INR', SG: 'SGD', HK: 'HKD', SE: 'SEK', NO: 'NOK', DK: 'DKK',
-  PL: 'PLN', CZ: 'CZK', HU: 'HUF', RO: 'RON', ZA: 'ZAR', BR: 'BRL', MX: 'MXN',
-  AE: 'AED', SA: 'SAR', TR: 'TRY',
-}
 
 /** The visitor's region from their browser locale, or null when it can't be determined. */
 function localeRegion(): string | null {
@@ -186,14 +178,12 @@ function localeNumberFormat(region: string | null): NumberFormatKey {
 }
 
 /**
- * Best-guess currency + number format from the visitor's browser locale, for
- * pre-filling the sign-up form and the logged-out tagline. SSR-safe (returns the
- * euro defaults when there's no `navigator`).
+ * The sign-up form's preselected currency (always the euro) and best-guess number
+ * format from the visitor's browser locale. SSR-safe (returns the euro defaults when
+ * there's no `navigator`).
  */
 export function detectLocaleDefaults(): { currency: string; numberFormat: NumberFormatKey } {
-  const region = localeRegion()
-  const currency = (region && REGION_CURRENCY[region]) || DEFAULT_CURRENCY_CODE
-  return { currency, numberFormat: localeNumberFormat(region) }
+  return { currency: DEFAULT_CURRENCY_CODE, numberFormat: localeNumberFormat(localeRegion()) }
 }
 
 // The active display locale. Defaults to en-GB — the design's canonical money
