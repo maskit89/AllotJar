@@ -607,3 +607,12 @@
   - Step 2: `DELETE /auth/sessions/{id}` → 204: that sign-in's tokens are revoked and the security stamp rotates, so the phone is signed out at once (its next request 401s, its refresh fails); the laptop recovers silently with its own cookie. Another login's sign-in, or one already ended, is a 404.
   - Step 3: a dialog asks first; `POST /auth/sign-out-everywhere` → 204 revokes every sign-in, rotates the stamp and clears this device's cookie; the app goes to `/login`.
 - **Automated:** Full (tests/AllotJar.IntegrationTests/Http/SignedInDevicesHttpTests.cs, tests/AllotJar.IntegrationTests/DeviceNameTests.cs, client/src/components/settings/DevicesCard.test.tsx)
+
+### SESS-046 - Expired sign-in records are deleted every day
+- **Priority:** P2
+- **Type:** Privacy
+- **Preconditions:** Refresh-token rows of several logins: one expired yesterday, one rotated or signed out but not yet expired, one active. Some of the logins never sign in again.
+- **Steps:**
+  1. Let the API's daily retention purge run (five minutes after start-up, then every 24 hours).
+- **Expected:** Every expired row is gone, whichever login it belongs to. The rotated or signed-out row that has not expired stays, so replaying it still triggers the theft response, and the active one stays. The log reads "Retention purge deleted N expired sign-in tokens and M expired invitations". A failed run logs an error and the next day's run tries again. This keeps the privacy policy's "deleted within 31 days of its last use".
+- **Automated:** Full (tests/AllotJar.Application.Tests/Infrastructure/ExpiredRecordsPurgeTests.cs; tests/AllotJar.IntegrationTests/ExpiredRecordsPurgeSqlTests.cs)
