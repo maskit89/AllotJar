@@ -15,6 +15,8 @@ export function DownloadDataCard() {
   const [error, setError] = useState<string | null>(null)
 
   async function onDownload() {
+    // aria-disabled keeps the focus, so Enter or Space still reach here while it works.
+    if (busy) return
     setError(null)
     setBusy(true)
     try {

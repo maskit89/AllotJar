@@ -21,8 +21,8 @@ namespace AllotJar.Application.Export;
 /// can see: another login's private account, its balance and the money only it moves are not there
 /// (the context's query filters), and an entry on a budget line from such an account names it
 /// "Private account" without its id (P56). The few stored details no read returns (notes, the raw
-/// bank text, jar cycles and movements) are read here under the same filters, and a transaction's
-/// notes and bank text are withheld whenever its money touches an account the viewer can't see.
+/// statement match, jar cycles, movements and history) are read here under the same filters, and a
+/// transaction's notes and statement match are withheld whenever its money touches an account the viewer can't see.
 /// Nothing is written beyond what opening the Jars page does (a cycle whose deadline has passed is
 /// settled, rule 20), so no figure changes.
 /// </summary>
@@ -60,7 +60,7 @@ public class ExportMyDataQueryHandler : IRequestHandler<ExportMyDataQuery, DataE
             budgets.Add(await _mediator.Send(new GetBudgetMonthQuery(month.Year, month.Month), cancellationToken));
         }
 
-        // Notes and the bank's text for each row: only where every account the money moves in is
+        // Notes and the statement match for each row: only where every account the money moves in is
         // one the viewer sees (the read model's own test for "Private account").
         var details = await _db.Transactions
             .AsNoTracking()
@@ -74,7 +74,7 @@ public class ExportMyDataQueryHandler : IRequestHandler<ExportMyDataQuery, DataE
                 if (!t.InPrivateAccount && details.TryGetValue(t.Id, out var d))
                 {
                     row.Notes = d.Notes;
-                    row.BankEntry = d.BankEntry;
+                    row.StatementMatch = d.BankEntry;
                 }
                 return row;
             })
@@ -99,6 +99,8 @@ public class ExportMyDataQueryHandler : IRequestHandler<ExportMyDataQuery, DataE
                 {
                     row.PaymentTransactionId = null;
                     row.PaymentPayee = null;
+                    row.PaidOn = null;
+                    row.PaidAmount = null;
                 }
                 return row;
             })
@@ -127,6 +129,41 @@ public class ExportMyDataQueryHandler : IRequestHandler<ExportMyDataQuery, DataE
             }))
             .ToList();
 
+        var jarIds = jarNames.Keys.ToList();
+        var history = (await _db.JarRevisions
+                .AsNoTracking()
+                .Where(r => jarIds.Contains(r.JarId))
+                .ToListAsync(cancellationToken))
+            .OrderBy(r => jarNames[r.JarId]).ThenBy(r => r.EffectiveFrom)
+            .Select(r => new ExportedJarRevision
+            {
+                JarId = r.JarId,
+                JarName = jarNames[r.JarId],
+                EffectiveFrom = r.EffectiveFrom,
+                Kind = r.Kind,
+                TargetAmount = r.TargetAmount,
+                TargetDate = r.TargetDate,
+                CycleDeadline = r.CycleDeadline,
+                Accrual = r.Accrual,
+                MonthlyContribution = r.MonthlyContribution,
+                IncludeDeadlineMonth = r.IncludeDeadlineMonth,
+                RecurMonths = r.RecurMonths,
+            })
+            .ToList();
+        var archived = (await _db.JarArchivePeriods
+                .AsNoTracking()
+                .Where(p => jarIds.Contains(p.JarId))
+                .ToListAsync(cancellationToken))
+            .OrderBy(p => jarNames[p.JarId]).ThenBy(p => p.ArchivedOn)
+            .Select(p => new ExportedJarArchivePeriod
+            {
+                JarId = p.JarId,
+                JarName = jarNames[p.JarId],
+                ArchivedOn = p.ArchivedOn,
+                RestoredOn = p.RestoredOn,
+            })
+            .ToList();
+
         return new DataExport
         {
             ExportedUtc = DateTime.UtcNow,
@@ -139,6 +176,8 @@ public class ExportMyDataQueryHandler : IRequestHandler<ExportMyDataQuery, DataE
             Jars = jars,
             JarCycles = cycles,
             JarMovements = movements,
+            JarHistory = history,
+            JarArchivePeriods = archived,
             AllocationProfile = allocation,
         };
     }

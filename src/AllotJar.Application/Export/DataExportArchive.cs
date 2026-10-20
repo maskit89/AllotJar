@@ -81,14 +81,14 @@ public static class DataExportArchive
 
         var transactions = new Csv("id", "date", "type", "payee", "amount", "currency", "original_amount", "original_currency",
             "budget_amount", "account", "transfer_account", "budget_line", "budget_month", "person", "split", "bank_reference",
-            "transfer_status", "departed_on", "received_on", "returned_on", "fee", "refund_of_id", "notes", "bank_entry");
+            "transfer_status", "departed_on", "received_on", "returned_on", "fee", "refund_of_id", "notes", "statement_match");
         var splits = new Csv("transaction_id", "date", "payee", "budget_line", "person", "amount");
         foreach (var t in e.Transactions)
         {
             transactions.Row(t.Id, t.Date, t.Type, t.Payee, t.Amount, t.Currency, t.OriginalAmount, t.OriginalCurrency,
                 t.BudgetAmount, t.AccountName, t.TransferAccountName, t.BudgetItemName, MonthKey(t.BudgetItemYear, t.BudgetItemMonth),
                 t.MemberName, t.IsSplit, t.BankReference, t.TransferStatus, t.DepartedOn, t.ReceivedOn, t.ReturnedOn, t.Fee,
-                t.RefundOfTransactionId, t.Notes, t.BankEntry);
+                t.RefundOfTransactionId, t.Notes, t.StatementMatch);
             foreach (var s in t.Splits)
             {
                 splits.Row(t.Id, t.Date, t.Payee, s.BudgetItemName, s.MemberName, s.Amount);
@@ -141,6 +141,22 @@ public static class DataExportArchive
         }
         yield return ("jar-movements.csv", movements);
 
+        var history = new Csv("jar_id", "jar", "effective_from", "kind", "target", "target_date", "cycle_deadline", "accrual",
+            "monthly_contribution", "include_deadline_month", "repeats_every_months");
+        foreach (var r in e.JarHistory)
+        {
+            history.Row(r.JarId, r.JarName, r.EffectiveFrom, r.Kind, r.TargetAmount, r.TargetDate, r.CycleDeadline, r.Accrual,
+                r.MonthlyContribution, r.IncludeDeadlineMonth, r.RecurMonths);
+        }
+        yield return ("jar-history.csv", history);
+
+        var archived = new Csv("jar_id", "jar", "archived_on", "restored_on");
+        foreach (var a in e.JarArchivePeriods)
+        {
+            archived.Row(a.JarId, a.JarName, a.ArchivedOn, a.RestoredOn);
+        }
+        yield return ("jar-archive-periods.csv", archived);
+
         var rules = new Csv("order", "type", "split", "fixed_amount_per_person");
         foreach (var r in e.AllocationProfile?.Rules ?? [])
         {
@@ -166,12 +182,15 @@ public static class DataExportArchive
         accounts.csv                accounts, bank details and balances
         people.csv                  the people in the household
         household-access.csv        who can sign in to the household
-        transactions.csv            every transaction, with notes and the bank's text
+        transactions.csv            every transaction, with notes and the statement date, amount and
+                                    direction it was matched on when imported
         transaction-splits.csv      the parts of split transactions
         budget-lines.csv            every budget month, group and line
         jars.csv                    jars and their balances
         jar-cycles.csv              each jar's past deadlines and how they ended
         jar-movements.csv           money put into, moved between and taken out of jars
+        jar-history.csv             each jar's earlier targets and schedules, from the date they applied
+        jar-archive-periods.csv     the times a jar was archived and then restored
         allocation-rules.csv        the income allocation rules
 
         Amounts use a dot for decimals; dates are YYYY-MM-DD.

@@ -30,6 +30,21 @@ describe('DownloadDataCard', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 
+  it('runs one download at a time, even from the keyboard', async () => {
+    let finish: () => void = () => {}
+    mockDownload.mockReturnValue(new Promise<void>((resolve) => (finish = resolve)))
+    const user = userEvent.setup()
+    render(<DownloadDataCard />)
+
+    screen.getByRole('button', { name: 'Download' }).focus()
+    await user.keyboard('{Enter}')
+    await user.keyboard('{Enter}')
+    await user.keyboard(' ')
+    expect(mockDownload).toHaveBeenCalledTimes(1)
+    finish()
+    await screen.findByRole('button', { name: 'Download' })
+  })
+
   it('says when the download could not be prepared, and lets them try again', async () => {
     mockDownload.mockRejectedValueOnce(new Error('500')).mockResolvedValueOnce(undefined)
     const user = userEvent.setup()

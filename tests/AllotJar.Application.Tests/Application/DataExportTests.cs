@@ -148,13 +148,13 @@ public class DataExportTests
                 new CreateTransferCommand(June10, 200m, joint, mine, ReceivedOn: June10), CancellationToken.None);
         }
 
-        // Notes and the bank's own text, which no screen lists; one on each side.
+        // Notes and the statement match, which no screen lists; one on each side.
         await using (var db = new ApplicationDbContext(_options))
         {
             foreach (var t in db.Transactions)
             {
                 t.Notes = $"note {t.Payee}";
-                t.BankEntry = $"bank text {t.Payee}";
+                t.BankEntry = $"2026-06-10|{t.Amount}|D";
             }
             await db.SaveChangesAsync();
         }
@@ -174,10 +174,10 @@ public class DataExportTests
         onTheLine.AccountId.Should().BeNull("P56: the others never receive a private account's id");
         onTheLine.AccountName.Should().Be("Private account");
         onTheLine.Notes.Should().BeNull("its notes are Sam's");
-        onTheLine.BankEntry.Should().BeNull("the bank's text would name the private account");
+        onTheLine.StatementMatch.Should().BeNull("it is a row of the private account's statement");
         var transfer = export.Transactions.Single(t => t.Type == TransactionType.Transfer);
         transfer.TransferAccountId.Should().BeNull();
-        transfer.BankEntry.Should().BeNull();
+        transfer.StatementMatch.Should().BeNull();
         export.Transactions.Single(t => t.Payee.StartsWith("=HYPERLINK")).Notes.Should().NotBeNull("Chris's own entry keeps its notes");
 
         // Nothing in any file of the zip names, numbers or points at Sam's account.
@@ -203,11 +203,11 @@ public class DataExportTests
         export.Accounts.Single(a => a.Name == "Sam's secret savings").Iban.Should().Be(SamsIban);
         var pharmacy = export.Transactions.Single(t => t.Payee == "Pharmacy");
         pharmacy.Notes.Should().Be("note Pharmacy");
-        pharmacy.BankEntry.Should().Be("bank text Pharmacy");
+        pharmacy.StatementMatch.Should().Be("2026-06-10|40|D");
 
         var files = Unzip(DataExportArchive.Build(export));
         files["accounts.csv"].Should().Contain(SamsIban);
-        files["transactions.csv"].Should().Contain("bank text Pharmacy");
+        files["transactions.csv"].Should().Contain("2026-06-10|40|D");
     }
 
     [Fact]
@@ -221,7 +221,7 @@ public class DataExportTests
         files.Keys.Should().BeEquivalentTo(
             "README.txt", "allotjar-data.json", "profile.csv", "accounts.csv", "people.csv", "household-access.csv",
             "transactions.csv", "transaction-splits.csv", "budget-lines.csv", "jars.csv", "jar-cycles.csv",
-            "jar-movements.csv", "allocation-rules.csv");
+            "jar-movements.csv", "jar-history.csv", "jar-archive-periods.csv", "allocation-rules.csv");
 
         using var json = JsonDocument.Parse(files["allotjar-data.json"]);
         json.RootElement.GetProperty("profile").GetProperty("email").GetString().Should().Be("chris-login@example.com");
@@ -232,6 +232,25 @@ public class DataExportTests
         files["budget-lines.csv"].Should().Contain("2026-06,Food,Expense,Groceries,300");
         files["people.csv"].Should().Contain("Chris").And.Contain("Sam");
         files["accounts.csv"].Split("\r\n")[1].Should().StartWith(export.Accounts[0].Id + ",Joint,Current,EUR,1000");
+    }
+
+    [Fact]
+    public async Task A_jars_earlier_settings_and_archived_spells_are_in_the_download()
+    {
+        var (joint, _, _) = await SeedAsync();
+        await using (var db = new ApplicationDbContext(_options))
+        {
+            var jar = new Jar { OwnerId = Household, Name = "Holiday", Kind = JarKind.Goal, TargetAmount = 900m, FundingAccountId = joint };
+            db.Jars.Add(jar);
+            db.JarRevisions.Add(new JarRevision { JarId = jar.Id, EffectiveFrom = new DateOnly(2026, 3, 1), Kind = JarKind.Goal, TargetAmount = 600m });
+            db.JarArchivePeriods.Add(new JarArchivePeriod { JarId = jar.Id, ArchivedOn = new DateOnly(2026, 4, 2), RestoredOn = new DateOnly(2026, 5, 1) });
+            await db.SaveChangesAsync();
+        }
+
+        var files = Unzip(DataExportArchive.Build(await ExportAsync(Chris)));
+
+        files["jar-history.csv"].Should().Contain(",Holiday,2026-03-01,Goal,600,");
+        files["jar-archive-periods.csv"].Should().Contain(",Holiday,2026-04-02,2026-05-01");
     }
 
     [Fact]
