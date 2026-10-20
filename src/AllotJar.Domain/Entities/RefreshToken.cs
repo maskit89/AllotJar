@@ -18,6 +18,20 @@ public class RefreshToken
     public DateTime CreatedUtc { get; set; }
     public DateTime ExpiresUtc { get; set; }
 
+    /// <summary>
+    /// The sign-in this token belongs to: set when a sign-in issues its first token and carried to
+    /// every token that replaces it, so one device's chain of rotations reads as one session.
+    /// </summary>
+    public Guid SessionId { get; set; }
+
+    /// <summary>When the sign-in began. No token of the session outlives it by more than the
+    /// session's maximum age, however often it is used.</summary>
+    public DateTime SessionStartedUtc { get; set; }
+
+    /// <summary>The device the sign-in was made on, as "Safari on iPhone" (read from the browser's
+    /// user agent); null when unknown. Shown on Account settings' list of signed-in devices.</summary>
+    public string? Device { get; set; }
+
     /// <summary>Set when the token is rotated on use, or revoked (logout / theft response).</summary>
     public DateTime? RevokedUtc { get; set; }
 

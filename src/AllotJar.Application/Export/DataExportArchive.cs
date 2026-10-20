@@ -55,6 +55,13 @@ public static class DataExportArchive
             .Row(p.Email, p.FirstName, p.LastName, p.DisplayName, p.EmailConfirmed,
                 p.ConsentedUtc, p.HasPassword, p.GoogleConnected, p.PreferredCurrency, p.NumberFormat, p.Household, p.Role));
 
+        var signIns = new Csv("device", "signed_in_utc", "last_used_utc");
+        foreach (var s in e.SignIns)
+        {
+            signIns.Row(s.Device, s.SignedInUtc, s.LastUsedUtc);
+        }
+        yield return ("sign-ins.csv", signIns);
+
         var accounts = new Csv("id", "name", "type", "currency", "opening_balance", "opening_date", "balance", "balance_as_of",
             "in_transit_out", "in_transit_in", "iban", "bic", "sort_code", "account_number", "holders", "private");
         foreach (var a in e.Accounts)
@@ -179,6 +186,7 @@ public static class DataExportArchive
 
         {JsonFile}          everything below in one file
         profile.csv                 your sign-in details and preferences
+        sign-ins.csv                the devices you are signed in on, and when each was last used
         accounts.csv                accounts, bank details and balances
         people.csv                  the people in the household
         household-access.csv        who can sign in to the household

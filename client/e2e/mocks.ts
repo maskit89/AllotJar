@@ -328,6 +328,16 @@ function monthReport(year: number, month: number) {
 }
 
 /** Stub every /api call so the SPA renders content without a backend. */
+/** The e2e login's signed-in devices (GET /auth/sessions), this one first, last used relative to now. */
+export function signedInDevices() {
+  const ago = (days: number) => new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString()
+  return [
+    { id: 's1', device: 'Chrome on Windows', startedUtc: ago(20), lastActiveUtc: ago(0), current: true },
+    { id: 's2', device: 'AllotJar app on iPhone', startedUtc: ago(40), lastActiveUtc: ago(1), current: false },
+    { id: 's3', device: 'Safari on Mac', startedUtc: ago(70), lastActiveUtc: ago(12), current: false },
+  ]
+}
+
 export async function mockApi(route: Route) {
   const path = new URL(route.request().url()).pathname.replace(/^\/api/, '')
   const json = (body: unknown) =>
@@ -339,6 +349,8 @@ export async function mockApi(route: Route) {
     return route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ error: 'No session.' }) })
   }
   if (path === '/auth/me') return json(meResponse())
+  // Account settings' signed-in devices: this one first.
+  if (path === '/auth/sessions') return json(signedInDevices())
   if (path === '/access/members') return json(memberships())
   // D7: "Send again" on People answers whether the email went out.
   if (/^\/access\/members\/[^/]+\/resend$/.test(path)) return json({ emailSent: true })
