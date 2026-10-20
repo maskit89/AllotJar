@@ -56,7 +56,7 @@ test.describe('the legal pages in the warm look', () => {
     // The card: the h1, then "Last updated", then the prose, inside the one article.
     const card = page.getByRole('main').getByRole('article')
     await expect(card.getByRole('heading', { level: 1 })).toHaveText('Privacy Policy')
-    await expect(card.getByText('Last updated: 1 July 2026')).toBeVisible()
+    await expect(card.getByText('Last updated: 20 October 2026')).toBeVisible()
     await expect(card.getByRole('heading', { level: 2, name: 'Who we are' })).toBeVisible()
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)
 
