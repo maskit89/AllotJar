@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using FluentValidation;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Accounts;
 
@@ -20,6 +21,10 @@ public static partial class BankIdentifiers
     public static bool IsValidSortCode(string? value) => value is null || SortCodePattern().IsMatch(NormalizeSortCode(value)!);
     public static bool IsValidAccountNumber(string? value) => value is null || AccountNumberPattern().IsMatch(NormalizeAccountNumber(value)!);
 
+    /// <summary>False for a card number (<see cref="CardNumberMask.IsCardNumber"/>), spaces and hyphens ignored.</summary>
+    public static bool IsNotACardNumber(string? value) =>
+        NormalizeAccountNumber(value)?.Replace("-", "") is not string compact || !CardNumberMask.IsCardNumber(compact);
+
     /// <summary>The shared FluentValidation rules for the four optional fields.</summary>
     public static void Apply<T>(AbstractValidator<T> validator,
         Func<T, string?> iban, Func<T, string?> bic, Func<T, string?> sortCode, Func<T, string?> accountNumber)
@@ -32,6 +37,9 @@ public static partial class BankIdentifiers
             .WithMessage("Enter a valid sort code (six digits, e.g. 12-34-56).");
         validator.RuleFor(x => accountNumber(x)).Must(IsValidAccountNumber).WithName("AccountNumber")
             .WithMessage("Enter a valid account number (4 to 34 letters or digits).");
+        // Compliance fix 12: no card number is ever stored, and this is where one is most likely typed.
+        validator.RuleFor(x => accountNumber(x)).Must(IsNotACardNumber).WithName("AccountNumber")
+            .WithMessage("That looks like a card number. Enter only its last four digits.");
     }
 
     private static string? Compact(string? value)

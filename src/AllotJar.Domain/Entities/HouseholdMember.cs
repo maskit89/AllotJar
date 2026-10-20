@@ -16,6 +16,7 @@ public class HouseholdMember : BaseEntity, IVersioned
     /// <summary>Identity user id that owns the household this member belongs to.</summary>
     public string OwnerId { get; set; } = string.Empty;
 
+    [MaskCardNumbers]
     public string Name { get; set; } = string.Empty;
 
     /// <summary>

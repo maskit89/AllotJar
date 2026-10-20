@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
@@ -12,6 +13,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Common;
 using AllotJar.Domain.Entities;
+using AllotJar.Domain.Services;
 using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Infrastructure.Persistence;
@@ -159,6 +161,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)
     {
+        MaskCardNumbers();
         GuardPrivateAccountsAsync(CancellationToken.None).GetAwaiter().GetResult();
         TouchEditedRecords();
         using var held = HoldJarAccountsAsync(CancellationToken.None).GetAwaiter().GetResult();
@@ -169,6 +172,7 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
 
     public override async Task<int> SaveChangesAsync(bool acceptAllChangesOnSuccess, CancellationToken cancellationToken = default)
     {
+        MaskCardNumbers();
         await GuardPrivateAccountsAsync(cancellationToken);
         TouchEditedRecords();
         await using var held = await HoldJarAccountsAsync(cancellationToken);
@@ -178,6 +182,38 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
             await held.CommitAsync(cancellationToken);
         }
         return saved;
+    }
+
+    private static readonly ConcurrentDictionary<Type, string[]> MaskedProperties = new();
+
+    /// <summary>
+    /// Compliance fix 12: no card number is ever stored. Every text a person types or a statement
+    /// supplies (<see cref="MaskCardNumbersAttribute"/>) is masked to its last four digits as it is
+    /// added or changed, whichever handler wrote it, so the entity the caller returns reads as stored.
+    /// </summary>
+    private void MaskCardNumbers()
+    {
+        foreach (var entry in ChangeTracker.Entries())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified))
+            {
+                continue;
+            }
+            foreach (var name in MaskedProperties.GetOrAdd(entry.Entity.GetType(), static type => type
+                         .GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                         .Where(p => p.PropertyType == typeof(string) && p.IsDefined(typeof(MaskCardNumbersAttribute), true))
+                         .Select(p => p.Name)
+                         .ToArray()))
+            {
+                var property = entry.Property(name);
+                if ((entry.State == EntityState.Added || property.IsModified)
+                    && property.CurrentValue is string text
+                    && CardNumberMask.Mask(text) is var masked && !ReferenceEquals(masked, text))
+                {
+                    property.CurrentValue = masked;
+                }
+            }
+        }
     }
 
     /// <summary>

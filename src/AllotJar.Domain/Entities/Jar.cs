@@ -28,6 +28,7 @@ public class Jar : BaseEntity, IVersioned
     /// <summary>Identity user id that owns this fund (the household).</summary>
     public string OwnerId { get; set; } = string.Empty;
 
+    [MaskCardNumbers]
     public string Name { get; set; } = string.Empty;
 
     public JarKind Kind { get; set; } = JarKind.Recurring;
