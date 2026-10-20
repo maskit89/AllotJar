@@ -140,6 +140,25 @@ public class RoleMatrixTests
         response.StatusCode.Should().Be(OK, $"reads are open to all roles, including {role}");
     }
 
+    /// <summary>Compliance fix 4: every access level can download its data, as a zip.</summary>
+    [Theory]
+    [InlineData(HouseholdRole.Owner)]
+    [InlineData(HouseholdRole.Admin)]
+    [InlineData(HouseholdRole.Limited)]
+    [InlineData(HouseholdRole.ReadOnly)]
+    public async Task Download_my_data_is_open_to_every_role(HouseholdRole role)
+    {
+        using var client = _fixture.CreateClient();
+        using var response = await HttpApiFixture.SendAsync(
+            client, HttpMethod.Get, "/api/export", _fixture.TokenFor(role));
+        response.StatusCode.Should().Be(OK, $"{role} may download what it can see");
+        response.Content.Headers.ContentType!.MediaType.Should().Be("application/zip");
+        response.Content.Headers.ContentDisposition!.FileName.Should().StartWith("allotjar-data-");
+        response.Headers.CacheControl!.NoStore.Should().BeTrue();
+        var zip = await response.Content.ReadAsByteArrayAsync();
+        zip.Take(2).Should().Equal((byte)'P', (byte)'K');
+    }
+
     // ------------------------------------------------------------------------------------------
 
     /// <summary>
