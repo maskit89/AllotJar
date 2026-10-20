@@ -750,6 +750,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("CreatedUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Device")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime>("ExpiresUtc")
                         .HasColumnType("datetime2");
 
@@ -758,6 +762,12 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                         .HasColumnType("nvarchar(200)");
 
                     b.Property<DateTime?>("RevokedUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime>("SessionStartedUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("TokenHash")
