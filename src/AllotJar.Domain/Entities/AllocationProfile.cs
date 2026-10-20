@@ -14,6 +14,7 @@ public class AllocationProfile : BaseEntity, IVersioned
 
     public string OwnerId { get; set; } = string.Empty;
 
+    [MaskCardNumbers]
     public string Name { get; set; } = string.Empty;
 
     /// <summary>

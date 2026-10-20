@@ -16,6 +16,7 @@ public class BudgetItem : BaseEntity, IVersioned
     public Guid BudgetCategoryId { get; set; }
     public BudgetCategory BudgetCategory { get; set; } = null!;
 
+    [MaskCardNumbers]
     public string Name { get; set; } = string.Empty;
 
     /// <summary>The amount the user has assigned/planned for this line this month.</summary>

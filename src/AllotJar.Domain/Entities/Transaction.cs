@@ -108,8 +108,10 @@ public class Transaction : BaseEntity, IVersioned
 
     public DateOnly Date { get; set; }
 
+    [MaskCardNumbers]
     public string Payee { get; set; } = string.Empty;
 
+    [MaskCardNumbers]
     public string? Notes { get; set; }
 
     /// <summary>

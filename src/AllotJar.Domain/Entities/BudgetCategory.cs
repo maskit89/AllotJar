@@ -16,6 +16,7 @@ public class BudgetCategory : BaseEntity, IVersioned
     public Guid BudgetMonthId { get; set; }
     public BudgetMonth BudgetMonth { get; set; } = null!;
 
+    [MaskCardNumbers]
     public string Name { get; set; } = string.Empty;
 
     /// <summary>Whether this group holds income sources or planned expenses.</summary>
