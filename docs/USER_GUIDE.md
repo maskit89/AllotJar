@@ -64,6 +64,7 @@ AllotJar's big banner tracks that goal live as you type.
 - Your session is kept alive securely in the background, so you stay signed in between visits without re-entering your password.
 - Forgot your password? Use the **Forgot password?** link on the sign-in card — we'll email you a reset link (valid for 2 hours). Setting a new password signs you out everywhere else and signs you straight in on the device you used.
 - Prefer not to manage a password? Use **Continue with Google** on the sign-in card — it both signs you in and, the first time, creates your account (you'll just confirm the Terms). If you already have a password account with the same Google email, signing in with Google links to it, so either method works from then on. A Google-only account has no password; to add one later, use **Set a password** on the Password row of **Account settings** (it takes you to **Forgot password**, which emails you a link to set one).
+- Added a passkey in **Account settings**? Then signing in with your password, with Google or through a reset link also asks for it: **Confirm with your passkey** opens your device's fingerprint, face or PIN prompt, or the password manager that saved it. **Sign in with a passkey** on the sign-in card skips the password altogether. Away from your passkey, **Use a recovery code** takes one of the codes you saved; each works once. Lost every passkey and every code? Write to privacy@allotjar.com.
 
 ### The layout: sidebar, top bar and your account menu
 
@@ -407,6 +408,7 @@ Open the menu under your name and choose **Account settings**. On a wide screen 
 
 - **Password** — **Change** opens a dialog to set a new password: your current one, then the new one twice (at least 8 characters). The other devices you're signed in on are signed out; this one stays signed in. A Google-only login has no password yet: **Set a password** takes you to **Forgot password**, which emails you a link to set one.
 - **Google** — shown when your login is connected to Google. **Disconnect** is behind its **⋯**; it stays unavailable while Google is your only way to sign in, until you set a password.
+- **Passkeys** — **Add** saves a passkey on this device (its fingerprint, face or PIN, or your password manager), and from then on signing in also asks for one. Each passkey shows the device it was added on, with **Remove**. The first one gives you 10 **recovery codes** to save (**Copy** or **Download**); they are shown only once. **Recovery codes** shows how many are left, and **New codes** replaces them all. Adding, removing and new codes first ask you to confirm it's you, with a passkey, your password or a recovery code, unless you signed in within the last 10 minutes. Removing the last passkey switches the step off and your codes stop working. Each change is emailed to you.
 
 **Your data**:
 

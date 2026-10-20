@@ -396,6 +396,31 @@ test.describe('Account settings', () => {
         await expectNoViolations(page)
       })
 
+      test('the passkey rows, and the recovery codes and Confirm it\'s you dialogs', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/passkeys$/, (route) =>
+          route.request().method() === 'GET'
+            ? route.fulfill(json({ passkeys: [{ id: 'k1', name: 'Safari on iPhone', createdUtc: '2026-10-12T08:00:00Z' }], recoveryCodesLeft: 2 }))
+            : route.fallback(),
+        )
+        await page.route(/\/api\/auth\/passkeys\/recovery-codes$/, (route) =>
+          route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'x', proof: { password: true, passkey: true, recoveryCode: true } }) }),
+        )
+        await openAccount(page)
+        const signIn = page.getByRole('region', { name: 'Sign-in' })
+        await expect(signIn.getByRole('heading', { name: 'Safari on iPhone' })).toBeVisible()
+        await expect(signIn.getByText('2 left')).toBeVisible()
+        await expectNoViolations(page)
+
+        await signIn.getByRole('button', { name: 'New codes' }).click()
+        const confirm = page.getByRole('dialog', { name: "Confirm it's you" })
+        await expect(confirm.getByRole('button', { name: 'Use passkey' })).toBeVisible()
+        await expectNoViolations(page)
+        await confirm.getByRole('button', { name: 'Use your password' }).click()
+        await expect(confirm.getByLabel('Password')).toBeVisible()
+        await expectNoViolations(page)
+      })
+
       test('the Delete account dialog, its password entered', async ({ page }) => {
         await authedSetup(page, theme)
         await page.route(/\/api\/auth\/delete-preview$/, (route) =>

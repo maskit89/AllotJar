@@ -9,6 +9,7 @@ import {
   isAccessTokenExpired,
 } from '../lib/api'
 import { broadcastSignOut, onSignOutBroadcast } from '../lib/authChannel'
+import { getPasskey, type SecondStep } from '../lib/passkeys'
 import { setMoneyFormat, detectLocaleDefaults, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
 import { HouseholdRole, type AuthResponse, type HouseholdSummary, type MeResponse, type PreferencesResponse } from '../types'
 
@@ -105,9 +106,17 @@ interface AuthState {
   /** Marks the email confirmed in live state (the confirm-email page calls this on its 204), so the
    *  banner clears on the next client-side render rather than waiting for a token change or reload. */
   markEmailConfirmed: () => void
-  login: (email: string, password: string) => Promise<void>
-  /** Exchanges a Google ID token for a session; resolves with whether the account was just created. */
-  loginWithGoogle: (credential: string) => Promise<{ isNewAccount: boolean }>
+  /** Signs in, or resolves the passkey step a login with a passkey answers first (no session yet). */
+  login: (email: string, password: string) => Promise<{ secondStep?: SecondStep }>
+  /** Exchanges a Google ID token for a session; resolves with whether the account was just created,
+   *  or with the passkey step to answer first. */
+  loginWithGoogle: (credential: string) => Promise<{ isNewAccount: boolean; secondStep?: SecondStep }>
+  /** "Sign in with a passkey": the device offers its AllotJar passkeys; one answering signs in. */
+  signInWithPasskey: () => Promise<void>
+  /** Answers the passkey step with the device's passkey; signs in. */
+  answerWithPasskey: (step: SecondStep) => Promise<void>
+  /** Answers the passkey step with a recovery code instead; signs in. */
+  answerWithRecoveryCode: (step: SecondStep, code: string) => Promise<void>
   /** Resolves { verificationPending: true } when the email already had an UNVERIFIED account (a
    *  claim link was emailed and NO session was created); otherwise signs in and resolves {}. */
   register: (input: RegisterInput) => Promise<{ verificationPending?: boolean }>
@@ -115,8 +124,9 @@ interface AuthState {
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>
   /** Requests a reset email. Resolves on 204 whether or not the account exists (no enumeration). */
   forgotPassword: (email: string) => Promise<void>
-  /** Redeems an emailed reset token; a successful reset signs this device in. */
-  resetPassword: (email: string, token: string, newPassword: string) => Promise<void>
+  /** Redeems an emailed reset token; a successful reset signs this device in, or, for a login with a
+   *  passkey, resolves the passkey step to answer first. */
+  resetPassword: (email: string, token: string, newPassword: string) => Promise<{ secondStep?: SecondStep }>
   updatePreferences: (input: PreferencesInput) => Promise<void>
   logout: () => void
   /** Signs the login out on every device, this one included, then goes to the sign-in page. */
@@ -124,6 +134,21 @@ interface AuthState {
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
+
+/** A sign-in answered for a login with a passkey: no session yet, the passkey step instead. */
+interface SecondStepResponse {
+  passkeyRequired: true
+  ticket: string
+  options: string
+}
+
+function isSecondStep(data: unknown): data is SecondStepResponse {
+  return (data as SecondStepResponse | null)?.passkeyRequired === true
+}
+
+function toStep(data: SecondStepResponse): SecondStep {
+  return { ticket: data.ticket, options: data.options }
+}
 
 // Who is signed in (email, name, role) is never kept in the browser's storage: it is read from the
 // server on load (D2, client P3-8). These keys held it in older versions and are cleared on start.
@@ -376,7 +401,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [token])
 
   async function login(email: string, password: string) {
-    const { data } = await api.post<AuthResponse>('/auth/login', { email, password })
+    const { data } = await api.post<AuthResponse | SecondStepResponse>('/auth/login', { email, password })
+    if (isSecondStep(data)) return { secondStep: toStep(data) }
+    apply(data)
+    return {}
+  }
+
+  async function signInWithPasskey() {
+    const { data: start } = await api.post<{ ceremony: string; options: string }>('/auth/passkey-sign-in/options')
+    const credential = await getPasskey(start.options)
+    const { data } = await api.post<AuthResponse>('/auth/passkey-sign-in', { ceremony: start.ceremony, credential })
+    apply(data)
+  }
+
+  async function answerWithPasskey(step: SecondStep) {
+    const credential = await getPasskey(step.options)
+    const { data } = await api.post<AuthResponse>('/auth/second-step/passkey', { ticket: step.ticket, credential })
+    apply(data)
+  }
+
+  async function answerWithRecoveryCode(step: SecondStep, code: string) {
+    const { data } = await api.post<AuthResponse>('/auth/second-step/recovery-code', { ticket: step.ticket, code })
     apply(data)
   }
 
@@ -384,11 +429,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Send the sign-up form's money defaults along (euro, locale-detected format) — applied only if this sign-in
     // CREATES the account (register-form parity; the server ignores them otherwise).
     const localeDefaults = detectLocaleDefaults()
-    const { data } = await api.post<AuthResponse>('/auth/google', {
+    const { data } = await api.post<AuthResponse | SecondStepResponse>('/auth/google', {
       credential,
       preferredCurrency: localeDefaults.currency,
       numberFormat: localeDefaults.numberFormat,
     })
+    if (isSecondStep(data)) return { isNewAccount: false, secondStep: toStep(data) }
     apply(data)
     return { isNewAccount: data.isNewAccount === true }
   }
@@ -470,10 +516,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function resetPassword(email: string, token: string, newPassword: string) {
     // Like change-password, the server revokes every other session and answers with a fresh
     // token + cookie for this device — adopt it so the user lands signed in.
-    const { data } = await api.post<AuthResponse>('/auth/reset-password', { email, token, newPassword })
-    if (data?.token) apply(data)
+    const { data } = await api.post<AuthResponse | SecondStepResponse>('/auth/reset-password', { email, token, newPassword })
     // The emailed link is how a direct-invite login chooses its own password (S-P2-3).
     setMustChangePassword(false)
+    // The password is set, but a login with a passkey answers it before this device signs in.
+    if (isSecondStep(data)) return { secondStep: toStep(data) }
+    if (data?.token) apply(data)
+    return {}
   }
 
   async function switchHousehold(ownerId: string) {
@@ -606,6 +655,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       deleteAccount,
       login,
       loginWithGoogle,
+      signInWithPasskey,
+      answerWithPasskey,
+      answerWithRecoveryCode,
       register,
       acceptInvite,
       changePassword,

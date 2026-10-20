@@ -81,7 +81,13 @@ public class ExportController : ControllerBase
             .Select(s => new ExportedSignIn(s.Device, s.StartedUtc, s.LastActiveUtc))
             .ToList();
 
-        var export = await _mediator.Send(new ExportMyDataQuery(profile, SignIns: signIns), ct);
+        // Its passkeys: where and when each was added (the keys themselves are not personal data to hand over).
+        var passkeys = (await _userManager.GetPasskeysAsync(user))
+            .OrderBy(p => p.CreatedAt)
+            .Select(p => new ExportedPasskey(p.Name, p.CreatedAt.UtcDateTime))
+            .ToList();
+
+        var export = await _mediator.Send(new ExportMyDataQuery(profile, SignIns: signIns, Passkeys: passkeys), ct);
         // Never cached: it is personal data, and a second download should be today's.
         Response.Headers.CacheControl = "no-store";
         return File(DataExportArchive.Build(export), "application/zip", DataExportArchive.FileName(export.ExportedUtc));

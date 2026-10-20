@@ -7,13 +7,16 @@ import { useSubmitFocusReturn } from '../lib/useSubmitFocusReturn'
 import { InfoHint } from '../components/InfoHint'
 import { Button, Input } from '../components/ui'
 import { EVENTS, track } from '../analytics'
+import { PasskeyStep } from '../components/PasskeyStep'
+import type { SecondStep } from '../lib/passkeys'
 
 const MISMATCH = "Those passwords don't match."
 
 /**
  * Redeems the emailed reset link (?email=…&token=…). A successful reset signs this device
  * straight in — the user just proved control of the account's email. A dead/mangled link gets a
- * clear path to requesting a fresh one instead of a dead end.
+ * clear path to requesting a fresh one instead of a dead end. A login with a passkey answers it
+ * after the reset before it signs in (the inbox alone never gets past it).
  */
 export function ResetPasswordPage() {
   // A signed-in visitor (a direct-invite login opening its emailed link) is still restoring its
@@ -33,6 +36,7 @@ export function ResetPasswordPage() {
   // The server said the token is dead — offer a fresh link instead of a retry loop.
   const [linkDead, setLinkDead] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [secondStep, setSecondStep] = useState<SecondStep | null>(null)
   const formRef = useSubmitFocusReturn(busy)
   // The mismatch belongs to the confirm field: it is marked invalid and described by the message.
   const mismatch = error === MISMATCH
@@ -46,8 +50,13 @@ export function ResetPasswordPage() {
     }
     setBusy(true)
     try {
-      await resetPassword(email, token, password)
+      const { secondStep: step } = await resetPassword(email, token, password)
       track(EVENTS.passwordResetCompleted)
+      // The new password is set; a login with a passkey answers it before this device signs in.
+      if (step) {
+        setSecondStep(step)
+        return
+      }
       navigate('/', { replace: true })
     } catch (err) {
       if (axios.isAxiosError(err)) {
@@ -75,7 +84,14 @@ export function ResetPasswordPage() {
 
   return (
     <AuthFrame>
-      {!linkComplete ? (
+      {secondStep ? (
+        <PasskeyStep
+          step={secondStep}
+          onSignedIn={() => navigate('/', { replace: true })}
+          // The password is already changed: starting over is signing in with it.
+          onRestart={() => navigate('/login', { replace: true })}
+        />
+      ) : !linkComplete ? (
         <>
           <AuthTitle
             hint={
@@ -162,11 +178,13 @@ export function ResetPasswordPage() {
         </>
       )}
 
-      <div className="auth-foot">
-        <Link to="/login" className="auth-link">
-          Back to sign in
-        </Link>
-      </div>
+      {!secondStep && (
+        <div className="auth-foot">
+          <Link to="/login" className="auth-link">
+            Back to sign in
+          </Link>
+        </div>
+      )}
     </AuthFrame>
   )
 }

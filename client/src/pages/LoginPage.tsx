@@ -1,8 +1,10 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, KeyRound } from 'lucide-react'
 import { useAuth } from '../auth/AuthContext'
 import { GoogleSignInButton } from '../components/GoogleSignInButton'
+import { PasskeyStep } from '../components/PasskeyStep'
+import { passkeyError, passkeysSupported, type SecondStep } from '../lib/passkeys'
 import axios from 'axios'
 import { AuthFrame, AuthTitle } from '../components/AuthFrame'
 import { useSubmitFocusReturn } from '../lib/useSubmitFocusReturn'
@@ -14,7 +16,7 @@ import { safeInternalPath } from '../lib/returnUrl'
 import { EVENTS, track } from '../analytics'
 
 export function LoginPage() {
-  const { login, register, loginWithGoogle } = useAuth()
+  const { login, register, loginWithGoogle, signInWithPasskey } = useAuth()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
@@ -51,12 +53,43 @@ export function LoginPage() {
   const [googleReady, setGoogleReady] = useState(false)
   // The submit is disabled while busy, which drops keyboard focus; it comes back when an error shows.
   const formRef = useSubmitFocusReturn(busy)
+  // The password or Google was right, and the login's passkey answers next (fix 14).
+  const [secondStep, setSecondStep] = useState<{ step: SecondStep; method: 'password' | 'google' } | null>(null)
+  // Only where the browser can use a passkey at all; computed once.
+  const [canUsePasskey] = useState(passkeysSupported)
+
+  function signedIn(method: 'password' | 'google' | 'passkey') {
+    track(EVENTS.login, { method })
+    navigate(returnUrl ?? '/', { replace: true })
+  }
+
+  async function onPasskeySignIn() {
+    if (busy) return
+    setError(null)
+    setBusy(true)
+    try {
+      await signInWithPasskey()
+      signedIn('passkey')
+    } catch (err) {
+      const message = passkeyError(err)
+      if (message) {
+        track(EVENTS.loginFailed, { method: 'passkey' })
+        setError(message)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
 
   async function onGoogleCredential(credential: string) {
     setError(null)
     setBusy(true)
     try {
-      const { isNewAccount } = await loginWithGoogle(credential)
+      const { isNewAccount, secondStep: step } = await loginWithGoogle(credential)
+      if (step) {
+        setSecondStep({ step, method: 'google' })
+        return
+      }
       track(isNewAccount ? EVENTS.signUp : EVENTS.login, { method: 'google' })
       navigate(returnUrl ?? '/', { replace: true })
     } catch (err) {
@@ -83,7 +116,11 @@ export function LoginPage() {
     setBusy(true)
     try {
       if (mode === 'login') {
-        await login(email, password)
+        const { secondStep: step } = await login(email, password)
+        if (step) {
+          setSecondStep({ step, method: 'password' })
+          return
+        }
       } else {
         const result = await register({
           email,
@@ -156,7 +193,16 @@ export function LoginPage() {
           <p role="status">Your account has been deleted.</p>
         </div>
       )}
-      {claimPending ? (
+      {secondStep ? (
+        <PasskeyStep
+          step={secondStep.step}
+          onSignedIn={() => signedIn(secondStep.method)}
+          onRestart={() => {
+            setSecondStep(null)
+            setPassword('')
+          }}
+        />
+      ) : claimPending ? (
         <div role="status" className="auth-form">
           <AuthTitle
             as="h2"
@@ -374,13 +420,20 @@ export function LoginPage() {
 
           {/* Google sign-in: one button serves both modes (it signs in, or creates the account). The
               "or" shows only once Google's button is on the page. */}
-          <div className={`auth-gwrap${googleReady ? ' is-ready' : ''}`}>
-            {googleReady && (
+          <div className={`auth-gwrap${googleReady || (canUsePasskey && !registering) ? ' is-ready' : ''}`}>
+            {(googleReady || (canUsePasskey && !registering)) && (
               <div className="auth-or" aria-hidden="true">
                 or
               </div>
             )}
             <GoogleSignInButton onCredential={onGoogleCredential} onReady={() => setGoogleReady(true)} />
+            {/* A passkey signs in on its own (it is two factors in one); none is made at sign-up. */}
+            {canUsePasskey && !registering && (
+              <Button type="button" variant="secondary" onClick={() => void onPasskeySignIn()} disabled={busy} className="auth-pill gap-2">
+                <KeyRound aria-hidden strokeWidth={1.8} className="size-4" />
+                Sign in with a passkey
+              </Button>
+            )}
           </div>
         </>
       )}

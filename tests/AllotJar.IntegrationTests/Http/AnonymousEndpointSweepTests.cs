@@ -50,6 +50,11 @@ public class AnonymousEndpointSweepTests
         "POST api/auth/reset-password",
         "POST api/auth/confirm-email",
         "POST api/auth/google",
+        // Passkey sign-in and the second step: each refuses without a live ceremony or ticket.
+        "POST api/auth/passkey-sign-in/options",
+        "POST api/auth/passkey-sign-in",
+        "POST api/auth/second-step/passkey",
+        "POST api/auth/second-step/recovery-code",
         "GET api/features",
         "GET api/dev/emails",
     };

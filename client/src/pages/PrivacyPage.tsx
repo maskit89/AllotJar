@@ -85,6 +85,11 @@ export function PrivacyPage() {
           used, so you can see and sign out your devices in Account settings.
         </li>
         <li>
+          <strong>Passkeys, if you add one</strong>: the passkey’s public key (your fingerprint, face
+          or PIN never leaves your device), the device it was added on and the date, and your
+          recovery codes, stored only as hashes.
+        </li>
+        <li>
           <strong>Technical data</strong>: our web server logs each request with its IP address and
           browser type, and when something breaks an error report is emailed to us, which can
           include your email address.
@@ -204,6 +209,10 @@ export function PrivacyPage() {
           device name, is deleted within {SIGN_IN_RECORD_DAYS} days of its last use.
         </li>
         <li>
+          <strong>Passkeys and recovery codes</strong>: until you remove them or delete your
+          account.
+        </li>
+        <li>
           <strong>Invitations</strong>: an invitation link works for 7 days. One nobody accepts is
           deleted, with the email address it was sent to, {INVITE_GRACE_DAYS} days after its link
           expires.
@@ -226,7 +235,8 @@ export function PrivacyPage() {
         Everything travels encrypted (TLS). Passwords and sign-in tokens are stored only as hashes,
         bank details on your accounts are encrypted in our database, backups are encrypted before
         they leave our server, and sign-in is protected by rate limits,
-        a lockout after repeated wrong passwords and a check against known breached passwords. No
+        a lockout after repeated wrong passwords and a check against known breached passwords. You
+        can add a passkey so signing in also needs your device. No
         system is perfectly secure; if a breach puts your data at risk, we will tell you and the
         regulator as the law requires.
       </p>

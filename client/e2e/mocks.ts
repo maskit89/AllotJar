@@ -351,6 +351,8 @@ export async function mockApi(route: Route) {
   if (path === '/auth/me') return json(meResponse())
   // Account settings' signed-in devices: this one first.
   if (path === '/auth/sessions') return json(signedInDevices())
+  // Account settings' passkeys: none yet, so the Sign-in card offers to add one.
+  if (path === '/auth/passkeys') return json({ passkeys: [], recoveryCodesLeft: 0 })
   if (path === '/access/members') return json(memberships())
   // D7: "Send again" on People answers whether the email went out.
   if (/^\/access\/members\/[^/]+\/resend$/.test(path)) return json({ emailSent: true })

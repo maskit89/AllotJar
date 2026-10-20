@@ -227,6 +227,22 @@ public class DataExportTests
     }
 
     [Fact]
+    public async Task The_login_s_passkeys_are_in_the_zip_by_device_and_date()
+    {
+        await SeedAsync();
+        var export = await ExportAsync(Chris);
+        export.Passkeys = [new ExportedPasskey("Chrome on Windows", new DateTime(2026, 6, 2, 9, 15, 0))];
+
+        var files = Unzip(DataExportArchive.Build(export));
+
+        files["passkeys.csv"].Should().Contain("added_on_device,added_utc")
+            .And.Contain("Chrome on Windows,2026-06-02T09:15:00Z");
+        using var json = JsonDocument.Parse(files["allotjar-data.json"]);
+        json.RootElement.GetProperty("passkeys")[0].GetProperty("name").GetString().Should().Be("Chrome on Windows");
+        files["README.txt"].Should().Contain("passkeys.csv");
+    }
+
+    [Fact]
     public async Task The_zip_holds_one_json_file_a_csv_per_table_and_a_readme()
     {
         await SeedAsync();
@@ -235,7 +251,7 @@ public class DataExportTests
         var files = Unzip(DataExportArchive.Build(export));
 
         files.Keys.Should().BeEquivalentTo(
-            "README.txt", "allotjar-data.json", "profile.csv", "sign-ins.csv", "accounts.csv", "people.csv", "household-access.csv",
+            "README.txt", "allotjar-data.json", "profile.csv", "sign-ins.csv", "passkeys.csv", "accounts.csv", "people.csv", "household-access.csv",
             "transactions.csv", "transaction-splits.csv", "budget-lines.csv", "jars.csv", "jar-cycles.csv",
             "jar-movements.csv", "jar-history.csv", "jar-archive-periods.csv", "allocation-rules.csv");
 
