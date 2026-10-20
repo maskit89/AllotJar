@@ -6,7 +6,10 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * The KPI row (restyle PR 3): one green hero tile with the screen's gold number, then up to two
  * plain tiles. It lays itself out by its own width (a container query), so it reads the same in
  * the phone frame, beside the desktop sidebar and on a wide screen:
- *  - from 640px: one row, the hero half again as wide as each tile; a plain tile's icon shows
+ *  - from 640px: one row, the hero 1.55 times as wide as each tile (the split of the two-column
+ *    cards under it, so with one tile both edges line up with them); with two tiles, from a 1100px
+ *    row (a 1440px screen) the hero keeps that left column's width and the tiles share the right
+ *    one (narrower rows would squeeze the tiles' numbers); a plain tile's icon shows
  *    from 720px (a third of a narrower row has no room for it beside a five-figure number), and
  *    its number steps up to 30px from 850px;
  *  - narrower: the hero across the top, the two tiles side by side under it (or, when there is
@@ -20,12 +23,12 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  * `onGrid`: the row sits on a grid of equal columns below it (the Jars page's jars, with the same
  * 24px gap): two columns from 640px and three from 900px, the hero over two of them there.
  * `thirds`: the hero and two tiles on a grid of three equal columns (the Accounts page's cards)
- * from 900px; from 640px one row as the default (the hero half again as wide as each tile). With
+ * from 900px; from 640px one row as the default (the hero 1.55 times as wide as each tile). With
  * no tiles (`tiles={0}`) on the default grid or `thirds` the hero takes the whole row, so nothing
  * sits beside an empty slot; on `onGrid` it keeps its two of three columns (the caller adds its
  * own span, as the Account detail page does).
  * `halves`: the hero and one tile on two equal columns from 640px (the People page's person cards,
- * with the same 24px gap), instead of the hero half again as wide as the tile.
+ * with the same 24px gap), instead of the hero 1.55 times as wide as the tile.
  * `wide`: the grid below adds columns on a wide screen, and the row follows it: with `onGrid`
  * four columns from 1400px (the hero and the tile two each), five from 1800px (the hero three) and
  * six from 2200px (the hero four); with `thirds` four, five and six columns, the hero over all but
@@ -53,13 +56,13 @@ export function KpiRow({
     : thirds
     ? tiles === 0
       ? '@min-[640px]:[&>:first-child]:col-span-2'
-      : '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[900px]:grid-cols-3'
+      : '@min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[900px]:grid-cols-3'
     : onGrid
     ? '@min-[640px]:grid-cols-2 @min-[900px]:grid-cols-3 @min-[900px]:[&>:first-child]:col-span-2'
     : tiles === 2
-      ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1fr)]'
+      ? '@min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[1100px]:grid-cols-[calc((100%-24px)*1.55/2.55)_minmax(0,1fr)_minmax(0,1fr)]'
       : tiles === 1
-        ? '@min-[640px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]'
+        ? '@min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)]'
         : // The hero alone (the Help page, restyle PR 13): across the whole row at every width.
           '@min-[640px]:[&>:first-child]:col-span-2'
   const wider = !wide
