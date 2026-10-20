@@ -6,7 +6,7 @@ namespace AllotJar.Infrastructure.Statements;
 
 /// <summary>
 /// The reference a statement row without a bank reference gets: a prefix, a hash of the row's own
-/// content (its signature) and "#N" for the Nth identical row, so a re-import or an overlapping
+/// content (its signature) and "#N" for the Nth identical row ("#mN" when a card number was masked), so a re-import or an overlapping
 /// statement recognises it. The hash is taken over the signature with any card number masked
 /// (compliance fix 12): an unkeyed hash of the bank's text would let a card number the statement
 /// printed be recovered from the stored reference by trying the few digits the masked payee
@@ -30,7 +30,9 @@ internal sealed class SignatureReferences(string prefix)
             // As before fix 12, to the character: the occurrence counts over the bank's text.
             return ($"{prefix}{ShortHash(signature)}#{rawIndex}", null);
         }
-        return ($"{prefix}{ShortHash(masked)}#{maskedIndex}", $"{prefix}{ShortHash(signature)}#{rawIndex}");
+        // "#m": a row the statement printed already masked hashes over the same text, and the two
+        // must never share a reference (the second would be skipped as the first's duplicate).
+        return ($"{prefix}{ShortHash(masked)}#m{maskedIndex}", $"{prefix}{ShortHash(signature)}#{rawIndex}");
     }
 
     private static int Count(Dictionary<string, int> occurrences, string signature)

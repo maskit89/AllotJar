@@ -79,13 +79,33 @@ public class CardNumberImportTests
         var withCard = parser.Parse(Statement).Entries;
         var alreadyMasked = parser.Parse(Statement.Replace(Card, Masked)).Entries;
 
-        // The reference is what the same row printed already masked gets: it holds nothing the
-        // masked payee doesn't. A row with no card number keeps its reference to the character.
-        withCard[0].Reference.Should().Be(alreadyMasked[0].Reference);
+        // The reference is hashed over what the same row printed already masked reads (marked "#m"
+        // so the two never share one): it holds nothing the masked payee doesn't. A row with no card number keeps its reference to the character.
+        withCard[0].Reference.Should().Be(alreadyMasked[0].Reference.Replace("#0", "#m0"));
         withCard[1].Reference.Should().Be(alreadyMasked[1].Reference);
         withCard[1].LegacyReference.Should().BeNull();
         // What imports before the fix stored (hashed over the bank's text) is kept to recognise them.
         withCard[0].LegacyReference.Should().NotBeNull().And.NotBe(withCard[0].Reference);
+    }
+
+    [Fact]
+    public async Task ThePurchasePrintedOnceWithTheFullCard_AndOnceMasked_IsTwoRows()
+    {
+        await using var db = NewContext();
+        var account = SeedAccount(db, "Current", 500m);
+        var statement = $"""
+            19/06/2026,AMAZON MKTP {Card}   * 17/06/2026 •••• •••• •••• 4242 -35.00 EUR,-35.00
+            19/06/2026,AMAZON MKTP {Masked}   * 17/06/2026 •••• •••• •••• 4242 -35.00 EUR,-35.00
+            """;
+
+        var preview = await PreviewAsync(db, statement, account.Id);
+
+        preview.Items.Should().HaveCount(2, "two printed rows are two transactions");
+        preview.Items.Select(i => i.Reference).Should().OnlyHaveUniqueItems();
+        preview.SkippedDuplicates.Should().Be(0);
+        await NewCommit(db).Handle(new CommitImportCommand(account.Id, preview.Items.Select(Plain).ToList()), CancellationToken.None);
+        (await db.Transactions.CountAsync()).Should().Be(2);
+        (await PreviewAsync(db, statement, account.Id)).SkippedDuplicates.Should().Be(2);
     }
 
     [Theory]
