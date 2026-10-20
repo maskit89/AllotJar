@@ -28,9 +28,9 @@ const ANALYTICS_RETENTION = '2 months'
 // The Gmail alert inbox has none (consumer Gmail), so Google's bullet says so; move the alerts to a
 // mailbox with a DPA before charging.
 const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement except where noted]'
-// The safeguard for the US transfer: the EU-US Data Privacy Framework if InterServer is
-// certified, otherwise Standard Contractual Clauses signed with it.
-const TRANSFER_SAFEGUARD = '[TO CONFIRM: the Data Privacy Framework or Standard Contractual Clauses]'
+// InterServer's privacy policy carries an EU-U.S. DPF statement (effective 1 Jan 2026), as
+// processor too; Cloudflare and Google are certified as well (checked 20 Oct 2026).
+const TRANSFER_SAFEGUARD = 'the EU-US Data Privacy Framework, under which each of these providers is certified'
 
 export function PrivacyPage() {
   return (
