@@ -159,8 +159,10 @@ export function PrivacyPage() {
       <h2>How long we keep it</h2>
       <ul>
         <li>
-          <strong>Your account and budget</strong>: until you delete your account. Deleting it
-          removes them from the live database at once.
+          <strong>Your account and budget</strong>: until you delete your account. Deleting it at
+          once removes your sign-in, your own budget with everything in it, and your private
+          accounts in households you joined. In a household you joined, what the others could
+          already see stays, so their figures don’t change.
         </li>
         <li>
           <strong>Backups</strong>: a nightly copy of the database is kept on the server for 14 days,
@@ -195,11 +197,11 @@ export function PrivacyPage() {
       <p>Under the GDPR you can:</p>
       <ul>
         <li>
-          <strong>get a copy of your data</strong>: use “Download my data” on your Account page for a
-          copy of your household’s data in files you can also take to another service;
+          <strong>get a copy of your data</strong>: use “Download my data” in Account settings for
+          everything you can see in your household, as JSON and CSV files you can take elsewhere;
         </li>
         <li>
-          <strong>delete your account</strong>: use “Delete my account” on your Account page;
+          <strong>delete your account</strong>: use “Delete account” in Account settings;
         </li>
         <li>correct anything that is wrong, which you can mostly do in the app yourself;</li>
         <li>restrict or object to how we use your data;</li>

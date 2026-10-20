@@ -40,8 +40,8 @@ describe('PrivacyPage', () => {
   it('covers GDPR data-subject rights, with the in-app export and delete', () => {
     render(<PrivacyPage />)
     expect(screen.getByRole('heading', { name: /your rights/i })).toBeInTheDocument()
-    expect(screen.getByText(/download my data/i)).toBeInTheDocument()
-    expect(screen.getByText(/delete my account/i)).toBeInTheDocument()
+    expect(screen.getByText(/“Download my data” in Account settings/)).toBeInTheDocument()
+    expect(screen.getByText(/“Delete account” in Account settings/)).toBeInTheDocument()
   })
 
   // Compliance fix 6: the policy names what the app really does with data.
