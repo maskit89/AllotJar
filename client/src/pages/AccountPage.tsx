@@ -12,6 +12,7 @@ import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../compo
 import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog'
 import { LeaveHouseholdDialog } from '../components/settings/LeaveHouseholdDialog'
+import { DownloadDataCard } from '../components/settings/DownloadDataCard'
 import { GoogleMark, OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, SAVE_BUTTON, Tile } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -46,7 +47,7 @@ const LOCK_NOTE = 'Your budget currency is fixed once your budget has accounts, 
  * Last name fields of the same form. On the right: Household (who shares the budget, "Just you"
  * when alone, "Your own budget" for someone with none, Leave household behind the ⋯) and Sign-in
  * (the password, changed in a dialog or set by the forgot-password flow; Google, disconnected from
- * its ⋯). Phones: the same cards in one column.
+ * its ⋯) and Your data (Download my data, a zip of all you can see). Phones: the same cards in one column.
  *
  * Nothing here is role-gated: every access level edits its own preferences and password, starts a
  * budget of its own and leaves a household it joined.
@@ -657,6 +658,8 @@ export function AccountPage() {
                 </p>
               )}
             </section>
+
+            <DownloadDataCard />
           </div>
         </div>
       </div>
