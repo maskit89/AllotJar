@@ -521,8 +521,10 @@ public partial class AuthController : ControllerBase
         }
 
         // RemoveLoginAsync rotated the stamp, killing this device's access token — re-issue so the
-        // user stays signed in (a fresh JWT carries the new stamp; the cookie is rotated too).
-        await IssueRefreshCookieAsync(user.Id, ct);
+        // user stays signed in (a fresh JWT carries the new stamp; the cookie is rotated too). The
+        // sign-in carries on rather than starting again: disconnecting proves nothing, so it must not
+        // count as a recent sign-in that lets passkeys change without proof.
+        await ContinueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
     }
 
@@ -551,7 +553,16 @@ public partial class AuthController : ControllerBase
         var user = await _userManager.FindByIdAsync(result.UserId);
         var stamp = user is null ? null : await _userManager.GetSecurityStampAsync(user);
         var (token, expiresAt) = _tokenGenerator.Generate(result.UserId, result.Email, stamp);
-        await IssueRefreshCookieAsync(result.UserId, ct);
+        // A new login has just set its password: a sign-in. A signed-in login accepting carries on
+        // with the sign-in it has, which proved nothing new (see ContinueRefreshCookieAsync).
+        if (result.CreatedNewLogin)
+        {
+            await IssueRefreshCookieAsync(result.UserId, ct);
+        }
+        else
+        {
+            await ContinueRefreshCookieAsync(result.UserId, ct);
+        }
         return Ok(new AuthResponse(token, expiresAt, result.UserId, result.Email, result.Role, result.DisplayName));
     }
 
@@ -1187,6 +1198,34 @@ public partial class AuthController : ControllerBase
 
         var raw = await _refreshTokens.IssueAsync(userId, CurrentDevice(), ct);
         SetRefreshCookie(raw);
+    }
+
+    /// <summary>
+    /// Keeps this device's sign-in going under a new cookie, after a change that needs a fresh access
+    /// token but proved nothing (disconnecting Google, accepting an invite while signed in). The
+    /// sign-in keeps its start, so it counts as recent only if it was, and its 90-day cap holds.
+    /// No cookie, or one that no longer works, gets none: a bare access token never starts a sign-in.
+    /// </summary>
+    private async Task ContinueRefreshCookieAsync(string userId, CancellationToken ct)
+    {
+        var current = Request.Cookies[RefreshCookieName];
+        if (string.IsNullOrEmpty(current))
+        {
+            return;
+        }
+
+        var rotated = await _refreshTokens.RotateAsync(current, CurrentDevice(), ct);
+        if (!rotated.Succeeded)
+        {
+            return;
+        }
+        if (rotated.UserId != userId)
+        {
+            // Another login's cookie on this browser: end what was just made rather than hand it over.
+            await _refreshTokens.RevokeAsync(rotated.NewRawToken!, ct);
+            return;
+        }
+        SetRefreshCookie(rotated.NewRawToken!, rotated.ExpiresUtc);
     }
 
     /// <summary>The device this request comes from, as the list of signed-in devices names it.</summary>

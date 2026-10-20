@@ -1,14 +1,20 @@
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Options;
 
 namespace AllotJar.Infrastructure.Identity;
 
 /// <summary>
 /// The one-time codes that stand in for a passkey when the device holding it is lost (fix 14). A
-/// login gets <see cref="Count"/> when it adds its first passkey and sees them once; only their
-/// SHA-256 hashes are kept, in the login's Identity token row. Identity's own recovery codes are
-/// stored as typed, so these are kept separately.
+/// login gets <see cref="Count"/> when it adds its first passkey and sees them once; only keyed
+/// hashes are kept, in the login's Identity token row. Identity's own recovery codes are stored as
+/// typed, so these are kept separately.
+///
+/// The hash is an HMAC under a key derived from Jwt:Key, which lives in the server's settings file
+/// and never in the database or its backups: a code has about 50 bits, few enough that a plain
+/// hash taken from a leaked copy could be guessed back. Changing Jwt:Key voids every code (signing
+/// in again with a passkey and choosing New codes gives fresh ones).
 /// </summary>
 public sealed class RecoveryCodes
 {
@@ -22,15 +28,21 @@ public sealed class RecoveryCodes
     private const int HalfLength = 5;
 
     private readonly UserManager<ApplicationUser> _users;
+    private readonly byte[] _key;
 
-    public RecoveryCodes(UserManager<ApplicationUser> users) => _users = users;
+    public RecoveryCodes(UserManager<ApplicationUser> users, IOptions<JwtSettings> jwt)
+    {
+        _users = users;
+        _key = HKDF.DeriveKey(HashAlgorithmName.SHA256, Encoding.UTF8.GetBytes(jwt.Value.Key), 32,
+            info: Encoding.UTF8.GetBytes("AllotJar recovery codes"));
+    }
 
     /// <summary>Makes a fresh set, voiding any the login held, and returns them to show once.</summary>
     public async Task<IReadOnlyList<string>> ReplaceAsync(ApplicationUser user)
     {
         var codes = Enumerable.Range(0, Count).Select(_ => Generate()).ToList();
         var result = await _users.SetAuthenticationTokenAsync(
-            user, TokenProvider, TokenName, string.Join(';', codes.Select(Hash)));
+            user, TokenProvider, TokenName, string.Join(';', codes.Select(c => Hash(user, c))));
         if (!result.Succeeded)
         {
             throw new InvalidOperationException(
@@ -54,7 +66,7 @@ public sealed class RecoveryCodes
         }
 
         var hashes = await HashesAsync(user);
-        var hash = Hash(normalized);
+        var hash = Hash(user, normalized);
         var match = hashes.FirstOrDefault(h =>
             CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(h), Encoding.ASCII.GetBytes(hash)));
         if (match is null)
@@ -94,6 +106,7 @@ public sealed class RecoveryCodes
     private static string Normalize(string? code) =>
         new((code ?? string.Empty).Where(char.IsLetterOrDigit).Select(char.ToLowerInvariant).ToArray());
 
-    private static string Hash(string code) =>
-        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(Normalize(code))));
+    /// <summary>Keyed, and tied to the login, so the same code on two logins never hashes the same.</summary>
+    private string Hash(ApplicationUser user, string code) =>
+        Convert.ToHexString(HMACSHA256.HashData(_key, Encoding.UTF8.GetBytes($"{user.Id}:{Normalize(code)}")));
 }

@@ -43,6 +43,7 @@ public sealed class PasskeyCeremonies
     }
 
     private readonly ConcurrentDictionary<string, Entry> _entries = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<(string UserId, Guid SessionId), DateTimeOffset> _proofs = new();
     private readonly TimeProvider _time;
 
     public PasskeyCeremonies(TimeProvider time) => _time = time;
@@ -82,6 +83,22 @@ public sealed class PasskeyCeremonies
         }
     }
 
+    /// <summary>
+    /// Remembers that a login proved it is them on one sign-in, for <see cref="Lifetime"/>, so a
+    /// closed device prompt straight after can be tried again without giving the proof twice
+    /// (which would use up a second recovery code). Tied to the sign-in, not the login, so a
+    /// proof on one device lets nothing through on another.
+    /// </summary>
+    public void GrantProof(string userId, Guid sessionId)
+    {
+        Prune();
+        _proofs[(userId, sessionId)] = _time.GetUtcNow() + Lifetime;
+    }
+
+    /// <summary>True while a proof given on this sign-in still holds.</summary>
+    public bool HasProof(string userId, Guid sessionId) =>
+        _proofs.TryGetValue((userId, sessionId), out var until) && until > _time.GetUtcNow();
+
     private void Prune()
     {
         var now = _time.GetUtcNow();
@@ -90,6 +107,13 @@ public sealed class PasskeyCeremonies
             if (entry.Ceremony.ExpiresAt <= now)
             {
                 _entries.TryRemove(id, out _);
+            }
+        }
+        foreach (var (key, until) in _proofs)
+        {
+            if (until <= now)
+            {
+                _proofs.TryRemove(key, out _);
             }
         }
     }

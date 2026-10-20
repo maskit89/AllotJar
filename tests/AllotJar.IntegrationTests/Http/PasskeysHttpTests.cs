@@ -28,9 +28,9 @@ public class PasskeysHttpTests
         public void Dispose() => Client.Dispose();
     }
 
-    private async Task<Login> RegisterAsync()
+    private async Task<Login> RegisterAsync(HttpClient? on = null)
     {
-        var client = _fixture.CreateClient();
+        var client = on ?? _fixture.CreateClient();
         client.DefaultRequestHeaders.UserAgent.ParseAdd(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36");
         var email = $"pk-{Guid.NewGuid():N}"[..16] + "@passkeys.test";
@@ -54,12 +54,13 @@ public class PasskeysHttpTests
     }
 
     /// <summary>Adds a passkey on <paramref name="login"/>'s device; returns the recovery codes it came with (null after the first).</summary>
-    private static async Task<List<string>?> AddPasskeyAsync(Login login, SoftAuthenticator authenticator, object? proof = null)
+    private static async Task<List<string>?> AddPasskeyAsync(
+        Login login, SoftAuthenticator authenticator, object? proof = null, string origin = SoftAuthenticator.Origin)
     {
         var (ceremony, options) = await CeremonyAsync(await HttpApiFixture.SendAsync(
             login.Client, HttpMethod.Post, "/api/auth/passkeys/options", login.Token, new { proof }));
         var add = await HttpApiFixture.SendAsync(login.Client, HttpMethod.Post, "/api/auth/passkeys", login.Token,
-            new { ceremony, credential = authenticator.Create(options) });
+            new { ceremony, credential = authenticator.Create(options, origin) });
         add.StatusCode.Should().Be(HttpStatusCode.OK, await add.Content.ReadAsStringAsync());
         var codes = (await HttpApiFixture.ReadJsonAsync(add)).RootElement.GetProperty("recoveryCodes");
         return codes.ValueKind == JsonValueKind.Null ? null : codes.EnumerateArray().Select(c => c.GetString()!).ToList();
@@ -362,5 +363,99 @@ public class PasskeysHttpTests
         var hijack = await HttpApiFixture.SendAsync(other.Client, HttpMethod.Post, "/api/auth/passkeys", other.Token,
             new { ceremony, credential = new SoftAuthenticator().Create(options) });
         hijack.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+    }
+
+    [Fact]
+    public async Task Behind_the_proxy_the_configured_site_is_the_passkeys_site()
+    {
+        // As on the VPS: the browser is on https://staging.allotjar.com, and IIS forwards /api to
+        // the API as plain http on 127.0.0.1. The passkey's site and origin come from the settings.
+        const string site = "https://staging.allotjar.com";
+        var client = _fixture.CreateClient(b => b.UseSetting("Email:AppBaseUrl", site));
+        client.DefaultRequestHeaders.Host = "127.0.0.1:5001";
+        using var login = await RegisterAsync(client);
+        var authenticator = new SoftAuthenticator();
+
+        var (ceremony, options) = await CeremonyAsync(await HttpApiFixture.SendAsync(
+            client, HttpMethod.Post, "/api/auth/passkeys/options", login.Token, new { }));
+        JsonDocument.Parse(options).RootElement.GetProperty("rp").GetProperty("id").GetString().Should().Be("staging.allotjar.com");
+        var add = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/passkeys", login.Token,
+            new { ceremony, credential = authenticator.Create(options, site) });
+        add.StatusCode.Should().Be(HttpStatusCode.OK, await add.Content.ReadAsStringAsync());
+
+        // The page as the API saw it is not the site: refused.
+        var start = (await HttpApiFixture.ReadJsonAsync(await client.PostAsync("/api/auth/passkey-sign-in/options", null))).RootElement;
+        var wrong = await client.PostAsJsonAsync("/api/auth/passkey-sign-in", new
+        {
+            ceremony = start.GetProperty("ceremony").GetString(),
+            credential = authenticator.Get(start.GetProperty("options").GetString()!, "http://127.0.0.1:5001"),
+        }, HttpApiFixture.Json);
+        wrong.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        start = (await HttpApiFixture.ReadJsonAsync(await client.PostAsync("/api/auth/passkey-sign-in/options", null))).RootElement;
+        var right = await client.PostAsJsonAsync("/api/auth/passkey-sign-in", new
+        {
+            ceremony = start.GetProperty("ceremony").GetString(),
+            credential = authenticator.Get(start.GetProperty("options").GetString()!, site),
+        }, HttpApiFixture.Json);
+        right.StatusCode.Should().Be(HttpStatusCode.OK, await right.Content.ReadAsStringAsync());
+    }
+
+    [Fact]
+    public async Task Disconnecting_Google_does_not_count_as_a_recent_sign_in()
+    {
+        using var login = await RegisterAsync();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            // A confirmed address, so Google links to the password login rather than replacing it.
+            await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Users.Where(u => u.Email == login.Email)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.EmailConfirmed, true));
+        }
+        // Google with the same verified email links to the login.
+        using var google = _fixture.CreateClient();
+        var credential = "fake-google:" + JsonSerializer.Serialize(new { sub = $"g-{Guid.NewGuid():N}", email = login.Email, emailVerified = true });
+        (await google.PostAsJsonAsync("/api/auth/google", new { credential }, HttpApiFixture.Json)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // The laptop signed in with the password hours ago and was left unlocked.
+        using var laptop = _fixture.CreateClient();
+        var signIn = await PasswordSignInAsync(laptop, login);
+        await AgeSignInsAsync(login.Email);
+
+        var unlink = await HttpApiFixture.SendAsync(laptop, HttpMethod.Post, "/api/auth/google/unlink", signIn.GetProperty("token").GetString());
+        unlink.StatusCode.Should().Be(HttpStatusCode.OK, await unlink.Content.ReadAsStringAsync());
+        var token = await TokenAsync(unlink);
+        (await laptop.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.OK, "the sign-in carries on");
+
+        var add = await HttpApiFixture.SendAsync(laptop, HttpMethod.Post, "/api/auth/passkeys/options", token, new { });
+        add.StatusCode.Should().Be(HttpStatusCode.Forbidden, "disconnecting Google proved nothing");
+    }
+
+    [Fact]
+    public async Task A_proof_holds_a_few_minutes_on_its_own_sign_in_only()
+    {
+        using var login = await RegisterAsync();
+        var codes = await AddPasskeyAsync(login, new SoftAuthenticator());
+        await AgeSignInsAsync(login.Email);
+
+        // A code proves it, then the device prompt is closed: the add never finishes.
+        (await HttpApiFixture.SendAsync(login.Client, HttpMethod.Post, "/api/auth/passkeys/options", login.Token,
+            new { proof = new { recoveryCode = codes![0] } })).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Trying again needs no second code.
+        await AddPasskeyAsync(login, new SoftAuthenticator());
+        var list = (await HttpApiFixture.ReadJsonAsync(
+            await HttpApiFixture.SendAsync(login.Client, HttpMethod.Get, "/api/auth/passkeys", login.Token))).RootElement;
+        list.GetProperty("recoveryCodesLeft").GetInt32().Should().Be(RecoveryCodes.Count - 1);
+
+        // Another sign-in of the same login, as old, gets nothing from it.
+        using var elsewhere = _fixture.CreateClient();
+        var step = await PasswordSignInAsync(elsewhere, login);
+        var answer = await elsewhere.PostAsJsonAsync("/api/auth/second-step/recovery-code",
+            new { ticket = step.GetProperty("ticket").GetString(), code = codes[1] }, HttpApiFixture.Json);
+        answer.StatusCode.Should().Be(HttpStatusCode.OK, await answer.Content.ReadAsStringAsync());
+        var otherToken = await TokenAsync(answer);
+        await AgeSignInsAsync(login.Email);
+        (await HttpApiFixture.SendAsync(elsewhere, HttpMethod.Post, "/api/auth/passkeys/options", otherToken, new { }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 }

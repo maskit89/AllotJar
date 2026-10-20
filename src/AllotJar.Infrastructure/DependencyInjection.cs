@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure.Email;
@@ -143,8 +144,10 @@ public static class DependencyInjection
         // --- Passkeys (two-factor sign-in, compliance fix 14) -------------------
         // A passkey must be discoverable (so "Sign in with a passkey" needs no email) and must check
         // the person (fingerprint, face or device PIN), which is what lets it count as two factors.
-        services.Configure<IdentityPasskeyOptions>(options =>
+        // The site comes from Email:AppBaseUrl, not the request (see PasskeyOrigins).
+        services.AddOptions<IdentityPasskeyOptions>().Configure<IOptions<EmailSettings>>((options, email) =>
         {
+            options.ServerDomain = PasskeyOrigins.ServerDomain(email.Value);
             options.ResidentKeyRequirement = "required";
             options.UserVerificationRequirement = "required";
             options.AttestationConveyancePreference = "none";

@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using AllotJar.Application.Common.Interfaces;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
@@ -278,7 +279,6 @@ public partial class AuthController
             return BadRequest(new { error = "The passkey wasn't saved. Try again." });
         }
 
-        var first = (await _userManager.GetPasskeysAsync(user)).Count == 0;
         var passkey = result.Passkey;
         passkey.Name = CurrentDevice() ?? "Passkey";
         var saved = await _userManager.AddOrUpdatePasskeyAsync(user, passkey);
@@ -286,6 +286,9 @@ public partial class AuthController
         {
             return BadRequest(new { error = "The passkey wasn't saved. Try again." });
         }
+
+        // Counted after saving, so two first adds racing in two tabs can't both make codes.
+        var first = (await _userManager.GetPasskeysAsync(user)).Count == 1;
 
         var recoveryCodes = first ? await codes.ReplaceAsync(user) : null;
         _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.Added, passkey.Name);
@@ -375,7 +378,8 @@ public partial class AuthController
     {
         var current = (await _refreshTokens.ListActiveAsync(user.Id, Request.Cookies[RefreshCookieName], ct))
             .FirstOrDefault(s => s.Current);
-        if (current is not null && DateTime.UtcNow - current.StartedUtc <= RecentSignIn)
+        if (current is not null
+            && (DateTime.UtcNow - current.StartedUtc <= RecentSignIn || Ceremonies.HasProof(user.Id, current.Id)))
         {
             return null;
         }
@@ -388,7 +392,7 @@ public partial class AuthController
             if (!await _userManager.IsLockedOutAsync(user) && await _userManager.CheckPasswordAsync(user, proof.Password))
             {
                 await _userManager.ResetAccessFailedCountAsync(user);
-                return null;
+                return Proved(user, current);
             }
             // A wrong password here counts toward lockout, as at sign-in, so this is no guessing oracle.
             await _userManager.AccessFailedAsync(user);
@@ -408,7 +412,7 @@ public partial class AuthController
                 if (Ceremonies.TryTake(proof.Ceremony) && result.Succeeded && result.User.Id == user.Id)
                 {
                     await _userManager.AddOrUpdatePasskeyAsync(user, result.Passkey);
-                    return null;
+                    return Proved(user, current);
                 }
                 LogPasskeyFailure("proof", result.Failure);
             }
@@ -421,7 +425,7 @@ public partial class AuthController
             if (await codes.RedeemAsync(user, proof.RecoveryCode))
             {
                 _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.RecoveryCodeUsed, CurrentDevice());
-                return null;
+                return Proved(user, current);
             }
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "That code isn't right, or it was used already." });
         }
@@ -431,6 +435,16 @@ public partial class AuthController
             error = hasPassword || hasPasskey ? "Confirm it's you first." : "Sign in again to do this.",
             proof = new { password = hasPassword, passkey = hasPasskey, recoveryCode = hasPasskey },
         });
+    }
+
+    /// <summary>A proof was given: it holds on this sign-in for a few minutes (see <see cref="PasskeyCeremonies.GrantProof"/>).</summary>
+    private IActionResult? Proved(ApplicationUser user, ActiveSession? current)
+    {
+        if (current is not null)
+        {
+            Ceremonies.GrantProof(user.Id, current.Id);
+        }
+        return null;
     }
 
     private void LogPasskeyFailure(string step, PasskeyException? failure) =>
