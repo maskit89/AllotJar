@@ -13,20 +13,17 @@ import { LegalLayout } from './LegalLayout'
  * A value in [brackets] is a placeholder, and a test fails while any is left, so none can reach
  * production. Emails go through Cloudflare (Email:Provider on both stacks, checked 4 Oct 2026).
  */
-// The VPS data centre (InterServer control panel).
-const SERVER_LOCATION = '[TO CONFIRM: the VPS data centre]'
-// The R2 bucket's location (Cloudflare dashboard, bucket allotjar, Settings).
-const BACKUP_LOCATION = '[TO CONFIRM: the R2 bucket location]'
+// Confirmed 20 Oct 2026: InterServer's data centres are all in the US (the panel doesn't name
+// which); R2 bucket allotjar has location hint Western Europe (WEUR); GA retention 2 months; the
+// IIS/HTTPERR log clean-up task runs; error alerts go to a Gmail address (Google's bullet).
+const SERVER_LOCATION = 'the United States'
+const BACKUP_LOCATION = 'Western Europe'
 // The R2 bucket lock (allotjar-lock-rule, 60 days, whole bucket) outlasts #368's 35-day expiry
 // for db-backups-enc/, so backups stay 60 days (checked 20 Oct 2026). Lower it if the lock goes.
 const OFFSITE_BACKUP_DAYS = 60
-// IIS logs and error-alert emails; true only once the log clean-up task runs.
-const LOG_RETENTION = '[TO CONFIRM: up to 90 days, once the log clean-up runs]'
-// Google Analytics admin > Data settings > Data retention.
-const ANALYTICS_RETENTION = '[TO CONFIRM: 2 or 14 months]'
-// The mailbox ErrorAlerts:Recipient points at: its provider receives user emails in error reports.
-const ALERT_MAILBOX = '[TO CONFIRM: the error-alert mailbox provider]'
-// True only once each provider's data processing terms are accepted and filed.
+const LOG_RETENTION = 'up to 90 days'
+const ANALYTICS_RETENTION = '2 months'
+// True only once each provider's data processing terms are accepted and filed, InterServer's too.
 const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement]'
 // The safeguard for the US transfer: the EU-US Data Privacy Framework if InterServer is
 // certified, otherwise Standard Contractual Clauses signed with it.
@@ -154,11 +151,8 @@ export function PrivacyPage() {
           our emails, so it sees your email address and the message.
         </li>
         <li>
-          <strong>{ALERT_MAILBOX}</strong> hosts the mailbox our error reports go to.
-        </li>
-        <li>
-          <strong>Google</strong> confirms who you are if you choose to sign in with Google, and runs
-          analytics if you accept them.
+          <strong>Google</strong> confirms who you are if you choose to sign in with Google, runs
+          analytics if you accept them, and hosts the Gmail mailbox our error reports go to.
         </li>
       </ul>
       <p>
