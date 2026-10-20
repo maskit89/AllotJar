@@ -53,7 +53,7 @@ describe('PrivacyPage', () => {
       expect(screen.getAllByText(new RegExp(name)).length).toBeGreaterThan(0)
     }
     expect(screen.getByRole('heading', { name: /where your data is/i })).toBeInTheDocument()
-    expect(screen.getByText(/standard contractual clauses/i)).toBeInTheDocument()
+    expect(screen.getByText(/the transfer is protected by/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /how long we keep it/i })).toBeInTheDocument()
     expect(screen.getByText(/14 days/)).toBeInTheDocument()
     expect(screen.getByText(/fonts are served from our own server/i)).toBeInTheDocument()

@@ -60,7 +60,7 @@ export function PrivacyPage() {
           <strong>Your budget</strong>: the accounts, jars, budgets and transactions you enter. An
           account can hold bank details you add, such as an IBAN, BIC, sort code or account number.
           A transaction holds its date, amount, payee, notes and, when imported, the bank’s reference
-          and description.
+          for it.
         </li>
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
