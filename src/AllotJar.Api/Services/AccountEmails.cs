@@ -86,6 +86,17 @@ public sealed class AccountEmails
             email, inviterName, Link($"/accept-invite?code={Uri.EscapeDataString(rawToken)}"))), ct);
     }
 
+    /// <summary>Tells the login its passkeys or recovery codes changed, without waiting (best effort, logged on failure).</summary>
+    public void SendPasskeyNotice(string email, PasskeyNotice notice, string? device)
+    {
+        _ = Task.Run(async () =>
+        {
+            using var scope = _scopeFactory.CreateScope();
+            await TrySendAsync(scope, "a passkey notice",
+                () => Task.FromResult<EmailMessage?>(PasskeyNoticeEmail.Build(email, notice, device)), CancellationToken.None);
+        });
+    }
+
     private async Task<EmailMessage?> PasswordLinkAsync(IServiceScope scope, string email)
     {
         var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();

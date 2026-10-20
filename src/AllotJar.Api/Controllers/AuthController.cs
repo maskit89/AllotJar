@@ -25,7 +25,7 @@ namespace AllotJar.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController : ControllerBase
+public partial class AuthController : ControllerBase
 {
     /// <summary>HttpOnly cookie that carries the refresh token; scoped to the auth endpoints only.</summary>
     private const string RefreshCookieName = "zbb_rt";
@@ -260,6 +260,13 @@ public class AuthController : ControllerBase
 
         if (result.Outcome == LoginOutcome.Success)
         {
+            // A login with a passkey answers it too before this device signs in (fix 14).
+            var user = await _userManager.FindByIdAsync(result.UserId!);
+            if (user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0)
+            {
+                return await SignInOrAskForPasskeyAsync(user, ct);
+            }
+
             await IssueRefreshCookieAsync(result.UserId!, ct);
             return Ok(new AuthResponse(
                 result.Token!, result.ExpiresAtUtc, result.UserId!, result.Email!, result.Role, result.DisplayName));
@@ -279,7 +286,8 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Exchanges a verified Google ID token for an AllotJar session. Resolution order:
+    /// Exchanges a verified Google ID token for an AllotJar session (or, for a login with a passkey,
+    /// the second step to answer first). Resolution order:
     /// the Google identity link (permanent `sub`) wins; else a VERIFIED-email match auto-links to
     /// the existing account (Google attests the email, so its holder already commands the same
     /// inbox a password reset would trust); else a new passwordless account is created — same
@@ -354,9 +362,7 @@ public class AuthController : ControllerBase
             }
         }
 
-        await IssueRefreshCookieAsync(user.Id, ct);
-        var response = await BuildResponseAsync(user, ct);
-        return Ok(response with { IsNewAccount = isNewAccount });
+        return await SignInOrAskForPasskeyAsync(user, ct, response => response with { IsNewAccount = isNewAccount });
     }
 
     /// <summary>
@@ -814,8 +820,9 @@ public class AuthController : ControllerBase
         }
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
-        await IssueRefreshCookieAsync(user.Id, ct);
-        return Ok(await BuildResponseAsync(user, ct));
+        // The emailed link proves the inbox, not the person: a login with a passkey still answers it
+        // (or a recovery code) before this device signs in, so a reset never switches it off (fix 14).
+        return await SignInOrAskForPasskeyAsync(user, ct);
     }
 
     /// <summary>

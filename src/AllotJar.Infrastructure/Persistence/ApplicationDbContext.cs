@@ -1,4 +1,5 @@
 using System.Reflection;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
@@ -107,6 +108,22 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
     {
         // Identity tables first.
         base.OnModelCreating(builder);
+
+        // Passkeys (fix 14), as Identity's schema version 3 lays them out. Configured here rather
+        // than by StoreOptions.SchemaVersion, which only takes effect when the context comes from the
+        // app's services: the design-time factory and the tests' own contexts would build without it.
+        builder.Entity<IdentityUserPasskey<string>>(b =>
+        {
+            b.HasKey(p => p.CredentialId);
+            b.ToTable("AspNetUserPasskeys");
+            b.Property(p => p.CredentialId).HasMaxLength(1024);
+            b.OwnsOne(p => p.Data).ToJson();
+        });
+        builder.Entity<ApplicationUser>()
+            .HasMany<IdentityUserPasskey<string>>()
+            .WithOne()
+            .HasForeignKey(p => p.UserId)
+            .IsRequired();
 
         // Then all IEntityTypeConfiguration<T> definitions in this assembly.
         builder.ApplyConfigurationsFromAssembly(Assembly.GetExecutingAssembly());

@@ -497,6 +497,30 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
     })
 
+    // Two-factor sign-in (fix 14): the passkey step after a right password, and its recovery-code form.
+    test('the passkey step has no WCAG A/AA violations', async ({ page }) => {
+      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.route('**/api/**', mockApi)
+      await page.route(/\/api\/auth\/login$/, (route) =>
+        route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ passkeyRequired: true, ticket: 't1', options: '{"challenge":"AA","rpId":"localhost"}' }),
+        }),
+      )
+      await page.goto('/login')
+      await expect(page.getByRole('button', { name: 'Sign in with a passkey' })).toBeVisible()
+      await page.getByLabel('Email').fill('e2e@allotjar.app')
+      await page.getByLabel('Password').fill('password123')
+      await page.locator('button[type="submit"]').click()
+      await expect(page.getByRole('heading', { name: 'Confirm with your passkey' })).toBeVisible()
+      await expectNoViolations(page)
+
+      await page.getByRole('button', { name: 'Use a recovery code' }).click()
+      await page.getByLabel('Recovery code').waitFor()
+      await expectNoViolations(page)
+    })
+
     // The invite landing (public, restyle PR 9's frame): the signed-out accept form and the
     // missing-code state.
     test('accept-invite page has no WCAG A/AA violations', async ({ page }) => {

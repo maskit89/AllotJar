@@ -62,6 +62,13 @@ public static class DataExportArchive
         }
         yield return ("sign-ins.csv", signIns);
 
+        var passkeys = new Csv("added_on_device", "added_utc");
+        foreach (var k in e.Passkeys)
+        {
+            passkeys.Row(k.Name, k.AddedUtc);
+        }
+        yield return ("passkeys.csv", passkeys);
+
         var accounts = new Csv("id", "name", "type", "currency", "opening_balance", "opening_date", "balance", "balance_as_of",
             "in_transit_out", "in_transit_in", "iban", "bic", "sort_code", "account_number", "holders", "private");
         foreach (var a in e.Accounts)
@@ -187,6 +194,7 @@ public static class DataExportArchive
         {JsonFile}          everything below in one file
         profile.csv                 your sign-in details and preferences
         sign-ins.csv                the devices you are signed in on, and when each was last used
+        passkeys.csv                your passkeys: the device each was added on, and when
         accounts.csv                accounts, bank details and balances
         people.csv                  the people in the household
         household-access.csv        who can sign in to the household

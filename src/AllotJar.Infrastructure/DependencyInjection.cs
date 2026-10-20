@@ -139,6 +139,21 @@ public static class DependencyInjection
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<AccountDeletion>();
 
+        // --- Passkeys (two-factor sign-in, compliance fix 14) -------------------
+        // A passkey must be discoverable (so "Sign in with a passkey" needs no email) and must check
+        // the person (fingerprint, face or device PIN), which is what lets it count as two factors.
+        services.Configure<IdentityPasskeyOptions>(options =>
+        {
+            options.ResidentKeyRequirement = "required";
+            options.UserVerificationRequirement = "required";
+            options.AttestationConveyancePreference = "none";
+            options.AuthenticatorTimeout = PasskeyCeremonies.Lifetime;
+            options.ValidateOrigin = PasskeyOrigins.Validate;
+        });
+        services.AddScoped<IPasskeyHandler<ApplicationUser>, PasskeyHandler<ApplicationUser>>();
+        services.AddSingleton<PasskeyCeremonies>();
+        services.AddScoped<RecoveryCodes>();
+
         // Refresh tokens backing the HttpOnly-cookie session (issue / rotate / revoke).
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
 
