@@ -224,7 +224,8 @@ export function PrivacyPage() {
           everything you can see in your household, as JSON and CSV files you can take elsewhere;
         </li>
         <li>
-          <strong>delete your account</strong>: use “Delete account” in Account settings;
+          <strong>delete your account</strong>: use “Delete account” in Account settings. If others
+          share your budget, remove their access first, since the budget goes with your account;
         </li>
         <li>correct anything that is wrong, which you can mostly do in the app yourself;</li>
         <li>restrict or object to how we use your data;</li>
