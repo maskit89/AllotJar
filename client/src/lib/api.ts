@@ -162,7 +162,7 @@ export function refreshSession(): Promise<AuthResponse | null> {
 // Deliberately NOT the whole /auth/ prefix — a 401 from /auth/me, /auth/preferences or
 // /auth/change-password IS an expired session and must refresh-and-retry like any other call
 // (the blanket prefix made /account a dead end that could never prompt re-login).
-const CREDENTIAL_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/accept-invite', '/auth/logout', '/auth/forgot-password', '/auth/reset-password', '/auth/confirm-email', '/auth/google']
+const CREDENTIAL_ENDPOINTS = ['/auth/login', '/auth/register', '/auth/refresh', '/auth/accept-invite', '/auth/logout', '/auth/forgot-password', '/auth/reset-password', '/auth/confirm-email', '/auth/google', '/auth/passkey-sign-in', '/auth/second-step']
 
 // On a 401 from a normal API call, transparently refresh the access token (via the HttpOnly cookie)
 // and retry once.

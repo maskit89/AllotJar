@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure.Email;
@@ -139,6 +140,23 @@ public static class DependencyInjection
         // Application-facing wrapper over UserManager (create logins, change passwords).
         services.AddScoped<IIdentityService, IdentityService>();
         services.AddScoped<AccountDeletion>();
+
+        // --- Passkeys (two-factor sign-in, compliance fix 14) -------------------
+        // A passkey must be discoverable (so "Sign in with a passkey" needs no email) and must check
+        // the person (fingerprint, face or device PIN), which is what lets it count as two factors.
+        // The site comes from Email:AppBaseUrl, not the request (see PasskeyOrigins).
+        services.AddOptions<IdentityPasskeyOptions>().Configure<IOptions<EmailSettings>>((options, email) =>
+        {
+            options.ServerDomain = PasskeyOrigins.ServerDomain(email.Value);
+            options.ResidentKeyRequirement = "required";
+            options.UserVerificationRequirement = "required";
+            options.AttestationConveyancePreference = "none";
+            options.AuthenticatorTimeout = PasskeyCeremonies.Lifetime;
+            options.ValidateOrigin = PasskeyOrigins.Validate;
+        });
+        services.AddScoped<IPasskeyHandler<ApplicationUser>, PasskeyHandler<ApplicationUser>>();
+        services.AddSingleton<PasskeyCeremonies>();
+        services.AddScoped<RecoveryCodes>();
 
         // Refresh tokens backing the HttpOnly-cookie session (issue / rotate / revoke).
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();

@@ -25,7 +25,7 @@ namespace AllotJar.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
-public class AuthController : ControllerBase
+public partial class AuthController : ControllerBase
 {
     /// <summary>HttpOnly cookie that carries the refresh token; scoped to the auth endpoints only.</summary>
     private const string RefreshCookieName = "zbb_rt";
@@ -260,6 +260,13 @@ public class AuthController : ControllerBase
 
         if (result.Outcome == LoginOutcome.Success)
         {
+            // A login with a passkey answers it too before this device signs in (fix 14).
+            var user = await _userManager.FindByIdAsync(result.UserId!);
+            if (user is not null && (await _userManager.GetPasskeysAsync(user)).Count > 0)
+            {
+                return await SignInOrAskForPasskeyAsync(user, ct);
+            }
+
             await IssueRefreshCookieAsync(result.UserId!, ct);
             return Ok(new AuthResponse(
                 result.Token!, result.ExpiresAtUtc, result.UserId!, result.Email!, result.Role, result.DisplayName));
@@ -279,7 +286,8 @@ public class AuthController : ControllerBase
     }
 
     /// <summary>
-    /// Exchanges a verified Google ID token for an AllotJar session. Resolution order:
+    /// Exchanges a verified Google ID token for an AllotJar session (or, for a login with a passkey,
+    /// the second step to answer first). Resolution order:
     /// the Google identity link (permanent `sub`) wins; else a VERIFIED-email match auto-links to
     /// the existing account (Google attests the email, so its holder already commands the same
     /// inbox a password reset would trust); else a new passwordless account is created — same
@@ -354,9 +362,7 @@ public class AuthController : ControllerBase
             }
         }
 
-        await IssueRefreshCookieAsync(user.Id, ct);
-        var response = await BuildResponseAsync(user, ct);
-        return Ok(response with { IsNewAccount = isNewAccount });
+        return await SignInOrAskForPasskeyAsync(user, ct, response => response with { IsNewAccount = isNewAccount });
     }
 
     /// <summary>
@@ -515,8 +521,10 @@ public class AuthController : ControllerBase
         }
 
         // RemoveLoginAsync rotated the stamp, killing this device's access token — re-issue so the
-        // user stays signed in (a fresh JWT carries the new stamp; the cookie is rotated too).
-        await IssueRefreshCookieAsync(user.Id, ct);
+        // user stays signed in (a fresh JWT carries the new stamp; the cookie is rotated too). The
+        // sign-in carries on rather than starting again: disconnecting proves nothing, so it must not
+        // count as a recent sign-in that lets passkeys change without proof.
+        await ContinueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
     }
 
@@ -545,7 +553,16 @@ public class AuthController : ControllerBase
         var user = await _userManager.FindByIdAsync(result.UserId);
         var stamp = user is null ? null : await _userManager.GetSecurityStampAsync(user);
         var (token, expiresAt) = _tokenGenerator.Generate(result.UserId, result.Email, stamp);
-        await IssueRefreshCookieAsync(result.UserId, ct);
+        // A new login has just set its password: a sign-in. A signed-in login accepting carries on
+        // with the sign-in it has, which proved nothing new (see ContinueRefreshCookieAsync).
+        if (result.CreatedNewLogin)
+        {
+            await IssueRefreshCookieAsync(result.UserId, ct);
+        }
+        else
+        {
+            await ContinueRefreshCookieAsync(result.UserId, ct);
+        }
         return Ok(new AuthResponse(token, expiresAt, result.UserId, result.Email, result.Role, result.DisplayName));
     }
 
@@ -814,8 +831,9 @@ public class AuthController : ControllerBase
         }
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
-        await IssueRefreshCookieAsync(user.Id, ct);
-        return Ok(await BuildResponseAsync(user, ct));
+        // The emailed link proves the inbox, not the person: a login with a passkey still answers it
+        // (or a recovery code) before this device signs in, so a reset never switches it off (fix 14).
+        return await SignInOrAskForPasskeyAsync(user, ct);
     }
 
     /// <summary>
@@ -1180,6 +1198,36 @@ public class AuthController : ControllerBase
 
         var raw = await _refreshTokens.IssueAsync(userId, CurrentDevice(), ct);
         SetRefreshCookie(raw);
+    }
+
+    /// <summary>
+    /// Keeps this device's sign-in going under a new cookie, after a change that needs a fresh access
+    /// token but proved nothing (disconnecting Google, accepting an invite while signed in). The
+    /// sign-in keeps its start, so it counts as recent only if it was, and its 90-day cap holds.
+    /// No cookie, or one that no longer works, gets none: a bare access token never starts a sign-in.
+    /// </summary>
+    private async Task ContinueRefreshCookieAsync(string userId, CancellationToken ct)
+    {
+        var current = Request.Cookies[RefreshCookieName];
+        if (string.IsNullOrEmpty(current))
+        {
+            return;
+        }
+
+        // Only this login's own sign-in carries on: another login's cookie on this browser is left
+        // alone, as rotating it would end that sign-in and set off theft detection on its next use.
+        var sessions = await _refreshTokens.ListActiveAsync(userId, current, ct);
+        if (!sessions.Any(s => s.Current))
+        {
+            return;
+        }
+
+        var rotated = await _refreshTokens.RotateAsync(current, CurrentDevice(), ct);
+        if (!rotated.Succeeded || rotated.UserId != userId)
+        {
+            return;
+        }
+        SetRefreshCookie(rotated.NewRawToken!, rotated.ExpiresUtc);
     }
 
     /// <summary>The device this request comes from, as the list of signed-in devices names it.</summary>

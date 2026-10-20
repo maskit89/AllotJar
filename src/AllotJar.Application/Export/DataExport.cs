@@ -27,6 +27,9 @@ public record ExportProfile(
 /// <summary>A device the login is signed in on, as Account settings' Devices card lists it.</summary>
 public record ExportedSignIn(string? Device, DateTime SignedInUtc, DateTime LastUsedUtc);
 
+/// <summary>One of the login's passkeys: the device it was added on and when. Never the key itself.</summary>
+public record ExportedPasskey(string? Name, DateTime AddedUtc);
+
 /// <summary>
 /// One export: the app's own read models (so every redaction the screens apply applies here too),
 /// plus the stored details no screen lists in full — a transaction's notes and statement match, every
@@ -37,6 +40,7 @@ public class DataExport
     public DateTime ExportedUtc { get; set; }
     public ExportProfile Profile { get; set; } = null!;
     public IReadOnlyList<ExportedSignIn> SignIns { get; set; } = [];
+    public IReadOnlyList<ExportedPasskey> Passkeys { get; set; } = [];
     public IReadOnlyList<AccountDto> Accounts { get; set; } = [];
     public IReadOnlyList<HouseholdMemberDto> People { get; set; } = [];
     public IReadOnlyList<MembershipDto> HouseholdAccess { get; set; } = [];

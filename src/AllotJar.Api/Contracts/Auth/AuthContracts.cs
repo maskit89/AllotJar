@@ -153,3 +153,39 @@ public record DeleteAccountRequest(string? ConfirmEmail = null, string? Password
 /// when unknown), when it began, when the device last refreshed it, and whether it is the caller's.
 /// </summary>
 public record SessionResponse(Guid Id, string? Device, DateTime StartedUtc, DateTime LastActiveUtc, bool Current);
+
+/// <summary>
+/// A login with a passkey signed in with its password, Google or a reset link: no session yet. The
+/// client asks the device for the passkey with <paramref name="Options"/> (WebAuthn request options,
+/// JSON) and answers with <paramref name="Ticket"/>, or uses a recovery code instead.
+/// </summary>
+public record SecondStepResponse(bool PasskeyRequired, string Ticket, string Options);
+
+/// <summary>A started passkey ceremony: its id to answer with, and the WebAuthn options (JSON) for the browser.</summary>
+public record PasskeyCeremonyResponse(string Ceremony, string Options);
+
+/// <summary>The browser's answer to a ceremony: the PublicKeyCredential as JSON (WebAuthn toJSON shape).</summary>
+public record PasskeyAnswerRequest(string Ceremony, string Credential);
+
+public record SecondStepPasskeyRequest(string Ticket, string Credential);
+
+public record SecondStepRecoveryCodeRequest(string Ticket, string Code);
+
+/// <summary>
+/// Proof that the person at the keyboard is the login's owner before its passkeys or codes change:
+/// its password, one of its passkeys (a Proof ceremony answered), or a recovery code. Not needed
+/// within minutes of signing in.
+/// </summary>
+public record PasskeyProof(string? Password, string? RecoveryCode, string? Ceremony, string? Credential);
+
+public record PasskeyProofRequest(PasskeyProof? Proof);
+
+/// <summary>One of the login's passkeys. <paramref name="Id"/> is its credential id, base64url.</summary>
+public record PasskeyResponse(string Id, string? Name, DateTime CreatedUtc);
+
+public record PasskeysResponse(IReadOnlyList<PasskeyResponse> Passkeys, int RecoveryCodesLeft);
+
+/// <summary>A passkey was added. <paramref name="RecoveryCodes"/> come with the first one only, shown once.</summary>
+public record AddPasskeyResponse(PasskeyResponse Passkey, IReadOnlyList<string>? RecoveryCodes);
+
+public record RecoveryCodesResponse(IReadOnlyList<string> RecoveryCodes);

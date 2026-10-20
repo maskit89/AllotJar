@@ -67,6 +67,7 @@ powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1
 This runs IIS + module install, SQL Server Express install, the database + grant, writes `appsettings.Staging.json` with an **auto-generated `Jwt:Key`**, and registers the daily backup task (a fresh box starts as the staging stack; `Provision-Production.ps1` adds production). It's **idempotent** — if a step fails (e.g. a stale download URL), fix it and re-run; completed steps are skipped.
 
 Notes:
+- **Keep each stack's `Jwt:Key` once set.** Changing it voids every recovery code (they are hashed under a key derived from it): logins with a passkey still sign in with it, then get fresh codes with **New codes**.
 - **No domain needed.** The site binds to the server IP over HTTP; the app will be reachable at `http://<vps-ip>` after the first deploy. (Add a domain + HTTPS later — see *Adding a domain + TLS* below.)
 - Verify the **.NET 10 Hosting Bundle** URL in `Setup-Server.ps1` is current before running (Microsoft bumps the patch version). After it finishes, `dotnet --list-runtimes` should show `Microsoft.AspNetCore.App 10.x`.
 - If the SQL auto-install link 404s, install **SQL Server Express** by hand (Basic) and re-run `Bootstrap.ps1`.
