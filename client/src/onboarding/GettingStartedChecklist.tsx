@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ChevronUp } from 'lucide-react'
 import { api } from '../lib/api'
-import type { BudgetMonthDto, BudgetMonthSummaryDto, JarDto, TransactionDto } from '../types'
+import type { AccountDto, BudgetMonthDto, BudgetMonthSummaryDto, JarDto, TransactionDto } from '../types'
 import { fromDto, remainingToBudget, totalIncome } from '../budgetModel'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../components/icons'
 import { InfoHint } from '../components/InfoHint'
@@ -16,6 +16,7 @@ import { useFeatures } from '../features/FeatureContext'
 import { useOnboarding } from './OnboardingContext'
 
 interface Progress {
+  hasAccount: boolean
   monthExists: boolean
   hasIncome: boolean
   hasJar: boolean
@@ -23,7 +24,7 @@ interface Progress {
   hasTransaction: boolean
 }
 
-const EMPTY: Progress = { monthExists: false, hasIncome: false, hasJar: false, balanced: false, hasTransaction: false }
+const EMPTY: Progress = { hasAccount: false, monthExists: false, hasIncome: false, hasJar: false, balanced: false, hasTransaction: false }
 
 /** The card's two small icon buttons (collapse, dismiss): 32px, 40px for a finger on a phone. */
 const ICON_BUTTON =
@@ -99,6 +100,11 @@ export function GettingStartedChecklist() {
       .catch(() => set({ hasIncome: false, balanced: false }))
 
     api
+      .get<AccountDto[]>('/accounts')
+      .then(({ data }) => set({ hasAccount: Array.isArray(data) && data.length > 0 }))
+      .catch(() => {})
+
+    api
       .get<JarDto[]>('/jars')
       .then(({ data }) => set({ hasJar: Array.isArray(data) && data.length > 0 }))
       .catch(() => {})
@@ -128,14 +134,18 @@ export function GettingStartedChecklist() {
   const activeHousehold = households.find((h) => h.isActive)
   if (activeHousehold && !activeHousehold.isOwn) return null
 
+  // The menu's order, the order a household sets up in: an account (a jar is held in one), a jar
+  // (its contribution is planned onto each month created after it), the month, then spending.
   const steps = [
+    // Each only where its page is on: the step links to it.
+    ...(features.accounts ? [{ id: 'account', label: 'Add an account', to: '/accounts', done: progress.hasAccount }] : []),
+    ...(features.jars ? [{ id: 'jar', label: 'Add a jar', to: '/jars', done: progress.hasJar }] : []),
     { id: 'month', label: 'Create your first month', to: '/', done: progress.monthExists },
     { id: 'income', label: 'Plan your income', to: '/', done: progress.hasIncome },
-    // Only where the Jars page is on: the step links to it.
-    ...(features.jars ? [{ id: 'jar', label: 'Add a jar', to: '/jars', done: progress.hasJar }] : []),
     { id: 'balance', label: `Give every ${noun} a job`, to: '/', done: progress.balanced },
     { id: 'tx', label: 'Log your first transaction', to: '/transactions', done: progress.hasTransaction },
   ]
+  const setup = [features.accounts && 'an account', features.jars && 'a jar'].filter(Boolean).join(' and ')
   const doneCount = steps.filter((s) => s.done).length
   const allDone = doneCount === steps.length
 
@@ -165,9 +175,9 @@ export function GettingStartedChecklist() {
       <div className="flex flex-none items-center gap-1.5 pt-2.5 pr-2 pb-2 pl-4 max-[699.98px]:pt-1.5 max-[699.98px]:pb-1">
         <h2 className="text-xs font-semibold tracking-[0.05em] text-slate-500 uppercase">Getting started</h2>
         <InfoHint fixed label="About getting started" buttonClassName={ROW_HINT}>
-          Steps tick themselves off as you go. Start a month blank or from a template, add your income
-          {features.jars ? ' and a jar' : ''}, assign it all until Remaining to budget reads zero, then log
-          your spending.
+          Steps tick themselves off as you go. {setup ? `Add ${setup}, then start` : 'Start'} a month blank or from
+          a template, add your income, assign it all until Remaining to budget reads zero, then log or import your
+          spending.
         </InfoHint>
         <span className="ml-auto pr-1 text-xs font-semibold text-slate-500 tabular-nums">
           {doneCount} of {steps.length} done

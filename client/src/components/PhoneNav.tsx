@@ -37,9 +37,9 @@ const GROUP =
   'flex flex-col rounded-[14px] border border-slate-200/70 bg-card px-4 shadow-[var(--shadow-frame)] [--grp:var(--color-card)] dark:bg-surface-2 dark:shadow-none dark:[--grp:var(--color-surface-2)]'
 
 /**
- * The phone frame's navigation (below 900px): a bottom tab bar with four pages (Dashboard,
- * Transactions, Jars and Reports when their flags are on) and More, which opens a bottom sheet
- * with the remaining pages (Accounts, People, Allocation, Import, Help), the account row, the Dark
+ * The phone frame's navigation (below 900px): a bottom tab bar with four pages (Dashboard, Jars,
+ * Transactions and Reports when their flags are on) and More, which opens a bottom sheet with
+ * the remaining pages (Accounts, Import, People, Allocation, Help), the account row, the Dark
  * mode switch and Sign out. The sheet is a modal dialog: Escape or a tap outside closes it and
  * focus returns to More. The tab bar reserves its height (--tabbar-h, safe area included) so it
  * never covers the page.

@@ -181,7 +181,7 @@ describe('Onboarding on a phone', () => {
 
     // Collapsed: the quiet pill with its count, no open card.
     const pill = await screen.findByRole('button', { name: /Getting started/ })
-    expect(pill).toHaveTextContent('0 of 5')
+    expect(pill).toHaveTextContent('0 of 6')
     expect(pill).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument()
     // Collapsing is not dismissing.

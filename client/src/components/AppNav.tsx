@@ -38,8 +38,8 @@ export function SideNavLink({ item, active, onNavigate }: { item: NavItem; activ
 }
 
 /**
- * The desktop sidebar's primary navigation: Dashboard, Transactions, Jars, Accounts and Reports,
- * a divider, then People, Allocation and Import. Which of them show follows the feature flags and
+ * The desktop sidebar's primary navigation, in the order a household sets up: Dashboard,
+ * Accounts, Jars, Transactions, Import and Reports, a divider, then People and Allocation. Which of them show follows the feature flags and
  * the household (see useNavItems); Help sits in the sidebar's foot instead (AppShell). On phones
  * the same pages live in the bottom tab bar and its More sheet (PhoneNav).
  */

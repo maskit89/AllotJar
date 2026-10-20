@@ -90,7 +90,7 @@ describe('AppShell (the app frame)', () => {
     const sidebar = navs.find((n) => !n.hasAttribute('data-tabbar'))!
     await within(sidebar).findByRole('link', { name: 'Allocation' })
     const names = within(sidebar).getAllByRole('link').map((a) => a.textContent)
-    expect(names).toEqual(['Dashboard', 'Transactions', 'Jars', 'Accounts', 'Reports', 'People', 'Allocation', 'Import'])
+    expect(names).toEqual(['Dashboard', 'Accounts', 'Jars', 'Transactions', 'Import', 'Reports', 'People', 'Allocation'])
     expect(within(sidebar).getByRole('link', { name: 'People' })).toHaveAttribute('aria-current', 'page')
     expect(within(sidebar).getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current')
     // The tour's anchors are still there.
@@ -103,7 +103,7 @@ describe('AppShell (the app frame)', () => {
     const tabbar = navs.find((n) => n.hasAttribute('data-tabbar'))!
     for (const k of ['transactions', 'jars', 'reports'])
       expect(tabbar.querySelector(`[data-tour="nav-${k}"]`)).not.toBeNull()
-    expect(tabbar.querySelector('[data-tour="nav-more"]')).toHaveAttribute('data-tour-more', 'accounts people allocation import help')
+    expect(tabbar.querySelector('[data-tour="nav-more"]')).toHaveAttribute('data-tour-more', 'accounts import people allocation help')
   })
 
   it('hides Import from a login that may not change the budget', { timeout: 15000 }, async () => {
@@ -168,13 +168,13 @@ describe('AppShell (the app frame)', () => {
     await screen.findByRole('button', { name: /^Account menu: Alex Byrne/ }) // the identity has loaded
     const navs = await screen.findAllByRole('navigation', { name: 'Primary' })
     const tabbar = navs.find((n) => n.hasAttribute('data-tabbar'))!
-    expect(within(tabbar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Dashboard', 'Transactions', 'Jars', 'Reports'])
+    expect(within(tabbar).getAllByRole('link').map((a) => a.textContent)).toEqual(['Dashboard', 'Jars', 'Transactions', 'Reports'])
     const more = within(tabbar).getByRole('button', { name: 'More' })
 
     await user.click(more)
     const sheet = await screen.findByRole('dialog', { name: 'More' })
     const pages = within(sheet).getByRole('navigation', { name: 'More pages' })
-    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Accounts', 'People', 'Import', 'Help'])
+    expect(within(pages).getAllByRole('link').map((a) => a.textContent)).toEqual(['Accounts', 'Import', 'People', 'Help'])
     expect(within(pages).getByRole('link', { name: 'Accounts' })).toHaveAttribute('aria-current', 'page')
     expect(within(sheet).getByRole('link', { name: /Account settings: Alex Byrne/ })).toHaveAttribute('href', '/account')
     const sw = within(sheet).getByRole('switch', { name: 'Dark mode' })
@@ -312,15 +312,15 @@ describe('AppShell (the app frame)', () => {
 describe('splitForPhone', () => {
   const item = (key: NavKey): NavItem => ({ key, to: `/${key}`, label: key, icon: () => null, group: 'main' })
 
-  it('gives the four tabs to Dashboard, Transactions, Jars and Reports, the rest to More', () => {
-    const { tabs, more } = splitForPhone(['budget', 'transactions', 'jars', 'accounts', 'reports', 'people', 'import', 'help'].map((k) => item(k as NavKey)))
-    expect(tabs.map((t) => t.key)).toEqual(['budget', 'transactions', 'jars', 'reports'])
-    expect(more.map((t) => t.key)).toEqual(['accounts', 'people', 'import', 'help'])
+  it('gives the four tabs to Dashboard, Jars, Transactions and Reports, the rest to More, both in menu order', () => {
+    const { tabs, more } = splitForPhone(['budget', 'accounts', 'jars', 'transactions', 'import', 'reports', 'people', 'help'].map((k) => item(k as NavKey)))
+    expect(tabs.map((t) => t.key)).toEqual(['budget', 'jars', 'transactions', 'reports'])
+    expect(more.map((t) => t.key)).toEqual(['accounts', 'import', 'people', 'help'])
   })
 
   it('hands a switched-off page’s tab to the next page in line', () => {
-    const { tabs, more } = splitForPhone(['budget', 'transactions', 'accounts', 'people', 'help'].map((k) => item(k as NavKey)))
-    expect(tabs.map((t) => t.key)).toEqual(['budget', 'transactions', 'accounts', 'people'])
+    const { tabs, more } = splitForPhone(['budget', 'accounts', 'transactions', 'people', 'help'].map((k) => item(k as NavKey)))
+    expect(tabs.map((t) => t.key)).toEqual(['budget', 'accounts', 'transactions', 'people'])
     expect(more.map((t) => t.key)).toEqual(['help'])
   })
 })

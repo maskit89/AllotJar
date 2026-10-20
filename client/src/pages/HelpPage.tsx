@@ -1,15 +1,16 @@
 import { useId, useState, type CSSProperties, type ReactNode } from 'react'
 import {
   ArrowLeftRight,
-  ArrowUpRight,
   CalendarDays,
   ChartColumn,
   ChevronDown,
+  Download,
   Landmark,
   Lightbulb,
   ReceiptText,
   RotateCcw,
   Settings2,
+  Smartphone,
   Users,
 } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
@@ -21,25 +22,24 @@ import { SwitchTrack } from '../components/ThemeToggle'
 import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
 import { NEUTRAL, TxTile } from '../components/transactions/TxParts'
 import { useOnboarding } from '../onboarding/OnboardingContext'
-import { EVENTS, track } from '../analytics'
 import { useAnalytics } from '../analytics/AnalyticsProvider'
 import { useAuth } from '../auth/AuthContext'
 import { currencyNoun } from '../lib/money'
+import { useFeatures } from '../features/FeatureContext'
 
 /*
  * The Help page (restyle PR 13, the approved "polished Warm" mock-up): nothing on it is a figure,
  * so the green hero holds the one idea everything hangs on (zero-based budgeting) in the KPI row's
  * place and height, the rest of that idea behind its (i). Under it, the Dashboard's two columns:
- * the topics on the left, one card of rows that open in place to their full text, with the two
- * quiet ways to more help in its header (replaying the welcome tour, the complete user guide);
+ * the topics on the left, one card of rows that open in place to their full text, with the one
+ * quiet way to more help in its header (replaying the welcome tour; the user guide link went
+ * when the repository turned private, as its GitHub page no longer opens for anyone else);
  * and, only while the household is offered analytics (the `analytics` feature flag, which ships
  * off), the Privacy card on the right, its one row the consent switch. A phone reads them in the
  * same order: hero, topics, privacy. While that choice is still open the frame's consent banner
  * sits fixed over the foot of the screen: the page keeps its end, and any control focused from
  * the keyboard, clear of it (see BANNER_PAD).
  */
-
-const GUIDE_URL = 'https://github.com/maskit89/AllotJar/blob/main/docs/USER_GUIDE.md'
 
 /** A quiet link in a card header (the Dashboard's "Manage"): 14px 600 brand green, a 44px target. */
 const LINK =
@@ -61,8 +61,17 @@ function B({ children }: { children: ReactNode }) {
   return <strong className="font-semibold text-slate-900">{children}</strong>
 }
 
-/** The topics, in the mock-up's order: a name, an icon and one fact per line. */
-const TOPICS: { key: string; name: string; icon: ReactNode; lines: ReactNode[] }[] = [
+interface TopicDef {
+  key: string
+  name: string
+  icon: ReactNode
+  lines: ReactNode[]
+  /** The feature flag its page needs; left out while that page is off. */
+  flag?: 'accounts' | 'jars' | 'camtImport' | 'reports' | 'householdAllocation'
+}
+
+/** The topics: the general ones, then the pages in the menu's order, then the app itself. */
+const TOPICS: TopicDef[] = [
   {
     key: 'months-appearance',
     name: 'Months & appearance',
@@ -73,7 +82,39 @@ const TOPICS: { key: string; name: string; icon: ReactNode; lines: ReactNode[] }
         plan any month, and those screens follow along.
       </>,
       <>
-        <B>Dark mode</B> is a switch in your account menu, and the button at the top right on a computer.
+        <B>Dark mode</B> is a switch in your account menu (under More on a phone), and the button at the top right on a
+        computer.
+      </>,
+    ],
+  },
+  {
+    key: 'accounts',
+    name: 'Accounts',
+    icon: <Landmark strokeWidth={1.8} />,
+    flag: 'accounts',
+    lines: [
+      'Start here: add each bank account, card and cash you use, with its opening balance.',
+      'Its balance is the opening balance plus income, minus spending, with transfers in and out.',
+      'An account never goes below zero: a payment that would take it there is refused.',
+    ],
+  },
+  {
+    key: 'saving-with-jars',
+    name: 'Saving with jars',
+    icon: <JarNavIcon strokeWidth={1.8} />,
+    flag: 'jars',
+    lines: [
+      'A jar saves for a bill, a holiday or a rainy day, and sits in one of your accounts.',
+      <>
+        Give it a target and a date, set <B>Repeats</B> for a cost that comes back, or tick <B>Fixed amount each month</B>{' '}
+        for a pot you keep topping up.
+      </>,
+      // Creating a month seeds each jar's contribution onto its Savings line (USER_GUIDE "Saving with jars").
+      <>
+        AllotJar works out what to set aside each month and puts it on the jar’s line in your <B>Savings</B> group.
+      </>,
+      <>
+        <B>Move money</B> shifts money between jars. Covering an overspend from another jar is a move, not spending.
       </>,
     ],
   },
@@ -88,6 +129,22 @@ const TOPICS: { key: string; name: string; icon: ReactNode; lines: ReactNode[] }
       'Unassigned ones are flagged.',
       'Split one receipt across several lines.',
       'Repeat payees categorise themselves.',
+      <>
+        A <B>Transfer</B> moves money between your own accounts and never touches the budget.
+      </>,
+    ],
+  },
+  {
+    key: 'import',
+    name: 'Importing a statement',
+    icon: <Download strokeWidth={1.8} />,
+    flag: 'camtImport',
+    lines: [
+      <>
+        <B>Import</B> reads your bank’s CSV export or a CAMT.053 statement.
+      </>,
+      'You review every row before anything is saved.',
+      'Importing the same file again never creates duplicates.',
     ],
   },
   {
@@ -109,41 +166,21 @@ const TOPICS: { key: string; name: string; icon: ReactNode; lines: ReactNode[] }
     ],
   },
   {
-    key: 'accounts',
-    name: 'Accounts',
-    icon: <Landmark strokeWidth={1.8} />,
-    lines: [
-      'Track where your money sits: set an opening balance and tag transactions to an account.',
-      'Its balance is worked out as opening + income − expenses.',
-    ],
-  },
-  {
-    key: 'saving-with-jars',
-    name: 'Saving with jars',
-    icon: <JarNavIcon strokeWidth={1.8} />,
-    lines: [
-      'For big or irregular costs: car, holiday, Christmas.',
-      'Give a jar a target and a date, and AllotJar works out what to set aside each month and shows it filling up.',
-      // Adding a jar puts its contribution line in the Savings group itself (USER_GUIDE "Saving with jars").
-      <>
-        Its monthly contribution becomes a line in your <B>Savings</B> group, whose balance rolls over month to month.
-      </>,
-    ],
-  },
-  {
     key: 'reports',
     name: 'Reports',
     icon: <ChartColumn strokeWidth={1.8} />,
+    flag: 'reports',
     lines: [
-      'Income vs spending over recent months.',
-      'A category breakdown for any month.',
-      'An annual overview of what you earned, spent and saved.',
+      'Income against spending, month by month, for any year.',
+      'Where the money went in any month.',
+      'What each jar paid out, monthly and for the year.',
     ],
   },
   {
     key: 'people-allocation',
     name: 'People & allocation',
     icon: <Users strokeWidth={1.8} />,
+    flag: 'householdAllocation',
     lines: [
       'Add the people you share money with.',
       'Pool everyone’s income, cover the shared costs, and split what’s left into each person’s savings, previewed before anything moves.',
@@ -164,13 +201,27 @@ const TOPICS: { key: string; name: string; icon: ReactNode; lines: ReactNode[] }
     ],
   },
   {
+    key: 'install',
+    name: 'Install the app',
+    icon: <Smartphone strokeWidth={1.8} />,
+    lines: [
+      <>
+        iPhone: in Safari, tap Share, then <B>Add to Home Screen</B>.
+      </>,
+      <>
+        Android or a computer: <B>Install</B> from Chrome’s or Edge’s menu, or the icon in the address bar.
+      </>,
+      'It opens like an app and still needs an internet connection.',
+    ],
+  },
+  {
     key: 'good-to-know',
     name: 'Good to know',
     icon: <Lightbulb strokeWidth={1.8} />,
     lines: [
       'Edits happen in place: Enter saves, Escape cancels.',
       'Deleting a line or account never deletes its transactions.',
-      'Amounts accept both “12.50” and “12,50”; every figure is exact to the cent.',
+      'Amounts accept “12.50” or “12,50”, and sums like “20+30”; every figure is exact to the cent.',
     ],
   },
 ]
@@ -247,6 +298,8 @@ export function HelpPage() {
   const { replay } = useOnboarding()
   const { available, consent, accept, decline } = useAnalytics()
   const { budgetCurrency } = useAuth()
+  const features = useFeatures()
+  const topics = TOPICS.filter((t) => !t.flag || features[t.flag])
   const noun = currencyNoun(budgetCurrency)
   const id = useId()
   const topicsHeading = `${id}-topics`
@@ -302,21 +355,10 @@ export function HelpPage() {
                     Replay <span className="max-[699.98px]:hidden">welcome</span> tour
                   </span>
                 </button>
-                <a
-                  href={GUIDE_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  aria-label="Complete user guide (opens in a new tab)"
-                  onClick={() => track(EVENTS.helpGuideOpened)}
-                  className={LINK}
-                >
-                  User guide
-                  <ArrowUpRight aria-hidden strokeWidth={1.8} className="size-3.5" />
-                </a>
               </div>
             </div>
             <div className="divide-y divide-line">
-              {TOPICS.map((t) => (
+              {topics.map((t) => (
                 <Topic key={t.key} id={`${id}-${t.key}`} name={t.name} icon={t.icon} lines={t.lines} />
               ))}
             </div>
