@@ -3,12 +3,12 @@ import { createPortal } from 'react-dom'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { typeIntoField } from '../lib/typeIntoField'
 
-/** The four keys: what each shows, what it types (the amount parser's operators) and its name. */
+/** The four keys: each types the sign it shows (the amount parser reads − × ÷ as - * /). */
 const KEYS = [
-  { show: '+', type: '+', label: 'Plus' },
-  { show: '−', type: '-', label: 'Minus' },
-  { show: '×', type: '*', label: 'Times' },
-  { show: '÷', type: '/', label: 'Divided by' },
+  { show: '+', label: 'Plus' },
+  { show: '−', label: 'Minus' },
+  { show: '×', label: 'Times' },
+  { show: '÷', label: 'Divided by' },
 ] as const
 
 /** An amount field: every money input in the app is a text input with the decimal keypad. */
@@ -61,7 +61,11 @@ export function OperatorBar() {
 
   useEffect(() => {
     if (!field) return
-    const place = () => setBottom(window.innerHeight - keyboardTop())
+    const place = () => {
+      // A field removed while focused (in a browser that sends no focusout for it) takes the bar.
+      if (!field.isConnected) setField(null)
+      else setBottom(window.innerHeight - keyboardTop())
+    }
     place()
     const vv = window.visualViewport
     vv?.addEventListener('resize', place)
@@ -89,11 +93,11 @@ export function OperatorBar() {
       aria-label="Calculator keys"
       data-operator-bar
       style={{ bottom }}
-      className="fixed inset-x-0 z-[95] flex gap-1.5 border-t border-slate-200 bg-surface-2/95 px-[max(0.5rem,env(safe-area-inset-left))] py-1.5 backdrop-blur-md"
+      className={`fixed inset-x-0 z-[95] flex gap-1.5 border-t border-slate-200 bg-surface-2/95 pt-1.5 pr-[max(0.5rem,env(safe-area-inset-right))] pl-[max(0.5rem,env(safe-area-inset-left))] ${bottom > 0 ? 'pb-1.5' : 'pb-[max(0.375rem,env(safe-area-inset-bottom))]'} backdrop-blur-md`}
     >
       {KEYS.map((k) => (
         <button
-          key={k.type}
+          key={k.show}
           type="button"
           tabIndex={-1}
           aria-label={k.label}
@@ -101,7 +105,7 @@ export function OperatorBar() {
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation()
-            typeIntoField(field, k.type)
+            typeIntoField(field, k.show)
             field.focus()
           }}
           className="h-10 flex-1 rounded-lg bg-surface text-xl font-medium text-slate-900 shadow-[var(--shadow-frame)] active:bg-slate-200 dark:bg-foreground/10 dark:active:bg-foreground/20"

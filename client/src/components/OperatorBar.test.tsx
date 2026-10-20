@@ -66,7 +66,7 @@ describe('OperatorBar', () => {
       // A caret in the middle: the operator goes there.
       amount.setSelectionRange(1, 1)
       fireEvent.click(screen.getByRole('button', { name: 'Times' }))
-      expect(amount.value).toBe('2*0+')
+      expect(amount.value).toBe('2×0+')
     })
 
     it('keeps the field focused when a key is pressed', () => {
