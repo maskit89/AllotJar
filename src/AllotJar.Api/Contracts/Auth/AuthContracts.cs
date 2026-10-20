@@ -30,8 +30,9 @@ public record AuthResponse(
 
 /// <summary>
 /// Exchanges a Google Identity Services ID token (the button's `credential`) for an AllotJar
-/// session. The optional currency/format are the CLIENT's locale-detected defaults, applied only
-/// when this sign-in creates the account (mirrors the register form's pre-selection).
+/// session. The optional currency/format are the CLIENT's sign-up defaults (EUR, and the
+/// locale-detected number format), applied only when this sign-in creates the account (mirrors
+/// the register form's pre-selection).
 /// </summary>
 public record GoogleLoginRequest(
     [Required] string Credential,
@@ -133,3 +134,16 @@ public record LeaveHouseholdRequest([Required] string OwnerId, int PrivateAccoun
 
 /// <summary>What leaving a household would leave behind: the caller's private accounts there.</summary>
 public record LeavePreviewResponse(int PrivateAccounts);
+
+/// <summary>
+/// What deleting the login takes with it: its own household (<c>OwnsHousehold</c>). While other
+/// logins have access to it (<c>OthersInHousehold</c>) the delete is refused. <c>HasPassword</c>:
+/// the confirmation asks for the password, else for the email typed.
+/// </summary>
+public record DeleteAccountPreviewResponse(bool OwnsHousehold, int OthersInHousehold, bool HasPassword);
+
+/// <summary>
+/// Deletes the signed-in login and its data. A login with a password confirms with it
+/// (<c>Password</c>); a Google-only login types its email (<c>ConfirmEmail</c>).
+/// </summary>
+public record DeleteAccountRequest(string? ConfirmEmail = null, string? Password = null);

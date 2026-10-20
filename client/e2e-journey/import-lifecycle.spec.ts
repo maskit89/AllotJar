@@ -16,8 +16,8 @@ import { register, txRows } from './helpers'
  *     rows) forward for rows whose reference is unchanged, and the commit + success sums reflect
  *     only the included rows.
  *
- * Money assertions are symbol-agnostic ("950.00", not "€950.00") because the registration form
- * pre-selects the currency from the browser locale.
+ * Money assertions are symbol-agnostic ("950.00", not "€950.00") so they hold whatever currency a
+ * spec registers with.
  */
 
 /** Upload a statement buffer on /import and advance to the review phase. */

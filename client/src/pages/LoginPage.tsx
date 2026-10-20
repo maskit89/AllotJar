@@ -28,12 +28,14 @@ export function LoginPage() {
   // Set when an expired/revoked session bounced the user here (lib/api.ts sessionExpired), so
   // the page can say WHY they're seeing it instead of looking like an unexplained sign-out.
   const wasExpired = searchParams.get('reason') === 'expired'
+  // Set after the login deleted itself (AuthContext deleteAccount).
+  const wasDeleted = searchParams.get('reason') === 'deleted'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  // A welcoming first guess from the visitor's browser locale (fully overridable
-  // below); euro / comma-dot stays the fallback. Computed once.
+  // Euro preselected; the number format guessed from the visitor's browser locale
+  // (both fully overridable below). Computed once.
   const [localeDefaults] = useState(detectLocaleDefaults)
   const [currency, setCurrency] = useState(localeDefaults.currency)
   const [numberFormat, setNumberFormat] = useState<string>(localeDefaults.numberFormat)
@@ -147,6 +149,11 @@ export function LoginPage() {
             Your session has expired, so we signed you out to keep your budget safe. Sign back in to pick up where
             you left off.
           </InfoHint>
+        </div>
+      )}
+      {wasDeleted && mode === 'login' && (
+        <div className="auth-note auth-note-line">
+          <p role="status">Your account has been deleted.</p>
         </div>
       )}
       {claimPending ? (

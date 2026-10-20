@@ -61,7 +61,7 @@ describe('GettingStartedChecklist: checks that answer out of order', () => {
     })
 
     // The later check found income; the earlier one, answering last, found none and is dropped.
-    expect(await view.findByText('1 of 5 done')).toBeInTheDocument()
+    expect(await view.findByText('1 of 6 done')).toBeInTheDocument()
   })
 })
 
@@ -78,13 +78,38 @@ describe('GettingStartedChecklist: the jar step', () => {
     const on = renderWithProviders(<GettingStartedChecklist />, { features: true })
     const step = await on.findByRole('link', { name: /Add a jar/ })
     expect(step).toHaveAttribute('href', '/jars')
-    expect(await on.findByText('1 of 5 done')).toBeInTheDocument()
+    expect(await on.findByText('1 of 6 done')).toBeInTheDocument()
     on.unmount()
 
     jarsOn = false
     const off = renderWithProviders(<GettingStartedChecklist />, { features: true })
-    expect(await off.findByText('0 of 4 done')).toBeInTheDocument()
+    expect(await off.findByText('0 of 5 done')).toBeInTheDocument()
     expect(off.queryByText('Add a jar')).not.toBeInTheDocument()
+  })
+})
+
+describe('GettingStartedChecklist: the account step', () => {
+  beforeEach(() => resetApiMocks())
+
+  it('comes first, ticks once an account exists, and is left out where the Accounts page is off', async () => {
+    let accountsOn = true
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/features') return Promise.resolve({ data: { accounts: accountsOn } })
+      if (url === '/accounts') return Promise.resolve({ data: [{ id: 'a1' }] })
+      return Promise.resolve({ data: [] })
+    })
+    const on = renderWithProviders(<GettingStartedChecklist />, { features: true })
+    const step = await on.findByRole('link', { name: /Add an account/ })
+    expect(step).toHaveAttribute('href', '/accounts')
+    expect(await on.findByText('1 of 6 done')).toBeInTheDocument()
+    const region = on.getByRole('region', { name: 'Getting started' })
+    expect(within(region).getAllByRole('listitem')[0]).toHaveTextContent('Add an account')
+    on.unmount()
+
+    accountsOn = false
+    const off = renderWithProviders(<GettingStartedChecklist />, { features: true })
+    expect(await off.findByText('0 of 5 done')).toBeInTheDocument()
+    expect(off.queryByText('Add an account')).not.toBeInTheDocument()
   })
 })
 
@@ -105,7 +130,7 @@ describe('GettingStartedChecklist: the collapsed pill and the done line', () => 
     expect(pill).toHaveAttribute('aria-expanded', 'false')
     expect(pill).not.toHaveClass('bg-brand-600')
     const chip = pill.querySelector('[data-tone]')
-    expect(chip).toHaveTextContent('0 of 5')
+    expect(chip).toHaveTextContent('0 of 6')
     expect(chip).toHaveAttribute('data-tone', 'neutral')
     expect(pill.querySelector('svg')).not.toBeNull()
     await waitFor(() => expect(pill).toHaveFocus())

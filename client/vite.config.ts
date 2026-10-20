@@ -10,6 +10,11 @@ import tailwindcss from '@tailwindcss/vite'
 // (e.g. one on :5099) without touching this file.
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  build: {
+    // Never inline fonts: the CSP's font-src is 'self' only, so a data: URI font would be refused
+    // (the 1.7 KB cyrillic-ext woff2 was inlined by default). Other assets keep Vite's 4 KB default.
+    assetsInlineLimit: (file, content) => (file.endsWith('.woff2') ? false : content.length < 4096),
+  },
   server: {
     port: 5173,
     proxy: {

@@ -22,7 +22,7 @@ import { useAuth } from '../auth/AuthContext'
  * row of three until about 880px), both numbers still stand level. The hero spans both rows
  * beside them (from 640px; above them on a narrower row). Nothing changes on other pages.
  */
-const PLAIN_TILE = 'row-span-2 grid! grid-rows-subgrid [&>p]:self-start'
+const PLAIN_TILE = 'row-span-2 grid! grid-cols-[minmax(0,1fr)] grid-rows-subgrid [&>p]:self-start'
 const HERO_TILE = '@min-[640px]:row-span-2'
 
 /*
