@@ -7,7 +7,16 @@ public record ParsedStatementEntry(
     bool IsCredit,
     DateOnly BookingDate,
     string Payee,
-    string? Reference);
+    string? Reference)
+{
+    /// <summary>
+    /// For a row whose reference the parser made from its own text and that text held a card
+    /// number: the reference imports before compliance fix 12 stored for it, hashed over the
+    /// unmasked text. Duplicate detection checks it so a statement imported before is still
+    /// recognised; it is never stored.
+    /// </summary>
+    public string? LegacyReference { get; init; }
+}
 
 /// <summary>
 /// A parsed bank statement: the account it belongs to and its entries.

@@ -85,7 +85,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         var dateFormat = mapping.DateFormat ?? ResolveDateFormat(dataRows, mapping.DateColumn);
 
         var entries = new List<ParsedStatementEntry>();
-        var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
+        var references = new SignatureReferences("csv:");
 
         foreach (var row in dataRows)
         {
@@ -116,9 +116,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
             var signature = string.Create(CultureInfo.InvariantCulture,
                 $"{date:yyyy-MM-dd}|{signed:0.####}|{description.ToUpperInvariant()}");
-            var hash = ShortHash(signature);
-            var index = occurrences.TryGetValue(signature, out var seen) ? seen : 0;
-            occurrences[signature] = index + 1;
+            var (reference, legacy) = references.Next(signature);
 
             entries.Add(new ParsedStatementEntry(
                 Amount: Math.Abs(signed),
@@ -126,7 +124,10 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                 IsCredit: signed > 0m,
                 BookingDate: date,
                 Payee: payee,
-                Reference: $"csv:{hash}#{index}"));
+                Reference: reference)
+            {
+                LegacyReference = legacy,
+            });
         }
 
         if (entries.Count == 0)
@@ -379,12 +380,6 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         }
 
         return t;
-    }
-
-    private static string ShortHash(string signature)
-    {
-        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(signature));
-        return Convert.ToHexString(bytes, 0, 16).ToLowerInvariant();
     }
 
     private static string Normalize(string value) => WhitespaceRun().Replace(value.Trim(), " ");
