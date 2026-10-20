@@ -195,7 +195,9 @@ export function PrivacyPage() {
           <strong>Invitations</strong>: an invitation link works for 7 days.
         </li>
         <li>
-          <strong>Server logs and error reports</strong>: {LOG_RETENTION}.
+          <strong>Web server logs and error report emails</strong>: {LOG_RETENTION}. Error entries
+          in the server’s Windows event log are kept until the log fills up and overwrites its oldest
+          entries.
         </li>
         <li>
           <strong>Analytics</strong>: Google keeps it for {ANALYTICS_RETENTION}.
