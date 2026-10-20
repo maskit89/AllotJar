@@ -108,7 +108,7 @@ Variable mapping: `--accent` = jar body, `--gold` = lid + fill. Provide both (li
 
 **Apple touch icon**
 ```html
-<link rel="apple-touch-icon" sizes="180x180" href="/brand/png/allotjar-app-icon-180.png">
+<link rel="apple-touch-icon" sizes="180x180" href="/brand/png/allotjar-app-icon-maskable-180.png?v=2">
 ```
 
 App stores: upload `allotjar-app-icon-1024.png`. (iOS applies its own corner mask — the squircle in the SVG matches the iOS radius, so it also looks right ungated.)
