@@ -160,12 +160,13 @@ export function PhoneNav({ active }: { active?: FrameKey }) {
             {/* "Account settings: name, household", the visible words inside the spoken name. */}
             <span className="flex min-w-0 flex-1 flex-col">
               <span className="sr-only">Account settings:</span>{' '}
-              {name && <span className={`truncate ${accountHere ? 'font-bold' : ''}`}>{name}</span>}
-              {name && householdLabel && (
-                <>
-                  <span className="sr-only">,</span>{' '}
-                </>
-              )}
+              {name && (
+                <span className={`truncate ${accountHere ? 'font-bold' : ''}`}>
+                  {name}
+                  {/* A 0px comma, not sr-only: Chrome reads an absolutely placed span as a block ("Alex , household"). */}
+                  {householdLabel && <span className="text-[0px]">,</span>}
+                </span>
+              )}{' '}
               <span className="truncate text-[13px] font-medium text-slate-500">{householdLabel}</span>
             </span>
             <ChevronRight aria-hidden strokeWidth={1.8} className="mr-1 size-4 shrink-0 text-slate-500" />

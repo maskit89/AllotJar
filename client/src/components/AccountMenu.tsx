@@ -86,12 +86,13 @@ export function AccountMenu({ variant, current = false }: { variant: 'sidebar' |
               read inside it (WCAG 2.5.3), the rest is screen-reader text. */}
           <span className="flex min-w-0 flex-1 flex-col">
             <span className="sr-only">Account menu:</span>{' '}
-            {name && <span className="truncate text-sm font-semibold text-slate-900">{name}</span>}
-            {name && householdLabel && (
-              <>
-                <span className="sr-only">,</span>{' '}
-              </>
-            )}
+            {name && (
+              <span className="truncate text-sm font-semibold text-slate-900">
+                {name}
+                {/* A 0px comma, not sr-only: Chrome reads an absolutely placed span as a block ("Alex , household"). */}
+                {householdLabel && <span className="text-[0px]">,</span>}
+              </span>
+            )}{' '}
             <span className="truncate text-xs">{householdLabel}</span>
           </span>
           <ChevronsUpDown aria-hidden strokeWidth={1.8} className="size-3.5 shrink-0" />
