@@ -1145,10 +1145,13 @@ function DashboardSkeleton() {
     <>
       <p className="sr-only">Loading your budget…</p>
       <div aria-hidden className="flex flex-col gap-4 min-[700px]:gap-6">
-        <div className="grid grid-cols-2 gap-3 min-[700px]:grid-cols-[1.5fr_1fr_1fr] min-[700px]:gap-6">
-          <Skeleton className="col-span-2 h-[132px] rounded-2xl min-[700px]:col-span-1 min-[700px]:h-[150px]" />
-          <Skeleton className="h-[104px] rounded-2xl min-[700px]:h-[150px]" />
-          <Skeleton className="h-[104px] rounded-2xl min-[700px]:h-[150px]" />
+        {/* The KPI row's own grid (KpiRow, two tiles), so the hero keeps its width when the month lands. */}
+        <div className="@container">
+          <div className="grid grid-cols-2 gap-3 @min-[640px]:grid-cols-[minmax(0,1.55fr)_minmax(0,1fr)_minmax(0,1fr)] @min-[640px]:gap-6 @min-[1100px]:grid-cols-[calc((100%-24px)*1.55/2.55)_minmax(0,1fr)_minmax(0,1fr)]">
+            <Skeleton className="col-span-2 h-[132px] rounded-2xl @min-[640px]:col-span-1 @min-[640px]:h-[150px]" />
+            <Skeleton className="h-[104px] rounded-2xl @min-[640px]:h-[150px]" />
+            <Skeleton className="h-[104px] rounded-2xl @min-[640px]:h-[150px]" />
+          </div>
         </div>
         <Skeleton className="h-[420px] rounded-2xl" />
       </div>
