@@ -39,9 +39,9 @@ public class AccountDeletionSqlTests
             var chris = new HouseholdMember { OwnerId = owner, Name = "Chris" };
             var sam = new HouseholdMember { OwnerId = owner, Name = "Sam" };
             db.HouseholdMembers.AddRange(chris, sam);
-            db.HouseholdMemberships.AddRange(
-                new HouseholdMembership { OwnerId = owner, UserId = owner, Role = HouseholdRole.Owner, MemberId = chris.Id, InvitedEmail = "c@example.com", Status = MembershipStatus.Active },
-                new HouseholdMembership { OwnerId = owner, UserId = member, Role = HouseholdRole.Admin, MemberId = sam.Id, InvitedEmail = "s@example.com", Status = MembershipStatus.Active });
+            // Sam was removed from the household (a delete is refused while he has access) but still views it.
+            db.HouseholdMemberships.Add(
+                new HouseholdMembership { OwnerId = owner, UserId = owner, Role = HouseholdRole.Owner, MemberId = chris.Id, InvitedEmail = "c@example.com", Status = MembershipStatus.Active });
             db.PersonLogins.Add(new PersonLogin { HouseholdMemberId = sam.Id, UserId = member });
 
             var joint = Account(owner, "Joint");
@@ -83,7 +83,7 @@ public class AccountDeletionSqlTests
             await db.SaveChangesAsync();
         }
 
-        await new AccountDeletion(_fixture.Options).DeleteAsync(owner, CancellationToken.None);
+        (await new AccountDeletion(_fixture.Options).DeleteAsync(owner, CancellationToken.None)).Should().BeTrue();
 
         await using var check = _fixture.CreateContext();
         (await check.Users.AnyAsync(u => u.Id == owner)).Should().BeFalse();
@@ -146,6 +146,46 @@ public class AccountDeletionSqlTests
         kept.CounterpartyErased.Should().BeTrue();
         (await check.HouseholdMemberships.AnyAsync(m => m.OwnerId == owner && m.UserId == owner)).Should().BeTrue();
         (await check.Users.AnyAsync(u => u.Id == owner)).Should().BeTrue();
+    }
+
+    // #370 review probe C: a failure after the joined household's erase is saved undoes it all.
+    [Fact]
+    public async Task A_failure_after_the_joined_households_erase_rolls_everything_back()
+    {
+        var owner = $"user-{Guid.NewGuid():N}";
+        var member = $"sam-{Guid.NewGuid():N}";
+        Guid mine;
+        await using (var db = _fixture.CreateContext())
+        {
+            db.Users.AddRange(
+                new ApplicationUser { Id = owner, Email = $"{owner}@example.com", UserName = $"{owner}@example.com" },
+                new ApplicationUser { Id = member, Email = $"{member}@example.com", UserName = $"{member}@example.com" });
+            db.HouseholdMemberships.AddRange(
+                new HouseholdMembership { OwnerId = owner, UserId = owner, Role = HouseholdRole.Owner, InvitedEmail = "c@x", Status = MembershipStatus.Active },
+                new HouseholdMembership { OwnerId = owner, UserId = member, Role = HouseholdRole.Admin, InvitedEmail = "s@x", Status = MembershipStatus.Active },
+                new HouseholdMembership { OwnerId = member, UserId = member, Role = HouseholdRole.Owner, InvitedEmail = "s@x", Status = MembershipStatus.Active });
+            var own = Account(owner, "Sam's current");
+            var samsHome = Account(member, "Sam home");
+            db.Accounts.AddRange(own, samsHome);
+            db.AccountPrivacies.Add(new AccountPrivacy { AccountId = own.Id, UserId = member });
+            var p = new Transaction { OwnerId = member, AccountId = samsHome.Id, Type = TransactionType.Expense, Amount = 5m, Currency = CurrencyCode.Eur, Date = June10, Payee = "x" };
+            db.Transactions.Add(p);
+            db.Transactions.Add(new Transaction { OwnerId = owner, AccountId = own.Id, Type = TransactionType.Expense, Amount = 9m, Currency = CurrencyCode.Eur, Date = June10, Payee = "Private" });
+            await db.SaveChangesAsync();
+            // An artificial cross-household link the owner's delete can't remove: forces a failure in phase 2.
+            db.Transactions.Add(new Transaction { OwnerId = owner + "-other", AccountId = null, Type = TransactionType.Income, Amount = 1m, Currency = CurrencyCode.Eur, Date = June10, Payee = "link", RefundOfTransactionId = p.Id });
+            await db.SaveChangesAsync();
+            mine = own.Id;
+        }
+
+        var act = () => new AccountDeletion(_fixture.Options).DeleteAsync(member, CancellationToken.None);
+        await act.Should().ThrowAsync<Exception>();
+
+        await using var check = _fixture.CreateContext();
+        (await check.Users.AnyAsync(u => u.Id == member)).Should().BeTrue();
+        (await check.Accounts.AnyAsync(a => a.Id == mine)).Should().BeTrue("phase 1's erase must roll back");
+        (await check.Transactions.AnyAsync(t => t.Payee == "Private" && t.AccountId == mine)).Should().BeTrue();
+        (await check.HouseholdMemberships.AnyAsync(m => m.OwnerId == owner && m.UserId == member)).Should().BeTrue();
     }
 
     private static Account Account(string owner, string name) => new()

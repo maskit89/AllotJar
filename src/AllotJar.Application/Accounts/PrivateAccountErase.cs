@@ -30,6 +30,7 @@ public static class PrivateAccountErase
     public const string ErasedSourcePayee = "Transfer from an erased account";
     public const string ErasedDestinationPayee = "Transfer to an erased account";
     public const string ErasedReturnPayee = "Transfer to an erased account, returned";
+    public const string ErasedPurchasePayee = "Erased purchase";
 
     /// <summary>What to do with an erased purchase a refund in another account names.</summary>
     public enum RefundedElsewhere
@@ -150,24 +151,36 @@ public static class PrivateAccountErase
         }
 
         // Rule 38: a refund elsewhere that names an erased purchase would point nowhere and read
-        // as income. The owner unlinks it where they can see it first; a login deleting itself
-        // can't, so there the purchase stays as an entry with no account that keeps netting the
-        // refund, marked so no total or unassigned count picks it up (it never counted in one).
+        // as income. The owner unlinks it where they can see it first. A login deleting itself
+        // can't (Keep): a refund that goes too, being off the budget in another account erased
+        // with this one, lets go of the purchase now, before either is deleted; one the household
+        // sees (or one in an account that stays) keeps netting the purchase, which then stays as
+        // an anonymous stub (ErasedStub): no account, no line, nothing that names it, marked, so
+        // the query filter keeps it out of every login's view, as it was while private, and no
+        // total or count picks it up.
         var namedElsewhere = await db.Transactions.IgnoreQueryFilters()
+            .Include(t => t.Splits)
             .Where(t => t.RefundOfTransactionId != null && erased.Contains(t.RefundOfTransactionId.Value) && !erased.Contains(t.Id))
-            .Select(t => t.RefundOfTransactionId!.Value)
             .ToListAsync(cancellationToken);
         if (refunded == RefundedElsewhere.Keep)
         {
-            foreach (var id in namedElsewhere.Distinct())
+            foreach (var refund in namedElsewhere)
             {
-                if (!byId.TryGetValue(id, out var purchase) || purchase.Type == TransactionType.Transfer || purchase.FeeForTransferId is not null)
+                var goesToo = refund.AccountId is Guid where && erasable.Contains(where)
+                              && refund.BudgetItemId is null && !refund.Splits.Any(sl => sl.BudgetItemId is not null);
+                if (goesToo)
+                {
+                    refund.RefundOfTransactionId = null;
+                    continue;
+                }
+                if (!byId.TryGetValue(refund.RefundOfTransactionId!.Value, out var purchase)
+                    || purchase.Type == TransactionType.Transfer || purchase.FeeForTransferId is not null
+                    || !erased.Remove(purchase.Id))
                 {
                     continue;
                 }
-                erased.Remove(id);
+                MakeStub(purchase);
                 keptWithoutAccount.Add(purchase);
-                purchase.CounterpartyErased = true;
             }
             namedElsewhere.Clear();
         }
@@ -348,6 +361,23 @@ public static class PrivateAccountErase
         row.ReceiptKnownBySourceReference = false;
         row.AllocationKey = null;
         row.CounterpartyErased = true;
+    }
+
+    /// <summary>
+    /// What stays of an erased purchase a refund the household sees still nets: its amount, date
+    /// and currency (the refund's cap reads them), nothing that names it. With no account and the
+    /// mark, the transaction query filter hides it from every login.
+    /// </summary>
+    private static void MakeStub(Transaction purchase)
+    {
+        purchase.Payee = ErasedPurchasePayee;
+        purchase.Notes = null;
+        purchase.BankReference = null;
+        purchase.BankEntry = null;
+        purchase.StatementAccountId = null;
+        purchase.AllocationKey = null;
+        purchase.MemberId = null;
+        purchase.CounterpartyErased = true;
     }
 
     private static ValidationException Refuse(string key, string message) =>

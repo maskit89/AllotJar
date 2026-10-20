@@ -12,7 +12,7 @@ import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../compo
 import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialog'
 import { LeaveHouseholdDialog } from '../components/settings/LeaveHouseholdDialog'
-import { DeleteAccountDialog, type DeletePreview } from '../components/settings/DeleteAccountDialog'
+import { DeleteAccountDialog, type DeletePreview, type DeleteProof } from '../components/settings/DeleteAccountDialog'
 import { GoogleMark, OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, SAVE_BUTTON, Tile } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -170,15 +170,14 @@ export function AccountPage() {
     }
   }
 
-  async function onDeleteAccount(typedEmail: string) {
+  async function onDeleteAccount(proof: DeleteProof) {
     setDeleteError(null)
     setDeleteBusy(true)
     try {
-      await deleteAccount(typedEmail)
+      await deleteAccount(proof)
       // On success the app leaves for the sign-in page (full navigation).
     } catch (err) {
-      const data = axios.isAxiosError(err) ? (err.response?.data as { error?: string } | undefined) : undefined
-      setDeleteError(data?.error ?? 'Could not delete your account. Please try again.')
+      setDeleteError(deleteRefusal(err) ?? 'Could not delete your account. Please try again.')
       setDeleteBusy(false)
     }
   }
@@ -717,10 +716,11 @@ export function AccountPage() {
       {confirmDelete && email && (
         <DeleteAccountDialog
           email={email}
+          hasPassword={hasPassword}
           preview={deletePreview}
           busy={deleteBusy}
           error={deleteError}
-          onDelete={(typed) => void onDeleteAccount(typed)}
+          onDelete={(proof) => void onDeleteAccount(proof)}
           onClose={() => setConfirmDelete(false)}
         />
       )}
@@ -854,4 +854,18 @@ function RowActionsMenu({ phone, label, title, actions }: { phone: boolean; labe
       </button>
     </ActionSheet>
   )
+}
+
+/**
+ * The server's own words for a refused delete: `error` (a wrong password, others still sharing the
+ * budget), or the first of a validation body's `errors` (a list, or lists by field).
+ */
+function deleteRefusal(err: unknown): string | null {
+  if (!axios.isAxiosError(err)) return null
+  const data = err.response?.data as { error?: string; errors?: string[] | Record<string, string[]> } | undefined
+  if (typeof data?.error === 'string') return data.error
+  const errors = data?.errors
+  if (Array.isArray(errors)) return errors[0] ?? null
+  if (errors && typeof errors === 'object') return Object.values(errors).flat()[0] ?? null
+  return null
 }

@@ -363,18 +363,30 @@ test.describe('Account settings', () => {
         await expectNoViolations(page)
       })
 
-      test('the Delete account dialog, its email typed', async ({ page }) => {
+      test('the Delete account dialog, its password entered', async ({ page }) => {
         await authedSetup(page, theme)
         await page.route(/\/api\/auth\/delete-preview$/, (route) =>
-          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 1, privateAccountsElsewhere: 0 })),
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 0, hasPassword: true })),
         )
         await openAccount(page)
         await page.getByRole('button', { name: 'Delete account' }).click()
         const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
-        await expect(dialog.getByText(/1 person loses access/)).toBeVisible()
+        await expect(dialog.getByText('Your sign-in and your budget go for good.')).toBeVisible()
         await expect(dialog.getByRole('button', { name: 'Delete for good' })).toHaveAttribute('aria-disabled', 'true')
-        await dialog.getByLabel('Type your email to confirm').fill('e2e@allotjar.app')
+        await dialog.getByLabel('Your password').fill('hunter22')
         await expect(dialog.getByRole('button', { name: 'Delete for good' })).not.toHaveAttribute('aria-disabled')
+        await expectNoViolations(page)
+      })
+
+      test('the Delete account dialog while others share the budget', async ({ page }) => {
+        await authedSetup(page, theme)
+        await page.route(/\/api\/auth\/delete-preview$/, (route) =>
+          route.fulfill(json({ ownsHousehold: true, othersInHousehold: 1, hasPassword: true })),
+        )
+        await openAccount(page)
+        await page.getByRole('button', { name: 'Delete account' }).click()
+        const dialog = page.getByRole('dialog', { name: 'Delete your account?' })
+        await expect(dialog.getByRole('link', { name: 'People' })).toBeVisible()
         await expectNoViolations(page)
       })
 

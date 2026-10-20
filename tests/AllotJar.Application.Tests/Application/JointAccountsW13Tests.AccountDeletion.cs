@@ -5,6 +5,8 @@ using AllotJar.Application.Accounts.Queries.GetAccounts;
 using AllotJar.Application.Reports.Queries.GetMonthReport;
 using AllotJar.Application.Transactions.Commands.CreateTransaction;
 using AllotJar.Application.Transactions.Commands.CreateTransfer;
+using AllotJar.Application.Transactions.Commands.AssignTransaction;
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
 using AllotJar.Domain.ValueObjects;
@@ -62,7 +64,7 @@ public partial class JointAccountsW13Tests
         await using (var read = As(Chris))
         {
             (await Deletion.PreviewAsync(SamLogin, CancellationToken.None))
-                .Should().Be(new AccountDeletion.Preview(OwnsHousehold: true, OthersInHousehold: 0, PrivateAccountsElsewhere: 1));
+                .Should().Be(new AccountDeletion.Preview(OwnsHousehold: true, OthersInHousehold: 0));
         }
         var reportBefore = await MonthReportAsync();
 
@@ -94,7 +96,7 @@ public partial class JointAccountsW13Tests
     }
 
     [Fact]
-    public async Task AnOwnerDeletingTheirAccount_RemovesTheWholeHousehold_AndTheOthersLandInTheirOwn()
+    public async Task AnOwnerDeletingTheirAccount_IsRefusedWhileOthersHaveAccess_ThenRemovesTheWholeHousehold()
     {
         SeedLogins();
         var line = SeedLine();
@@ -118,9 +120,19 @@ public partial class JointAccountsW13Tests
             await db.SaveChangesAsync();
         }
         (await Deletion.PreviewAsync(Household, CancellationToken.None))
-            .Should().Be(new AccountDeletion.Preview(OwnsHousehold: true, OthersInHousehold: 1, PrivateAccountsElsewhere: 0));
+            .Should().Be(new AccountDeletion.Preview(OwnsHousehold: true, OthersInHousehold: 1));
 
-        await Deletion.DeleteAsync(Household, CancellationToken.None);
+        // #370 review P2-1: refused while Sam has access, and nothing changes.
+        (await Deletion.DeleteAsync(Household, CancellationToken.None)).Should().BeFalse();
+        await using (var still = Seed())
+        {
+            still.Users.Should().Contain(u => u.Id == Household);
+            still.Accounts.Should().Contain(a => a.Id == samsPrivate);
+        }
+
+        // Once the owner removes Sam, the household goes; Sam, still viewing it, lands in his own.
+        await RemoveSamsLoginAsync();
+        (await Deletion.DeleteAsync(Household, CancellationToken.None)).Should().BeTrue();
 
         using var check = Seed();
         check.Users.Should().NotContain(u => u.Id == Household);
@@ -138,42 +150,78 @@ public partial class JointAccountsW13Tests
         check.HouseholdMemberships.Should().ContainSingle(m => m.OwnerId == SamLogin && m.UserId == SamLogin && m.Role == HouseholdRole.Owner);
     }
 
+    private Guid AddRow(Guid account, TransactionType type, decimal amount, string payee, Guid? line = null, Guid? refundOf = null)
+    {
+        using var db = Seed();
+        var t = new Transaction
+        {
+            OwnerId = Household, AccountId = account, Type = type, Date = June10, Amount = amount,
+            Currency = CurrencyCode.Eur, BudgetAmount = amount, Payee = payee, Notes = payee + " note",
+            BankReference = payee + "-ref", BudgetItemId = line, RefundOfTransactionId = refundOf,
+        };
+        db.Transactions.Add(t);
+        db.SaveChanges();
+        return t.Id;
+    }
+
+    // #370 review P1-1, probe A: a private purchase off the budget, refunded onto the household's
+    // line in the joint account, stays only as a stub nobody can see, read or assign.
     [Fact]
-    public async Task APurchaseARefundElsewhereNames_StaysWithNoAccount_SoTheRefundKeepsNettingIt()
+    public async Task APurchaseARefundTheHouseholdSeesNames_StaysAsAStubNobodySees_AndTheRefundKeepsNettingIt()
     {
         SeedLogins();
         var line = SeedLine();
         var joint = await CreateAccountAsync(Chris, "Joint", holders: null, opening: 1000m);
         var mine = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
-        Guid purchase;
-        await using (var db = Seed())
-        {
-            // Sam's purchase off the budget in the private account, refunded onto the household's line in the joint account.
-            var bought = new Transaction
-            {
-                OwnerId = Household, AccountId = mine, Type = TransactionType.Expense, Date = June10, Amount = 50m,
-                Currency = CurrencyCode.Eur, BudgetAmount = 50m, Payee = "Shoes",
-            };
-            db.Transactions.Add(bought);
-            db.Transactions.Add(new Transaction
-            {
-                OwnerId = Household, AccountId = joint, Type = TransactionType.Income, Date = June10, Amount = 20m,
-                Currency = CurrencyCode.Eur, BudgetAmount = 20m, Payee = "Shoes refund", BudgetItemId = line, RefundOfTransactionId = bought.Id,
-            });
-            await db.SaveChangesAsync();
-            purchase = bought.Id;
-        }
+        var shoes = AddRow(mine, TransactionType.Expense, 50m, "Shoes");
+        var refund = AddRow(joint, TransactionType.Income, 20m, "Shoes refund", line, shoes);
+        (await TransactionsAsync(Chris)).Should().NotContain(t => t.Id == shoes);
         var before = await BalanceAsync(joint);
+        var reportBefore = await MonthReportAsync();
+
+        await Deletion.DeleteAsync(SamLogin, CancellationToken.None);
+
+        (await TransactionsAsync(Chris)).Should().NotContain(t => t.Id == shoes, "it was Sam's private purchase");
+        (await TransactionsAsync(Chris)).Should().Contain(t => t.Id == refund);
+        await using (var db = As(Chris))
+        {
+            var assign = () => new AssignTransactionCommandHandler(db, Chris)
+                .Handle(new AssignTransactionCommand(shoes, line), CancellationToken.None);
+            await assign.Should().ThrowAsync<NotFoundException>();
+        }
+        using var check = Seed();
+        check.Accounts.Should().NotContain(a => a.Id == mine);
+        var stub = check.Transactions.Single(t => t.Id == shoes);
+        stub.AccountId.Should().BeNull();
+        stub.BudgetItemId.Should().BeNull();
+        stub.CounterpartyErased.Should().BeTrue();
+        stub.Payee.Should().Be(PrivateAccountErase.ErasedPurchasePayee);
+        stub.Notes.Should().BeNull();
+        stub.BankReference.Should().BeNull();
+        check.Transactions.Single(t => t.Id == refund).RefundOfTransactionId.Should().Be(shoes);
+        (await BalanceAsync(joint)).Should().Be(before);
+        (await MonthReportAsync()).Should().BeEquivalentTo(reportBefore);
+    }
+
+    // #370 review P1-1, probe B: a refund between two of the login's own private accounts, both off
+    // the budget, goes with the purchase; nothing is left behind.
+    [Fact]
+    public async Task ARefundBetweenTwoOfTheLoginsPrivateAccounts_GoesWithItsPurchase()
+    {
+        SeedLogins();
+        SeedLine();
+        var a = await CreateAccountAsync(Sam, "Sam's current", new[] { _sam });
+        var b = await CreateAccountAsync(Sam, "Sam's card", new[] { _sam });
+        var coat = AddRow(a, TransactionType.Expense, 80m, "Coat");
+        var back = AddRow(b, TransactionType.Income, 30m, "Coat refund", null, coat);
+        var reportBefore = await MonthReportAsync();
 
         await Deletion.DeleteAsync(SamLogin, CancellationToken.None);
 
         using var check = Seed();
-        check.Accounts.Should().NotContain(a => a.Id == mine);
-        var kept = check.Transactions.Single(t => t.Id == purchase);
-        kept.AccountId.Should().BeNull();
-        kept.CounterpartyErased.Should().BeTrue("it never counted in a total, and still doesn't");
-        check.Transactions.Single(t => t.Payee == "Shoes refund").RefundOfTransactionId.Should().Be(purchase);
-        (await BalanceAsync(joint)).Should().Be(before);
+        check.Transactions.Where(t => t.Id == coat || t.Id == back).Should().BeEmpty();
+        check.Accounts.Should().NotContain(x => x.Id == a || x.Id == b);
+        (await MonthReportAsync()).Should().BeEquivalentTo(reportBefore);
     }
 
     [Fact]

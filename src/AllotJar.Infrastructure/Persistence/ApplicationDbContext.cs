@@ -127,13 +127,16 @@ public class ApplicationDbContext : IdentityDbContext<ApplicationUser>, IApplica
         // with a shared account shows on that account, P57), when it has no account, or when its
         // holder put it on a household budget line (P56). Only money that stays entirely inside
         // another login's private accounts, off the budget, is hidden.
+        // What stays of a deleted login's private purchase that a refund elsewhere still nets (no
+        // account, marked; PrivateAccountErase) is no one's to see, as it was while private.
         builder.Entity<Transaction>().HasQueryFilter(t =>
             ViewerId == null
-            || !AccountPrivacies.Any(p => p.AccountId == t.AccountId && p.UserId != ViewerId)
-            || (t.TransferAccountId != null
-                && !AccountPrivacies.Any(p => p.AccountId == t.TransferAccountId && p.UserId != ViewerId))
-            || t.BudgetItemId != null
-            || t.Splits.Any(s => s.BudgetItemId != null));
+            || (!(t.AccountId == null && t.CounterpartyErased)
+                && (!AccountPrivacies.Any(p => p.AccountId == t.AccountId && p.UserId != ViewerId)
+                    || (t.TransferAccountId != null
+                        && !AccountPrivacies.Any(p => p.AccountId == t.TransferAccountId && p.UserId != ViewerId))
+                    || t.BudgetItemId != null
+                    || t.Splits.Any(s => s.BudgetItemId != null))));
     }
 
     public override int SaveChanges(bool acceptAllChangesOnSuccess)

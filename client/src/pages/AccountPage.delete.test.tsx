@@ -11,9 +11,10 @@ import { AccountPage } from './AccountPage'
 import { ownerMe } from '../test/fixtures/me'
 
 // "Delete my account" (compliance fix 5): a row in the Sign-in card opens a dialog that says what
-// goes, and "Delete for good" works only once the login's email is typed.
+// goes; "Delete for good" works once the password is entered (a Google-only login types its email).
+// While others share the budget, it says to remove them first and offers nothing to delete.
 let meData: MeResponse = ownerMe
-let preview = { ownsHousehold: true, othersInHousehold: 0, privateAccountsElsewhere: 0 }
+let preview = { ownsHousehold: true, othersInHousehold: 0 }
 
 const renderPage = () => renderWithProviders(<AccountPage />, { household: true })
 const W = { timeout: 5000 }
@@ -29,7 +30,7 @@ describe('AccountPage: Delete account', () => {
   beforeEach(() => {
     resetApiMocks()
     meData = ownerMe
-    preview = { ownsHousehold: true, othersInHousehold: 0, privateAccountsElsewhere: 0 }
+    preview = { ownsHousehold: true, othersInHousehold: 0 }
     mockGet.mockImplementation((url: string) => {
       if (url === '/members') return Promise.resolve({ data: [] })
       if (url === '/auth/delete-preview') return Promise.resolve({ data: preview })
@@ -43,7 +44,7 @@ describe('AccountPage: Delete account', () => {
     vi.unstubAllGlobals()
   })
 
-  it('deletes only once the email is typed, then leaves for the sign-in page', async () => {
+  it('deletes only once the password is entered, then leaves for the sign-in page', async () => {
     mockPost.mockResolvedValue({ data: null })
     const user = userEvent.setup()
     renderPage()
@@ -55,38 +56,55 @@ describe('AccountPage: Delete account', () => {
     await user.click(go)
     expect(mockPost).not.toHaveBeenCalled()
 
-    await user.type(within(dialog).getByLabelText('Type your email to confirm'), 'ALEX@x.com')
+    await user.type(within(dialog).getByLabelText('Your password'), 'hunter22')
     expect(go).not.toHaveAttribute('aria-disabled')
     await user.click(go)
 
-    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/delete-account', { confirmEmail: 'ALEX@x.com' }))
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/delete-account', { password: 'hunter22' }))
     await waitFor(() => expect(assign).toHaveBeenCalledWith('/login?reason=deleted'))
   })
 
-  it('says how many people lose access to the budget', async () => {
-    preview = { ownsHousehold: true, othersInHousehold: 2, privateAccountsElsewhere: 0 }
+  it('asks a Google-only login to type its email', async () => {
+    meData = { ...ownerMe, hasPassword: false, hasGoogle: true }
+    mockPost.mockResolvedValue({ data: null })
     const user = userEvent.setup()
     renderPage()
 
     const dialog = await openDelete(user)
-    expect(
-      await within(dialog).findByText('Your sign-in and your budget go for good, and 2 people lose access to it.'),
-    ).toBeInTheDocument()
+    const go = within(dialog).getByRole('button', { name: 'Delete for good' })
+    await user.type(within(dialog).getByLabelText('Type your email to confirm'), 'alex@x.co')
+    expect(go).toHaveAttribute('aria-disabled', 'true')
+    await user.type(within(dialog).getByLabelText('Type your email to confirm'), 'M')
+    await user.click(go)
+
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/delete-account', { confirmEmail: 'alex@x.coM' }))
   })
 
-  it("shows the server's refusal and stays open", async () => {
-    mockPost.mockRejectedValue({
-      isAxiosError: true,
-      response: { status: 400, data: { error: "That isn't your email. Type it exactly to delete your account." } },
-    })
+  it('while others share the budget, says to remove them first and offers no delete', async () => {
+    preview = { ownsHousehold: true, othersInHousehold: 2 }
     const user = userEvent.setup()
     renderPage()
 
     const dialog = await openDelete(user)
-    await user.type(within(dialog).getByLabelText('Type your email to confirm'), 'alex@x.com')
+    expect(await within(dialog).findByText(/Others share your budget/)).toBeInTheDocument()
+    expect(within(dialog).getByRole('link', { name: 'People' })).toHaveAttribute('href', '/people')
+    expect(within(dialog).queryByRole('button', { name: 'Delete for good' })).not.toBeInTheDocument()
+    expect(within(dialog).queryByLabelText('Your password')).not.toBeInTheDocument()
+  })
+
+  it.each([
+    [{ error: "That password isn't right." }, "That password isn't right."],
+    [{ errors: { Id: ['A refund elsewhere names a purchase.'] } }, 'A refund elsewhere names a purchase.'],
+  ])("shows the server's refusal and stays open (%o)", async (body, shown) => {
+    mockPost.mockRejectedValue({ isAxiosError: true, response: { status: 400, data: body } })
+    const user = userEvent.setup()
+    renderPage()
+
+    const dialog = await openDelete(user)
+    await user.type(within(dialog).getByLabelText('Your password'), 'wrong')
     await user.click(within(dialog).getByRole('button', { name: 'Delete for good' }))
 
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent("That isn't your email.")
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(shown)
     expect(assign).not.toHaveBeenCalled()
   })
 })

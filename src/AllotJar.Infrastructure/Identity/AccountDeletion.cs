@@ -10,8 +10,9 @@ namespace AllotJar.Infrastructure.Identity;
 /// one transaction, so a failure leaves the account as it was:
 /// <list type="bullet">
 /// <item>its own household (the budget it owns): every month, line, account, transaction, jar,
-/// person, allocation and access row, so the other logins in it lose access and land in a
-/// household of their own;</item>
+/// person, allocation and access row. Refused while another login has access to it (the owner
+/// removes them in People first); a login invited but never active, or still viewing it, lands
+/// in a household of its own;</item>
 /// <item>in each household it joined (or left with private accounts still there): its private accounts, erased as the owner's erase does
 /// (P59, "Keep shared"), so what the household saw stays and no one else's figure changes; then
 /// its access there. The person it was linked to stays: that is the household's record;</item>
@@ -33,23 +34,28 @@ public sealed class AccountDeletion
 
     /// <summary>What deleting the login takes with it, for the confirmation.</summary>
     /// <param name="OwnsHousehold">The login owns a household of its own, which goes too.</param>
-    /// <param name="OthersInHousehold">Other logins with access to that household, who lose it.</param>
-    /// <param name="PrivateAccountsElsewhere">The login's private accounts in other households (joined, or left).</param>
-    public sealed record Preview(bool OwnsHousehold, int OthersInHousehold, int PrivateAccountsElsewhere);
+    /// <param name="OthersInHousehold">
+    /// Other logins with access to that household. While there are any the delete is refused: the
+    /// budget is theirs too, and their own private accounts in it would go with it (#370 review P2-1).
+    /// </param>
+    public sealed record Preview(bool OwnsHousehold, int OthersInHousehold);
 
     public async Task<Preview> PreviewAsync(string userId, CancellationToken ct)
     {
         await using var db = new ApplicationDbContext(_options);
         var owns = await db.HouseholdMemberships.AnyAsync(m => m.OwnerId == userId && m.UserId == userId, ct);
-        var others = await db.HouseholdMemberships.CountAsync(
-            m => m.OwnerId == userId && m.UserId != null && m.UserId != userId && m.Status == MembershipStatus.Active, ct);
-        var privateElsewhere = await db.AccountPrivacies.CountAsync(
-            p => p.UserId == userId && db.Accounts.Any(a => a.Id == p.AccountId && a.OwnerId != userId), ct);
-        return new Preview(owns, others, privateElsewhere);
+        return new Preview(owns, await OthersAsync(db, userId, ct));
     }
 
-    /// <summary>Deletes <paramref name="userId"/> and its data. A login already gone is a no-op.</summary>
-    public async Task DeleteAsync(string userId, CancellationToken ct)
+    private static Task<int> OthersAsync(ApplicationDbContext db, string userId, CancellationToken ct) =>
+        db.HouseholdMemberships.CountAsync(
+            m => m.OwnerId == userId && m.UserId != null && m.UserId != userId && m.Status == MembershipStatus.Active, ct);
+
+    /// <summary>
+    /// Deletes <paramref name="userId"/> and its data. A login already gone is a no-op. Returns false,
+    /// changing nothing, while other logins have access to the login's own household.
+    /// </summary>
+    public async Task<bool> DeleteAsync(string userId, CancellationToken ct)
     {
         await using var db = new ApplicationDbContext(_options);
         await using var transaction = db.Database.IsRelational()
@@ -59,7 +65,11 @@ public sealed class AccountDeletion
         var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId, ct);
         if (user is null)
         {
-            return;
+            return true;
+        }
+        if (await OthersAsync(db, userId, ct) > 0)
+        {
+            return false;
         }
 
         await LeaveJoinedHouseholdsAsync(db, userId, ct);
@@ -93,6 +103,7 @@ public sealed class AccountDeletion
         {
             await transaction.CommitAsync(ct);
         }
+        return true;
     }
 
     /// <summary>

@@ -136,10 +136,14 @@ public record LeaveHouseholdRequest([Required] string OwnerId, int PrivateAccoun
 public record LeavePreviewResponse(int PrivateAccounts);
 
 /// <summary>
-/// What deleting the login takes with it: its own household (<c>OwnsHousehold</c>), whose other
-/// logins (<c>OthersInHousehold</c>) lose access, and its private accounts in other households.
+/// What deleting the login takes with it: its own household (<c>OwnsHousehold</c>). While other
+/// logins have access to it (<c>OthersInHousehold</c>) the delete is refused. <c>HasPassword</c>:
+/// the confirmation asks for the password, else for the email typed.
 /// </summary>
-public record DeleteAccountPreviewResponse(bool OwnsHousehold, int OthersInHousehold, int PrivateAccountsElsewhere);
+public record DeleteAccountPreviewResponse(bool OwnsHousehold, int OthersInHousehold, bool HasPassword);
 
-/// <summary>Deletes the signed-in login and its data. <c>ConfirmEmail</c> = the login's email, typed.</summary>
-public record DeleteAccountRequest([Required] string ConfirmEmail);
+/// <summary>
+/// Deletes the signed-in login and its data. A login with a password confirms with it
+/// (<c>Password</c>); a Google-only login types its email (<c>ConfirmEmail</c>).
+/// </summary>
+public record DeleteAccountRequest(string? ConfirmEmail = null, string? Password = null);
