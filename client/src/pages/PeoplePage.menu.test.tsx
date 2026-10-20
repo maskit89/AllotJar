@@ -125,7 +125,7 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
     // What This is me does, in the ⋯'s note (it was the button's tooltip before the restyle).
     expect(await personNote(user, 'Alex')).toEqual(['“This is me” links your sign-in to Alex.'])
     // A pending invite: Send again instead of This is me and the invite.
-    expect(await personItems(user, 'Sam')).toEqual(['Send the email to Sam again', 'Edit Sam', 'Archive Sam'])
+    expect(await personItems(user, 'Sam')).toEqual(['Send again: Sam', 'Edit Sam', 'Archive Sam'])
 
     // The items read short; Archive sits after a divider and is not in the warning red (it can be undone).
     await user.click(trigger('Alex'))
@@ -160,7 +160,7 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
     await user.keyboard('{Enter}')
     const menu = await screen.findByRole('menu')
     expect(menu).toHaveAccessibleDescription('Signs in as sam@x.eu')
-    await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'Send the email to Sam again' })).toHaveFocus())
+    await waitFor(() => expect(within(menu).getByRole('menuitem', { name: 'Send again: Sam' })).toHaveFocus())
     await user.keyboard('{ArrowDown}')
     expect(within(menu).getByRole('menuitem', { name: 'Edit Sam' })).toHaveFocus()
     await user.keyboard('{ArrowDown}')
@@ -395,7 +395,7 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
       .getAllByRole('button')
       .filter((b) => b.textContent)
       .map((b) => b.getAttribute('aria-label') ?? b.textContent)
-    expect(buttons).toEqual(['Send the email to Sam again', 'Edit Sam', 'Archive Sam'])
+    expect(buttons).toEqual(['Send again: Sam', 'Edit Sam', 'Archive Sam'])
 
     // Escape closes the sheet and gives focus back to the ⋯.
     await user.keyboard('{Escape}')
@@ -600,7 +600,7 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
     expect(within(rows[1]).getByText('jo@x.eu')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'About other sign-ins' })).toBeInTheDocument()
 
-    expect(await signInItems(user, 'kim@x.eu')).toEqual(['Send the email to kim@x.eu again', 'Link kim@x.eu to a person', 'Remove kim@x.eu'])
+    expect(await signInItems(user, 'kim@x.eu')).toEqual(['Send again: kim@x.eu', 'Link to a person: kim@x.eu', 'Remove kim@x.eu'])
     await user.click(screen.getByRole('button', { name: 'Sign-in kim@x.eu: more actions' }))
     const menu = await screen.findByRole('menu')
     expect(within(menu).getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Send again', 'Link to a person', 'Remove'])
@@ -609,12 +609,12 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
     await user.keyboard('{Escape}')
 
     // Send again: the answer shows in the row.
-    await signInAction(user, 'kim@x.eu', 'Send the email to kim@x.eu again')
+    await signInAction(user, 'kim@x.eu', 'Send again: kim@x.eu')
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/access/members/mem8/resend'))
     expect(await within(rows[0]).findByRole('status')).toHaveTextContent("We've emailed kim@x.eu a new link. The earlier one no longer works.")
 
     // Link to a person: the picker opens in the row with the focus; Escape closes it and gives focus back.
-    await signInAction(user, 'jo@x.eu', 'Link jo@x.eu to a person')
+    await signInAction(user, 'jo@x.eu', 'Link to a person: jo@x.eu')
     const picker = await screen.findByRole('combobox', { name: 'Link jo@x.eu to a person' })
     await waitFor(() => expect(picker).toHaveFocus())
     expect(within(picker).getAllByRole('option').map((o) => o.textContent)).toEqual(['Link to a person…', 'Robin'])
@@ -627,7 +627,7 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
       if (url === '/access/members/mem9/link') membershipsData = [membershipsData[0], membershipsData[1], { ...membershipsData[2], memberId: 'm3' }]
       return Promise.resolve({ data: {} })
     })
-    await signInAction(user, 'jo@x.eu', 'Link jo@x.eu to a person')
+    await signInAction(user, 'jo@x.eu', 'Link to a person: jo@x.eu')
     await user.selectOptions(await screen.findByRole('combobox', { name: 'Link jo@x.eu to a person' }), 'm3')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/access/members/mem9/link', { memberId: 'm3' }))
     await waitFor(() => expect(within(personCard('Robin')).getByText('Limited')).toBeInTheDocument())
@@ -669,7 +669,7 @@ describe('PeoplePage — the person ⋯ menu, its phone sheet, the editor\'s foc
       .getAllByRole('button')
       .filter((b) => b.textContent)
       .map((b) => b.getAttribute('aria-label') ?? b.textContent)
-    expect(buttons).toEqual(['Send the email to kim@x.eu again', 'Link kim@x.eu to a person', 'Remove kim@x.eu'])
+    expect(buttons).toEqual(['Send again: kim@x.eu', 'Link to a person: kim@x.eu', 'Remove kim@x.eu'])
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign-in kim@x.eu: more actions' })).toHaveFocus())
   })

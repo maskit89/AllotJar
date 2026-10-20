@@ -518,7 +518,7 @@ describe('Route `/` — auth-state branching', () => {
       expect(screen.getAllByRole('link', { name: 'Create your free account' })).toHaveLength(2)
       // Not the login form, not the dashboard.
       expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
-      expect(screen.queryByLabelText('Planned amount for Rent')).not.toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /^Planned amount for Rent:/ })).not.toBeInTheDocument()
     } finally {
       langSpy.mockRestore()
     }
@@ -557,7 +557,7 @@ describe('Route `/` — auth-state branching', () => {
     renderApp('/')
 
     expect(
-      await screen.findByLabelText('Planned amount for Rent', {}, { timeout: 5000 }),
+      await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }),
     ).toBeInTheDocument()
     // No landing content at any point once authed.
     expect(screen.queryByRole('link', { name: 'Create your free account' })).not.toBeInTheDocument()

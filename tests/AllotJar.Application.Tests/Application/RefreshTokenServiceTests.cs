@@ -196,6 +196,137 @@ public class RefreshTokenServiceTests
         (await new RefreshTokenService(db).RotateAsync("never-issued")).Succeeded.Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_rotation_keeps_the_sign_in_its_start_and_its_device()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var raw = await svc.IssueAsync("user-1", "Safari on iPhone");
+        var first = await db.RefreshTokens.SingleAsync();
+        var rot = await svc.RotateAsync(raw, "Chrome on Windows");
+
+        var next = await db.RefreshTokens.SingleAsync(t => t.TokenHash == HashFor(rot.NewRawToken!));
+        next.SessionId.Should().Be(first.SessionId);
+        next.SessionStartedUtc.Should().Be(first.SessionStartedUtc);
+        next.Device.Should().Be("Safari on iPhone", "the sign-in was made there; a later refresh doesn't rename it");
+        rot.ExpiresUtc.Should().Be(next.ExpiresUtc);
+    }
+
+    [Fact]
+    public async Task A_sign_in_from_before_devices_were_recorded_learns_its_device_at_its_next_refresh()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var raw = await svc.IssueAsync("user-1");
+        var rot = await svc.RotateAsync(raw, "AllotJar app on iPhone");
+
+        (await db.RefreshTokens.SingleAsync(t => t.TokenHash == HashFor(rot.NewRawToken!)))
+            .Device.Should().Be("AllotJar app on iPhone");
+    }
+
+    [Fact]
+    public async Task Each_sign_in_is_a_session_of_its_own()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        await svc.IssueAsync("user-1");
+        await svc.IssueAsync("user-1");
+
+        (await db.RefreshTokens.Select(t => t.SessionId).Distinct().CountAsync()).Should().Be(2);
+    }
+
+    [Fact]
+    public async Task A_token_is_renewed_for_30_days_but_never_past_the_sign_ins_90th_day()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var raw = await svc.IssueAsync("user-1");
+        var token = await db.RefreshTokens.SingleAsync();
+        // The sign-in began 80 days ago: a refresh now may run 10 more days, not 30.
+        var started = DateTime.UtcNow.AddDays(-80);
+        token.SessionStartedUtc = started;
+        await db.SaveChangesAsync();
+
+        var rot = await svc.RotateAsync(raw);
+
+        rot.Succeeded.Should().BeTrue();
+        rot.ExpiresUtc.Should().Be(started.AddDays(RefreshTokenService.MaxSessionDays));
+    }
+
+    [Fact]
+    public async Task A_sign_in_older_than_90_days_is_refused_however_recently_it_was_used()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        // A token minted before the cap existed: still within its own 30 days, but its sign-in is old.
+        var raw = await svc.IssueAsync("user-1");
+        var token = await db.RefreshTokens.SingleAsync();
+        token.SessionStartedUtc = DateTime.UtcNow.AddDays(-RefreshTokenService.MaxSessionDays).AddMinutes(-1);
+        await db.SaveChangesAsync();
+
+        var rot = await svc.RotateAsync(raw);
+
+        rot.Succeeded.Should().BeFalse();
+        rot.Superseded.Should().BeFalse("the device is signed out, so its cookie is cleared");
+    }
+
+    [Fact]
+    public async Task The_list_has_one_row_per_device_this_one_first_and_only_the_logins_own()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var laptop = await svc.IssueAsync("user-1", "Chrome on Windows");
+        var phone = await svc.IssueAsync("user-1", "AllotJar app on iPhone");
+        var signedOut = await svc.IssueAsync("user-1", "Safari on Mac");
+        await svc.RevokeAsync(signedOut);
+        await svc.IssueAsync("user-2", "Firefox on Linux");
+        // The laptop refreshed twice: still one device.
+        var rot = await svc.RotateAsync(laptop);
+        await svc.RotateAsync(rot.NewRawToken!);
+
+        var list = await svc.ListActiveAsync("user-1", phone);
+
+        list.Select(s => s.Device).Should().Equal("AllotJar app on iPhone", "Chrome on Windows");
+        list.Select(s => s.Current).Should().Equal(true, false);
+    }
+
+    [Fact]
+    public async Task Without_a_cookie_no_device_is_marked_current()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+        await svc.IssueAsync("user-1", "Chrome on Windows");
+
+        (await svc.ListActiveAsync("user-1", null)).Should().ContainSingle().Which.Current.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task Ending_one_sign_in_leaves_the_others_and_never_reaches_another_login()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var laptop = await svc.IssueAsync("user-1", "Chrome on Windows");
+        var phone = await svc.IssueAsync("user-1", "Safari on iPhone");
+        var other = await svc.IssueAsync("user-2", "Safari on iPhone");
+        var phoneSession = (await svc.ListActiveAsync("user-1", phone)).Single(s => s.Current).Id;
+        var otherSession = (await svc.ListActiveAsync("user-2", other)).Single().Id;
+
+        (await svc.RevokeSessionAsync("user-1", otherSession)).Should().BeFalse("it belongs to someone else");
+        (await svc.RevokeSessionAsync("user-1", phoneSession)).Should().BeTrue();
+        (await svc.RevokeSessionAsync("user-1", phoneSession)).Should().BeFalse("it has already ended");
+
+        (await svc.RotateAsync(phone)).Succeeded.Should().BeFalse();
+        (await svc.RotateAsync(laptop)).Succeeded.Should().BeTrue();
+        (await svc.RotateAsync(other)).Succeeded.Should().BeTrue();
+    }
+
     private static string HashFor(string raw) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 }

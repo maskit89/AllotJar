@@ -144,7 +144,7 @@ describe('ImportPage restyle (PR 14)', () => {
     // The items' accessible names say which row they act on.
     await user.click(screen.getByRole('button', { name: 'AUTOMARKET on 2026-06-17: more actions' }))
     expect(await screen.findByRole('menuitem', { name: 'Split AUTOMARKET on 2026-06-17' })).toBeInTheDocument()
-    expect(screen.getByRole('menuitem', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' })).toBeInTheDocument()
+    expect(screen.getByRole('menuitem', { name: 'Mark as transfer: AUTOMARKET on 2026-06-17' })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: 'Member for AUTOMARKET on 2026-06-17' })).toBeInTheDocument()
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
@@ -193,7 +193,7 @@ describe('ImportPage restyle (PR 14)', () => {
     renderPage()
     await goToReview(user, 'acc1')
 
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await done(user)
     expect(await rowItems(user, 'E-BANKING PAYMENT on 2026-06-16')).toEqual([
       { name: 'Edit transfer', disabled: false },
@@ -213,7 +213,7 @@ describe('ImportPage restyle (PR 14)', () => {
       { name: 'Clear split', disabled: false },
     ])
     // The row's split chip opens the editor too.
-    await user.click(screen.getByRole('button', { name: 'Edit split for AUTOMARKET on 2026-06-17' }))
+    await user.click(screen.getByRole('button', { name: /^Edit split for AUTOMARKET on 2026-06-17:/ }))
     expect(screen.getByRole('dialog', { name: 'Split' })).toBeInTheDocument()
     await done(user)
     // Clear split from the ⋯ (no dialog) puts the chip back.
@@ -238,10 +238,10 @@ describe('ImportPage restyle (PR 14)', () => {
     const sheet = await screen.findByRole('dialog', { name: 'AUTOMARKET' })
     expect(sheet).toHaveTextContent('Jun 17')
     expect(within(sheet).getByRole('button', { name: 'Split AUTOMARKET on 2026-06-17' })).toBeInTheDocument()
-    expect(within(sheet).getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: 'Mark as transfer: AUTOMARKET on 2026-06-17' })).toBeInTheDocument()
     expect(within(sheet).getByRole('button', { name: 'Member for AUTOMARKET on 2026-06-17' })).toBeInTheDocument()
     // Picking an action closes the sheet and opens its dialog (a phone's bottom sheet: the grab handle is its Close).
-    await user.click(within(sheet).getByRole('button', { name: 'Mark AUTOMARKET on 2026-06-17 as a transfer' }))
+    await user.click(within(sheet).getByRole('button', { name: 'Mark as transfer: AUTOMARKET on 2026-06-17' }))
     const dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'AUTOMARKET' })).not.toBeInTheDocument())
     const close = within(dialog).getAllByRole('button', { name: 'Close' })
@@ -275,7 +275,7 @@ describe('ImportPage restyle (PR 14)', () => {
     renderPage()
     await goToReview(user, 'acc1')
 
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     const dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     expect(within(dialog).getByRole('button', { name: 'Close' })).toHaveFocus()
     // The row: payee, date and account, amount.
@@ -289,7 +289,7 @@ describe('ImportPage restyle (PR 14)', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getByRole('button', { name: 'E-BANKING PAYMENT on 2026-06-16: more actions' })).toHaveFocus()
     // Escape keeps the row a transfer (Undo is the way back).
-    expect(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ })).toBeInTheDocument()
   })
 
   it('the fee’s (i) inside the Transfer dialog closes alone on Escape; a second Escape closes the dialog', { timeout: 15000 }, async () => {
@@ -298,7 +298,7 @@ describe('ImportPage restyle (PR 14)', () => {
     renderPage()
     await goToReview(user, 'acc1')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     const dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     await user.selectOptions(within(dialog).getByLabelText('Transfer account for AUTOMARKET on 2026-06-17'), 'acc2')
     await user.type(within(dialog).getByLabelText('Fee for AUTOMARKET on 2026-06-17'), '2')
@@ -401,7 +401,7 @@ describe('ImportPage restyle (PR 14)', () => {
     renderPage()
     await goToReview(user, 'acc1')
 
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await user.selectOptions(screen.getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16'), 'acc2')
     await done(user)
     const row = rowOf('Include E-BANKING PAYMENT on 2026-06-16')
@@ -420,7 +420,7 @@ describe('ImportPage restyle (PR 14)', () => {
       transferMatches: [{ transferId: 'tr-1', counterpartyAccountId: 'acc2', counterpartyAccountName: 'Pot', amount: 234.24, currency: 'EUR', departedOn: '2026-06-15', receivedOn: null, payee: 'Transfer', kind: 'Match', fee: null, recordedDate: null, sameReference: false }],
     }
     await goToReview(user, 'acc1')
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await done(user)
     await user.click(screen.getByRole('button', { name: 'Already recorded? E-BANKING PAYMENT on 2026-06-16' }))
     expect(await screen.findByRole('dialog', { name: 'Transfer' })).toBeInTheDocument()
@@ -524,20 +524,20 @@ describe('ImportPage restyle (PR 14)', () => {
     renderPage()
     await goToReview(user, 'acc1')
 
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await done(user)
     // The chip that opened the dialog is gone once the transfer is undone: focus lands on the ⋯ instead of nowhere.
-    await user.click(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' }))
+    await user.click(screen.getByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ }))
     await screen.findByRole('dialog', { name: 'Transfer' })
     await user.click(screen.getByRole('button', { name: 'Undo transfer for E-BANKING PAYMENT on 2026-06-16' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.queryByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'E-BANKING PAYMENT on 2026-06-16: more actions' })).toHaveFocus()
 
     await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Split AUTOMARKET on 2026-06-17')
     await user.type(screen.getByLabelText('Split line 1 amount for AUTOMARKET'), '35')
     await done(user)
-    await user.click(screen.getByRole('button', { name: 'Edit split for AUTOMARKET on 2026-06-17' }))
+    await user.click(screen.getByRole('button', { name: /^Edit split for AUTOMARKET on 2026-06-17:/ }))
     await screen.findByRole('dialog', { name: 'Split' })
     await user.click(screen.getByRole('button', { name: 'Clear split' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -549,7 +549,7 @@ describe('ImportPage restyle (PR 14)', () => {
     const user = userEvent.setup()
     renderPage()
     await goToReview(user, 'acc1')
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     await user.keyboard('{Escape}')
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
 
@@ -580,7 +580,7 @@ describe('ImportPage restyle (PR 14)', () => {
     const user = userEvent.setup()
     renderPage()
     await goToReview(user, 'acc1')
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     const dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     const fee = within(dialog).getByLabelText('Fee for AUTOMARKET on 2026-06-17')
     await user.type(fee, '0')
@@ -606,10 +606,10 @@ describe('ImportPage restyle (PR 14)', () => {
     renderPage()
     await goToReview(user, 'acc1')
     const row = () => within(rowOf('Include AUTOMARKET on 2026-06-17'))
-    const chip = () => row().getByRole('button', { name: 'Edit transfer for AUTOMARKET on 2026-06-17' })
+    const chip = () => row().getByRole('button', { name: /^Edit transfer for AUTOMARKET on 2026-06-17:/ })
     const tone = () => row().getByText('Transfer').closest('[data-tone]')?.getAttribute('data-tone')
 
-    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark AUTOMARKET on 2026-06-17 as a transfer')
+    await rowAction(user, 'AUTOMARKET on 2026-06-17', 'Mark as transfer: AUTOMARKET on 2026-06-17')
     let dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     await user.selectOptions(within(dialog).getByLabelText('Transfer account for AUTOMARKET on 2026-06-17'), 'acc2')
     // A fee larger than the row: Done closes the dialog, the row reads bad and names the reason; no "+ fee" line.
@@ -649,13 +649,13 @@ describe('ImportPage restyle (PR 14)', () => {
     const user = userEvent.setup()
     renderPage()
     await goToReview(user, 'acc1')
-    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark E-BANKING PAYMENT on 2026-06-16 as a transfer')
+    await rowAction(user, 'E-BANKING PAYMENT on 2026-06-16', 'Mark as transfer: E-BANKING PAYMENT on 2026-06-16')
     let dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     expect(within(dialog).queryByText('Tick the row to edit its transfer.')).not.toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'Done' }))
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Transfer' })).not.toBeInTheDocument())
     await user.click(screen.getByLabelText('Include E-BANKING PAYMENT on 2026-06-16'))
-    await user.click(screen.getByRole('button', { name: 'Edit transfer for E-BANKING PAYMENT on 2026-06-16' }))
+    await user.click(screen.getByRole('button', { name: /^Edit transfer for E-BANKING PAYMENT on 2026-06-16:/ }))
     dialog = await screen.findByRole('dialog', { name: 'Transfer' })
     expect(within(dialog).getByText('Tick the row to edit its transfer.')).toBeInTheDocument()
     expect(within(dialog).getByLabelText('Transfer account for E-BANKING PAYMENT on 2026-06-16')).toBeDisabled()

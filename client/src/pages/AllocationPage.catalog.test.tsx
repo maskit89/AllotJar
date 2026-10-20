@@ -259,7 +259,7 @@ describe('AllocationPage (catalog)', () => {
 
     // Title is "Set up allocation" (not "Allocation settings") and the primary button reads "Set up".
     expect(screen.getByRole('dialog', { name: 'Set up allocation' })).toBeInTheDocument()
-    expect(dialog.getByRole('button', { name: 'Save allocation settings' })).toHaveTextContent('Set up')
+    expect(dialog.getByRole('button', { name: 'Set up' })).toBeInTheDocument()
     // Seeded defaults: source blank, pocket empty, split Equally, savings Balance, lean 25.
     expect(dialog.getByLabelText('Source account')).toHaveValue('')
     expect(dialog.getByLabelText('Pocket money per member')).toHaveValue('')
@@ -291,7 +291,7 @@ describe('AllocationPage (catalog)', () => {
     expect(group.getAllByRole('button').map((b) => b.textContent)).toEqual(['Equally', 'By income'])
     // Default is Equally; picking By income writes split=1 (ByIncomeRatio) to FundEnvelopes AND FundJars.
     await user.click(group.getByRole('button', { name: 'By income' }))
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
     const body = mockPut.mock.calls[0][1] as { rules: { type: number; split: number }[] }
@@ -356,7 +356,7 @@ describe('AllocationPage (catalog)', () => {
 
     await user.selectOptions(dialog.getByLabelText('Source account'), 'accJoint')
     await user.type(dialog.getByLabelText('Pocket money per member'), '50')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
     const body = mockPut.mock.calls[0][1] as { rules: { type: number; fixedAmountPerMember: number }[] }
@@ -482,7 +482,7 @@ describe('AllocationPage (catalog)', () => {
     const dialog = await openSetupModal(user)
 
     await user.type(dialog.getByLabelText('Pocket money per member'), 'abc')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     expect(await screen.findByText('Enter a valid pocket-money amount.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument() // modal stays open
@@ -499,7 +499,7 @@ describe('AllocationPage (catalog)', () => {
     const lean = dialog.getByLabelText('Balance lean percent')
     await user.clear(lean)
     await user.type(lean, '101')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     expect(await screen.findByText('Balance lean must be a whole number between 0 and 100.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPut).not.toHaveBeenCalled()
@@ -516,7 +516,7 @@ describe('AllocationPage (catalog)', () => {
     const lean = dialog.getByLabelText('Balance lean percent')
     await user.clear(lean)
     await user.type(lean, '100')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
     expect((mockPut.mock.calls[0][1] as { balanceLeanPercent: number }).balanceLeanPercent).toBe(100)
@@ -531,7 +531,7 @@ describe('AllocationPage (catalog)', () => {
     const dialog = await openSetupModal(user)
 
     await user.clear(dialog.getByLabelText('Balance lean percent'))
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
     expect((mockPut.mock.calls[0][1] as { balanceLeanPercent: number }).balanceLeanPercent).toBe(25)
@@ -546,7 +546,7 @@ describe('AllocationPage (catalog)', () => {
     const dialog = await openSetupModal(user)
 
     await user.selectOptions(dialog.getByLabelText('Source account'), 'accJoint')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     expect(await screen.findByText('Could not save the allocation profile.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByRole('dialog')).toBeInTheDocument()
@@ -1150,7 +1150,7 @@ describe('AllocationPage (catalog)', () => {
 
     // Pick Joint; leave pocket blank (→0), split Equally, savings Balance, lean 25 — all defaults.
     await user.selectOptions(dialog.getByLabelText('Source account'), 'accJoint')
-    await user.click(dialog.getByRole('button', { name: 'Save allocation settings' }))
+    await user.click(dialog.getByRole('button', { name: 'Set up' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1), { timeout: 5000 })
     const body = mockPut.mock.calls[0][1] as {
@@ -1276,7 +1276,7 @@ describe('AllocationPage (catalog)', () => {
 
     expect(within(strip('unattributed')!).getByText('€350.00 of income isn’t assigned to a person')).toBeInTheDocument()
     expect(await hintText(user, 'About unassigned income')).toMatch(/€350\.00 of July’s income isn’t assigned to a person/)
-    expect(screen.getByRole('button', { name: 'Assign income lines on the Dashboard' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Assign on the Dashboard: income lines' })).toBeInTheDocument()
     // A month with income is quiet about missing income, and nothing mentions People-page defaults.
     expect(screen.queryByText(/No income in July 2026’s budget yet/)).not.toBeInTheDocument()
     expect(screen.queryByText(/default incomes from the People page/)).not.toBeInTheDocument()

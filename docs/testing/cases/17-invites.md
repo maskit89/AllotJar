@@ -558,3 +558,12 @@
   2. Sign in as Robin and inspect the dashboard, `/people`, and `/account`.
 - **Expected:** Robin's only membership is hard-deleted, so the next request resolves her as Owner-of-self via `ActiveHouseholdSelector` — but no `HouseholdBootstrap` ever ran for her: no owner budget person (empty People page) and no budget months (create-month hero). Because `/auth/me` synthesizes a lone `isOwn:true` "Your household" entry, `ownsHousehold=true`, so the `/account` Household card's "Your own budget" row ("Start my own budget") does **not** appear — she can only build up manually from the empty dashboard. This is distinct from *leaving* a household (which materializes an own household properly, PR #158). Confirm and file as a data-integrity edge; contrast with the leave flow. General revoke-of-active-member coverage → `16-people-households.md`.
 - **Automated:** No
+
+### INV-055 - An unaccepted invitation is deleted 30 days after its link expires
+- **Priority:** P2
+- **Type:** Privacy
+- **Preconditions:** Pending invitations (`Invited`, no login yet): one whose link expired 31 days ago, one that expired 2 days ago, one still valid; and an accepted membership.
+- **Steps:**
+  1. Let the API's daily retention purge run.
+- **Expected:** Only the invitation expired more than 30 days ago is deleted, with the email address it was sent to. The owner still sees the one that expired 2 days ago and can send it again. Accepted memberships are never touched.
+- **Automated:** Full (tests/AllotJar.Application.Tests/Infrastructure/ExpiredRecordsPurgeTests.cs; tests/AllotJar.IntegrationTests/ExpiredRecordsPurgeSqlTests.cs)

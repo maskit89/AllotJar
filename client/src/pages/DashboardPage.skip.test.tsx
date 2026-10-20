@@ -112,8 +112,8 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     // The later months, as the server will replant them (rule 61).
     expect(await dialog.findByText(/spreads this month’s €150\.00 over the months that are left/, {}, { timeout: 5000 })).toBeInTheDocument()
     expect(dialog.getAllByText('€225.00')).toHaveLength(2)
-    expect(dialog.getByLabelText('Skip Holiday this month')).toBeEnabled()
-    expect(dialog.getByLabelText('Archive Holiday')).toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Skip this month' })).toBeEnabled()
+    expect(dialog.getByRole('button', { name: 'Archive jar' })).toBeInTheDocument()
     // Nothing was deleted or changed by opening the dialog.
     expect(mockDelete).not.toHaveBeenCalled()
     expect(mockPut).not.toHaveBeenCalled()
@@ -129,7 +129,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
 
     expect(await dialog.findByText(/leaves €150\.00 unplanned: no month is left to spread it over before the deadline/, {}, { timeout: 5000 })).toBeInTheDocument()
     // Allowed all the same (the user decides): the button stays enabled.
-    expect(dialog.getByLabelText('Skip Holiday this month')).toBeEnabled()
+    expect(dialog.getByRole('button', { name: 'Skip this month' })).toBeEnabled()
   })
 
   it('BUDG-060: Skip this month puts the skip, shows the line at €0 with a Skipped tag, and Plan it again restores it', { timeout: 15000 }, async () => {
@@ -142,20 +142,20 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     renderPage()
     await lineAction(user, 'Holiday', 'Skip this month')
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
-    await user.click(await dialog.findByLabelText('Skip Holiday this month', {}, { timeout: 5000 }))
+    await user.click(await dialog.findByRole('button', { name: 'Skip this month' }, { timeout: 5000 }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday/skip', { skipped: true }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     // The line stays in the month at €0, marked as skipped (rule 60) — it is never removed.
     expect(await screen.findByText('Skipped', {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByLabelText('Planned amount for Holiday')).toHaveTextContent('€0.00')
+    expect(screen.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveTextContent('€0.00')
     // The jars shelf is re-read so its figures follow the replant.
     expect(mockGet.mock.calls.filter(([url]) => url === '/jars').length).toBeGreaterThanOrEqual(2)
 
     await lineAction(user, 'Holiday', 'Plan again this month')
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday/skip', { skipped: false }))
     await waitFor(() => expect(screen.queryByText('Skipped')).not.toBeInTheDocument())
-    expect(screen.getByLabelText('Planned amount for Holiday')).toHaveTextContent('€150.00')
+    expect(screen.getByRole('button', { name: /^Planned amount for Holiday:/ })).toHaveTextContent('€150.00')
   })
 
   it('BUDG-061: Archive the jar from the same dialog takes two clicks, archives it and re-reads the month; a refusal is shown in the server\'s words', { timeout: 15000 }, async () => {
@@ -169,21 +169,21 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
     // "Archive jar" at the footer's left only turns the dialog to its archive step (restyle PR 18):
     // the title changes, the preview gives way to one line, and the one press that archives is focused.
-    await user.click(dialog.getByLabelText('Archive Holiday'))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
     expect(mockPut).not.toHaveBeenCalled()
     expect(dialog.getByText('Archive Holiday')).toBeInTheDocument()
     expect(dialog.queryByTestId('skip-preview')).not.toBeInTheDocument()
-    expect(dialog.queryByLabelText('Skip Holiday this month')).not.toBeInTheDocument()
-    expect(dialog.getByLabelText('Skip Holiday this month instead')).toBeInTheDocument()
-    expect(dialog.getByLabelText('Confirm archive Holiday')).toHaveFocus()
-    await user.click(dialog.getByLabelText('Confirm archive Holiday'))
+    expect(dialog.queryByRole('button', { name: 'Skip this month' })).not.toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Skip this month instead' })).toBeInTheDocument()
+    expect(dialog.getByRole('button', { name: 'Archive jar' })).toHaveFocus()
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/jar-holiday/archive', { archived: true }))
     expect(await dialog.findByText('Holiday still holds €450.00. Move the money out before archiving it.', {}, { timeout: 5000 })).toBeInTheDocument()
 
     // Second attempt (once the jar is empty) succeeds: the dialog closes and the month is re-read.
     const monthReads = mockGet.mock.calls.filter(([url]) => String(url).startsWith('/budget/') && !String(url).includes('items')).length
-    await user.click(dialog.getByLabelText('Confirm archive Holiday'))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     await waitFor(() =>
       expect(mockGet.mock.calls.filter(([url]) => String(url).startsWith('/budget/') && !String(url).includes('items')).length).toBeGreaterThan(monthReads),
@@ -201,13 +201,13 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
     expect(dialog.getByText('Archive Holiday')).toBeInTheDocument()
     expect(mockPut).not.toHaveBeenCalled()
     // Back to the skip step and its preview, then to the archive step again: still nothing sent.
-    await user.click(dialog.getByLabelText('Skip Holiday this month instead'))
+    await user.click(dialog.getByRole('button', { name: 'Skip this month instead' }))
     expect(dialog.getByText('Skip Holiday this month')).toBeInTheDocument()
     expect(await dialog.findByText(/spreads this month’s €150\.00 over the months that are left/, {}, { timeout: 5000 })).toBeInTheDocument()
-    expect(dialog.getByLabelText('Skip Holiday this month')).toHaveFocus()
-    await user.click(dialog.getByLabelText('Archive Holiday'))
+    expect(dialog.getByRole('button', { name: 'Skip this month' })).toHaveFocus()
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
     expect(mockPut).not.toHaveBeenCalled()
-    await user.click(dialog.getByLabelText('Confirm archive Holiday'))
+    await user.click(dialog.getByRole('button', { name: 'Archive jar' }))
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/jars/jar-holiday/archive', { archived: true }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
@@ -223,7 +223,7 @@ describe('DashboardPage — skipping a jar contribution (W04)', () => {
 
     expect(await screen.findByTestId('planned-Holiday', {}, { timeout: 5000 })).toHaveTextContent('€0.00')
     // Its plan is read-only too: typing an amount would un-skip a finished month (rule 46).
-    expect(screen.queryByLabelText('Planned amount for Holiday')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^Planned amount for Holiday:/ })).not.toBeInTheDocument()
     expect(screen.getByText('Skipped')).toBeInTheDocument()
     // Its ⋯ offers only a rename: no skip, no plan again, no delete, no amount.
     const items = (await menuItems(userEvent.setup(), 'Holiday: more actions')).map((i) => i.name)

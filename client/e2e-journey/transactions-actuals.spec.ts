@@ -81,12 +81,12 @@ async function addLine(page: Page, group: string, name: string) {
 
 /** Set a line's planned amount through the click-to-edit control (whole units only). */
 async function setPlanned(page: Page, line: string, value: string) {
-  await page.getByRole('button', { name: `Planned amount for ${line}`, exact: true }).click()
+  await page.getByRole('button', { name: new RegExp(`^Planned amount for ${line}: `) }).click()
   const input = page.getByRole('textbox', { name: `Planned amount for ${line}`, exact: true })
   await input.fill(value)
   await input.press('Enter')
   await expect(
-    page.getByRole('button', { name: `Planned amount for ${line}`, exact: true }),
+    page.getByRole('button', { name: new RegExp(`^Planned amount for ${line}: `) }),
   ).toContainText(`${value}.00`)
 }
 
@@ -359,7 +359,7 @@ test('deleting a budget line or an account detaches its transactions but never d
   // ON DELETE SET NULL) leaves both rows in the register with a "—" account cell.
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await accountAction(page, 'Joint', 'Delete Joint')
-  await page.getByRole('button', { name: 'Confirm delete Joint', exact: true }).click()
+  await page.getByRole('button', { name: 'Delete account', exact: true }).click()
   await expect(page.getByText('No accounts yet')).toBeVisible()
 
   await page.getByRole('link', { name: 'Transactions' }).click()

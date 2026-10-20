@@ -1544,3 +1544,30 @@ All fourteen CI runs passed at their first attempt. Twelve of the fourteen stagi
 - **The Windows event log.** The API's error messages can contain user emails, and the Application event log (which starts in August 2025) rolls over by size, not by age. Christopher chose to describe it as "kept until the log fills up and overwrites its oldest entries" (PR #371) and not to clear it on a schedule; the better fix is a dedicated, size-capped "AllotJar" event log for the API, or no user emails in logged errors. The scheduled-clear idea (SERVER-STEPS 4d, a full `wevtutil cl Application` every 90 days) was dropped on 20 October because it would also wipe recent SQL, IIS and API diagnostics.
 - **Smaller:** the R2 location is a hint (WEUR), not an EU-jurisdiction guarantee; HTTP.sys error logs are pruned by the same task as the IIS logs (SERVER-STEPS 4b).
 - Unchanged from the previous record: #323 P3-5, #325 P3-3 and #331 P3-2, and the #333 to #357 follow-ups above.
+
+## Sign-ins last at most 90 days; signed-in devices on Account settings (PR #380) — 20 October 2026
+
+Christopher asked whether staying signed in for days was safe, and chose a 90-day cap with a list of signed-in devices and Sign out everywhere. Each sign-in now ends after 30 days unused or 90 days after it began. Account settings lists every device with its own Sign out, and Download my data includes `sign-ins.csv`. Disconnecting Google, or signing in over a cookie that is still set, now ends the replaced sign-in instead of leaving it alive (review P3-1).
+
+Follow-ups from the review (reviews/pr-380/REVIEW.md):
+- #380 P3-2: a refresh that races Sign out on that same device can outlive the sign-out, because `RefreshToken` has no concurrency token. Fix with a rowversion or a conditional update.
+- #380 P3-3 (cleanup part): expired token rows, which now hold device names, are pruned only when that login next signs in or refreshes. Either prune them in the nightly job, or have the privacy policy say ended sign-ins are deleted within 30 days.
+- #380 P3-4: iPadOS reports a Mac user agent unless it is in the installed app, so an iPad usually reads "Safari on Mac". The client could send a touch hint.
+
+## Expired sign-ins and invitations are deleted every day (compliance fix 9) — 20 October 2026
+
+Christopher asked for compliance fixes 9 to 15. Fix 9 purges expired refresh tokens and invitations and keeps IIS logs to 90 days. The IIS and HTTPERR part already runs: the `AllotJar-IisLogCleanup` task from #371's server steps (block 4b), which he confirmed on 20 Oct. This PR adds the purge. The API runs it five minutes after it starts and then once a day. Each run deletes every refresh token past its expiry, whichever login it belongs to, and every invitation nobody accepted 30 days after its link expired. A rotated or signed-out token that has not expired is kept, so replaying a stolen one still triggers the theft response. Until 30 days after an invitation's link expires, the owner still sees it and can send it again. The privacy policy now says a sign-in's record, with its device name, is deleted within 31 days of its last use (a token expires at most 30 days after it was minted, and the purge runs daily), and an unaccepted invitation is deleted 30 days after its link expires. This closes the cleanup part of #380 P3-3.
+
+Follow-ups from the review (reviews/pr-382/REVIEW.md; P3-1 and P3-2 fixed in the PR):
+- #382 P3-1 (server part): the purge runs only while the API is up. On production the 5-minute health-ping task keeps it up; staging idles. Setting the API pools' `idleTimeout` to 0, or turning on preload, would not depend on the ping. This is a server step and needs Christopher's go.
+- #382 P3-3: once an invitation is purged, its link reads "invalid or has already been used" instead of "expired". Possible copy change: "invalid, expired or already used".
+- #382 P3-4 (pre-existing): a refresh at its token's exact expiry can lose to the purge's delete and return a 500. This is the same missing concurrency token as #380 P3-2.
+
+## Bank details encrypted at rest (PR #383, compliance fix 10) — 20 October 2026
+
+An account's IBAN, BIC, sort code and account number are now stored AES-256-GCM encrypted with a key of each site's own (`BankDetailsEncryption:Key`, made from a passphrase in Christopher's password manager). The Data Protection key ring was not used, because it is locked to this VPS and a backup restored anywhere else could not read the bank details. Each start encrypts values saved before encryption and re-encrypts values written with a retired key (review P2-1). Without a key the API won't start and Deploy.ps1 won't deploy. Imports never matched accounts by IBAN; the privacy policy's sentence saying they did is gone (review P3-5). Key changes, a lost key and rollback are in docs/deployment/README.md, section 4.
+
+Follow-ups from the review (reviews/pr-383/REVIEW.md):
+- #383 P3-1 (rest): staging and production still accept a value written with the public development key. Each start re-encrypts such a value under the site key and logs the count, but the development key could be dropped from the ring outside Development (the integration tests rely on keys accumulating in one process, so this needs care there).
+- #383 P3-4: the encrypted value is bound to its column, not its row, so someone with write access to the database could copy one account's IBAN onto another. Binding the row id would mean moving encryption out of the EF value converters. Accepted for now, since database write access is already a full compromise.
+- #383 P3-6 (older than this PR, not verified): `C:\deploy\settings-backups` and the sites' `appsettings.*.json` may be readable by local users or the other site's app pool. Check with `icacls` and lock them to Administrators, SYSTEM and the site's own pool in a reviewed block.

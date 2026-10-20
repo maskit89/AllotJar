@@ -19,6 +19,7 @@ public class Account : BaseEntity, IVersioned
     /// <summary>Identity user id that owns this account.</summary>
     public string OwnerId { get; set; } = string.Empty;
 
+    [MaskCardNumbers]
     public string Name { get; set; } = string.Empty;
 
     public AccountType Type { get; set; } = AccountType.Current;

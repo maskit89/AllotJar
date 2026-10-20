@@ -25,6 +25,11 @@ const BACKUP_LOCATION = 'Western Europe'
 const OFFSITE_BACKUP_DAYS = 35
 const LOG_RETENTION = 'up to 90 days'
 const ANALYTICS_RETENTION = '2 months'
+// Compliance fix 9: the API's daily purge (ExpiredRecordsPurge) deletes a refresh token once it
+// expires, at most 30 days after its sign-in was last used, so within 31 days; and an unaccepted
+// invitation 30 days after its link expires (ExpiredRecordsPurge.InviteGraceDays).
+const SIGN_IN_RECORD_DAYS = 31
+const INVITE_GRACE_DAYS = 30
 // Data processing terms, 20 Oct 2026: Cloudflare's DPA is part of its self-serve terms and
 // Google Analytics' data processing terms are accepted. InterServer has no DPA yet (asked for one),
 // so its bullet says it works under its own terms and DPF commitments: change it when the DPA
@@ -67,9 +72,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
-          transactions and match them to an account by its IBAN or account number. The file itself
-          is only read while it uploads and is never kept; only the transactions you import are
-          kept.
+          transactions in the account you choose. The file itself is only read while it uploads and
+          is never kept; only the transactions you import are kept.
         </li>
         <li>
           <strong>People in your household</strong>: names, incomes and pocket money of the people
@@ -77,7 +81,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Sign-in sessions</strong>: a hashed token per signed-in device, so you stay signed
-          in.
+          in, with the device’s browser and type (such as “Safari on iPhone”) and when it was last
+          used, so you can see and sign out your devices in Account settings.
         </li>
         <li>
           <strong>Technical data</strong>: our web server logs each request with its IP address and
@@ -194,10 +199,14 @@ export function PrivacyPage() {
           recover the whole service.
         </li>
         <li>
-          <strong>Sign-in sessions</strong>: each lasts 30 days, or until you sign out.
+          <strong>Sign-in sessions</strong>: each ends after 30 days unused, 90 days after you signed
+          in, or when you sign out, whichever comes first. Once it has ended, its record, with the
+          device name, is deleted within {SIGN_IN_RECORD_DAYS} days of its last use.
         </li>
         <li>
-          <strong>Invitations</strong>: an invitation link works for 7 days.
+          <strong>Invitations</strong>: an invitation link works for 7 days. One nobody accepts is
+          deleted, with the email address it was sent to, {INVITE_GRACE_DAYS} days after its link
+          expires.
         </li>
         <li>
           <strong>Web server logs and error report emails</strong>: {LOG_RETENTION}. Error entries
@@ -215,7 +224,8 @@ export function PrivacyPage() {
       <h2>How we protect it</h2>
       <p>
         Everything travels encrypted (TLS). Passwords and sign-in tokens are stored only as hashes,
-        backups are encrypted before they leave our server, and sign-in is protected by rate limits,
+        bank details on your accounts are encrypted in our database, backups are encrypted before
+        they leave our server, and sign-in is protected by rate limits,
         a lockout after repeated wrong passwords and a check against known breached passwords. No
         system is perfectly secure; if a breach puts your data at risk, we will tell you and the
         regulator as the law requires.

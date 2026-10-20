@@ -1322,7 +1322,8 @@ interface PersonOffers {
 /**
  * A person's ⋯ list, in the mock-up's order: who you are (This is me, This isn't me), their
  * sign-in (Invite to sign in, or Send again where Invite would be), Edit, then Archive after a
- * divider. Each item keeps the accessible name its button had before the restyle.
+ * divider. Each item's accessible name holds its visible words and then names the person
+ * ("Send again: Robin"), so a screen reader hears whose card it acts on (WCAG 2.5.3).
  */
 function personActions(name: string, o: PersonOffers, onAction: (kind: PersonActionKind) => void): RowAction[] {
   const actions: RowAction[] = []
@@ -1336,7 +1337,7 @@ function personActions(name: string, o: PersonOffers, onAction: (kind: PersonAct
     actions.push({
       key: 'resend',
       label: 'Send again',
-      ariaLabel: `Send the email to ${name} again`,
+      ariaLabel: `Send again: ${name}`,
       icon: <Mail aria-hidden />,
       disabled: o.resend.disabled,
       onSelect: () => onAction('resend'),
@@ -1622,7 +1623,8 @@ type SignInActionKind = 'resend' | 'link' | 'remove'
 /**
  * A sign-in's ⋯ list, in the mock-up's order: Send again (a pending invite, or a login still to
  * choose its password), Link to a person (not the owner's), then Remove in red after a divider
- * (not the owner's, not yours). Each keeps the accessible name its control had before the restyle.
+ * (not the owner's, not yours). Each item's accessible name holds its visible words and then names
+ * the sign-in ("Link to a person: robin@x.eu").
  */
 function signInActions(login: MembershipDto, busy: boolean, onAction: (kind: SignInActionKind) => void): RowAction[] {
   const who = login.displayName ?? login.email
@@ -1631,7 +1633,7 @@ function signInActions(login: MembershipDto, busy: boolean, onAction: (kind: Sig
     actions.push({
       key: 'resend',
       label: 'Send again',
-      ariaLabel: `Send the email to ${who} again`,
+      ariaLabel: `Send again: ${who}`,
       icon: <Mail aria-hidden />,
       disabled: busy,
       onSelect: () => onAction('resend'),
@@ -1641,7 +1643,7 @@ function signInActions(login: MembershipDto, busy: boolean, onAction: (kind: Sig
     actions.push({
       key: 'link',
       label: 'Link to a person',
-      ariaLabel: `Link ${login.email} to a person`,
+      ariaLabel: `Link to a person: ${login.email}`,
       icon: <User aria-hidden />,
       disabled: busy,
       // The picker opens in the row and takes focus itself.
