@@ -22,6 +22,9 @@ public class RefreshTokenConfiguration : IEntityTypeConfiguration<RefreshToken>
         builder.Property(t => t.ReplacedByTokenHash)
             .HasMaxLength(200);
 
+        builder.Property(t => t.Device)
+            .HasMaxLength(100);
+
         // Rotation and validation look the token up by its hash.
         builder.HasIndex(t => t.TokenHash).IsUnique();
 

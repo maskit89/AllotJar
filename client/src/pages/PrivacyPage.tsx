@@ -77,7 +77,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Sign-in sessions</strong>: a hashed token per signed-in device, so you stay signed
-          in.
+          in, with the device’s browser and type (such as “Safari on iPhone”) and when it was last
+          used, so you can see and sign out your devices in Account settings.
         </li>
         <li>
           <strong>Technical data</strong>: our web server logs each request with its IP address and
@@ -194,7 +195,8 @@ export function PrivacyPage() {
           recover the whole service.
         </li>
         <li>
-          <strong>Sign-in sessions</strong>: each lasts 30 days, or until you sign out.
+          <strong>Sign-in sessions</strong>: each ends after 30 days unused, 90 days after you signed
+          in, or when you sign out, whichever comes first.
         </li>
         <li>
           <strong>Invitations</strong>: an invitation link works for 7 days.

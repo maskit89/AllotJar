@@ -168,6 +168,7 @@ public class ExportMyDataQueryHandler : IRequestHandler<ExportMyDataQuery, DataE
         {
             ExportedUtc = DateTime.UtcNow,
             Profile = request.Profile,
+            SignIns = request.SignIns ?? [],
             Accounts = accounts,
             People = people,
             HouseholdAccess = access,
