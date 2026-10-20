@@ -19,9 +19,10 @@ import { LegalLayout } from './LegalLayout'
 const SERVER_LOCATION = 'the United States'
 // WEUR is R2's location hint, not an EU jurisdiction guarantee; enough for the beta.
 const BACKUP_LOCATION = 'Western Europe'
-// The R2 bucket lock (allotjar-lock-rule, 60 days, whole bucket) outlasts #368's 35-day expiry
-// for db-backups-enc/, so backups stay 60 days (checked 20 Oct 2026). Lower it if the lock goes.
-const OFFSITE_BACKUP_DAYS = 60
+// #368's R2 expiry for db-backups-enc/ is 35 days, and the bucket lock (allotjar-lock-rule, whole
+// bucket) was shortened from 60 to 35 days on 20 Oct 2026, so backups stay 35 days. If the lock is
+// ever longer than the expiry rule, use the lock's period here.
+const OFFSITE_BACKUP_DAYS = 35
 const LOG_RETENTION = 'up to 90 days'
 const ANALYTICS_RETENTION = '2 months'
 // Data processing terms, 20 Oct 2026: Cloudflare's DPA is part of its self-serve terms and
