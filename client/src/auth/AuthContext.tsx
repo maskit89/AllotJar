@@ -119,6 +119,8 @@ interface AuthState {
   resetPassword: (email: string, token: string, newPassword: string) => Promise<void>
   updatePreferences: (input: PreferencesInput) => Promise<void>
   logout: () => void
+  /** Signs the login out on every device, this one included, then goes to the sign-in page. */
+  signOutEverywhere: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthState | undefined>(undefined)
@@ -548,6 +550,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profileSettled()
   }
 
+  async function signOutEverywhere() {
+    await api.post('/auth/sign-out-everywhere')
+    // The server cleared this device's cookie too: forget the login here and in every other tab.
+    clearAuthState()
+    broadcastSignOut()
+    window.location.assign('/login')
+  }
+
   function logout() {
     // Revoke the refresh token + clear the cookie server-side; don't block the UI on it.
     api.post('/auth/logout').catch(() => {})
@@ -603,6 +613,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       resetPassword,
       updatePreferences,
       logout,
+      signOutEverywhere,
     }),
     [token, userId, email, displayName, firstName, lastName, preferredCurrency, budgetCurrencyState, currencyLocked, ownBudgetCurrencyState, numberFormat, role, bootstrapping, households, activeOwnerId, needsConsent, mustChangePassword, memberId, sharingReviewPending, hasPassword, hasGoogle, emailConfirmed],
   )

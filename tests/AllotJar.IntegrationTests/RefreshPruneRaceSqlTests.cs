@@ -123,7 +123,11 @@ public class RefreshPruneRaceSqlTests
         }
         foreach (var raw in new[] { raw1, raw2 }.Where(r => r is not null).Distinct())
         {
-            db.RefreshTokens.Add(new RefreshToken { UserId = user, TokenHash = Hash(raw!), CreatedUtc = now.AddMinutes(-15), ExpiresUtc = now.AddDays(29) });
+            db.RefreshTokens.Add(new RefreshToken
+            {
+                UserId = user, TokenHash = Hash(raw!), CreatedUtc = now.AddMinutes(-15), ExpiresUtc = now.AddDays(29),
+                SessionId = Guid.NewGuid(), SessionStartedUtc = now.AddDays(-1),
+            });
         }
         await db.SaveChangesAsync();
     }

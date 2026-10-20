@@ -17,6 +17,12 @@ public class RefreshTokenService : IRefreshTokenService
     public const int LifetimeDays = 30;
 
     /// <summary>
+    /// The longest one sign-in lasts, however often it is used: every rotation renews the token for
+    /// <see cref="LifetimeDays"/>, but never past this many days after the sign-in began.
+    /// </summary>
+    public const int MaxSessionDays = 90;
+
+    /// <summary>
     /// How long after a rotation the old token may turn up again without triggering the theft
     /// response. A browser restoring several app tabs cold-loads them all at once; every tab
     /// POSTs /auth/refresh with the SAME cookie (the client single-flight is per-tab), so the
@@ -32,22 +38,26 @@ public class RefreshTokenService : IRefreshTokenService
         _db = db;
     }
 
-    public async Task<string> IssueAsync(string userId, CancellationToken cancellationToken = default)
+    public async Task<string> IssueAsync(string userId, string? device = null, CancellationToken cancellationToken = default)
     {
         await PruneExpiredAsync(userId, cancellationToken);
         var raw = Generate();
+        var now = DateTime.UtcNow;
         _db.RefreshTokens.Add(new RefreshToken
         {
             UserId = userId,
             TokenHash = Hash(raw),
-            CreatedUtc = DateTime.UtcNow,
-            ExpiresUtc = DateTime.UtcNow.AddDays(LifetimeDays),
+            CreatedUtc = now,
+            ExpiresUtc = ExpiryFor(now, now),
+            SessionId = Guid.NewGuid(),
+            SessionStartedUtc = now,
+            Device = Trim(device),
         });
         await _db.SaveChangesAsync(cancellationToken);
         return raw;
     }
 
-    public async Task<RefreshRotationResult> RotateAsync(string rawToken, CancellationToken cancellationToken = default)
+    public async Task<RefreshRotationResult> RotateAsync(string rawToken, string? device = null, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(rawToken))
         {
@@ -84,24 +94,32 @@ public class RefreshTokenService : IRefreshTokenService
             return RefreshRotationResult.Failed;
         }
 
-        if (DateTime.UtcNow >= token.ExpiresUtc)
+        // The session's maximum age is checked as well as the token's own expiry: a token issued
+        // before the cap existed may expire later than its session allows.
+        var now = DateTime.UtcNow;
+        if (now >= token.ExpiresUtc || now >= token.SessionStartedUtc.AddDays(MaxSessionDays))
         {
             return RefreshRotationResult.Failed;
         }
 
         await PruneExpiredAsync(token.UserId, cancellationToken);
         var newRaw = Generate();
-        token.RevokedUtc = DateTime.UtcNow;
+        var expires = ExpiryFor(token.SessionStartedUtc, now);
+        token.RevokedUtc = now;
         token.ReplacedByTokenHash = Hash(newRaw);
         _db.RefreshTokens.Add(new RefreshToken
         {
             UserId = token.UserId,
             TokenHash = token.ReplacedByTokenHash,
-            CreatedUtc = DateTime.UtcNow,
-            ExpiresUtc = DateTime.UtcNow.AddDays(LifetimeDays),
+            CreatedUtc = now,
+            ExpiresUtc = expires,
+            SessionId = token.SessionId,
+            SessionStartedUtc = token.SessionStartedUtc,
+            // A sign-in from before devices were recorded learns its device at its next refresh.
+            Device = token.Device ?? Trim(device),
         });
         await _db.SaveChangesAsync(cancellationToken);
-        return RefreshRotationResult.Success(token.UserId, newRaw);
+        return RefreshRotationResult.Success(token.UserId, newRaw, expires);
     }
 
     public async Task<string?> RevokeAsync(string rawToken, CancellationToken cancellationToken = default)
@@ -138,6 +156,59 @@ public class RefreshTokenService : IRefreshTokenService
         }
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<ActiveSession>> ListActiveAsync(string userId, string? currentRawToken, CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        var active = await _db.RefreshTokens
+            .Where(t => t.UserId == userId && t.RevokedUtc == null && t.ExpiresUtc > now)
+            .ToListAsync(cancellationToken);
+        var currentHash = string.IsNullOrEmpty(currentRawToken) ? null : Hash(currentRawToken);
+        var currentSession = currentHash is null
+            ? (Guid?)null
+            : await _db.RefreshTokens
+                .Where(t => t.UserId == userId && t.TokenHash == currentHash)
+                .Select(t => (Guid?)t.SessionId)
+                .FirstOrDefaultAsync(cancellationToken);
+
+        // One row per sign-in: its newest token says when the device last refreshed.
+        return active
+            .GroupBy(t => t.SessionId)
+            .Select(g => g.OrderByDescending(t => t.CreatedUtc).First())
+            .Select(t => new ActiveSession(t.SessionId, t.Device, t.SessionStartedUtc, t.CreatedUtc, t.SessionId == currentSession))
+            .OrderByDescending(s => s.Current)
+            .ThenByDescending(s => s.LastActiveUtc)
+            .ToList();
+    }
+
+    public async Task<bool> RevokeSessionAsync(string userId, Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        var active = await _db.RefreshTokens
+            .Where(t => t.UserId == userId && t.SessionId == sessionId && t.RevokedUtc == null)
+            .ToListAsync(cancellationToken);
+        if (active.Count == 0)
+        {
+            return false;
+        }
+        foreach (var t in active)
+        {
+            t.RevokedUtc = DateTime.UtcNow;
+        }
+        await _db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
+    /// <summary>A token minted now for a session that began at <paramref name="sessionStartedUtc"/>:
+    /// the usual lifetime, cut short at the session's maximum age.</summary>
+    private static DateTime ExpiryFor(DateTime sessionStartedUtc, DateTime now)
+    {
+        var renewed = now.AddDays(LifetimeDays);
+        var cap = sessionStartedUtc.AddDays(MaxSessionDays);
+        return renewed < cap ? renewed : cap;
+    }
+
+    private static string? Trim(string? device) =>
+        string.IsNullOrWhiteSpace(device) ? null : device.Length > 100 ? device[..100] : device;
 
     /// <summary>
     /// Removes the login's tokens past their expiry (S-P3-1): every issue and rotation adds a row,
