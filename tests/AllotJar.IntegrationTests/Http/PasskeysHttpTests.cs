@@ -458,4 +458,31 @@ public class PasskeysHttpTests
         (await HttpApiFixture.SendAsync(elsewhere, HttpMethod.Post, "/api/auth/passkeys/options", otherToken, new { }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
+
+    [Fact]
+    public async Task Disconnecting_Google_leaves_another_logins_cookie_alone()
+    {
+        // A browser signed in as one login; a request on it carries another login's access token.
+        using var other = await RegisterAsync();
+        using var browser = _fixture.CreateClient();
+        await PasswordSignInAsync(browser, other);
+
+        using var login = await RegisterAsync();
+        using (var scope = _fixture.Services.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Users.Where(u => u.Email == login.Email)
+                .ExecuteUpdateAsync(u => u.SetProperty(x => x.EmailConfirmed, true));
+        }
+        using var google = _fixture.CreateClient();
+        var credential = "fake-google:" + JsonSerializer.Serialize(new { sub = $"g-{Guid.NewGuid():N}", email = login.Email, emailVerified = true });
+        (await google.PostAsJsonAsync("/api/auth/google", new { credential }, HttpApiFixture.Json)).StatusCode.Should().Be(HttpStatusCode.OK);
+        var token = (await PasswordSignInAsync(_fixture.CreateClient(), login)).GetProperty("token").GetString();
+
+        var unlink = await HttpApiFixture.SendAsync(browser, HttpMethod.Post, "/api/auth/google/unlink", token);
+        unlink.StatusCode.Should().Be(HttpStatusCode.OK, await unlink.Content.ReadAsStringAsync());
+        unlink.Headers.Contains("Set-Cookie").Should().BeFalse("the cookie on this browser is another login's");
+
+        // The other login's sign-in is untouched: its cookie still refreshes.
+        (await browser.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
 }

@@ -1214,15 +1214,17 @@ public partial class AuthController : ControllerBase
             return;
         }
 
-        var rotated = await _refreshTokens.RotateAsync(current, CurrentDevice(), ct);
-        if (!rotated.Succeeded)
+        // Only this login's own sign-in carries on: another login's cookie on this browser is left
+        // alone, as rotating it would end that sign-in and set off theft detection on its next use.
+        var sessions = await _refreshTokens.ListActiveAsync(userId, current, ct);
+        if (!sessions.Any(s => s.Current))
         {
             return;
         }
-        if (rotated.UserId != userId)
+
+        var rotated = await _refreshTokens.RotateAsync(current, CurrentDevice(), ct);
+        if (!rotated.Succeeded || rotated.UserId != userId)
         {
-            // Another login's cookie on this browser: end what was just made rather than hand it over.
-            await _refreshTokens.RevokeAsync(rotated.NewRawToken!, ct);
             return;
         }
         SetRefreshCookie(rotated.NewRawToken!, rotated.ExpiresUtc);
