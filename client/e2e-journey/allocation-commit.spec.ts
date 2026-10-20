@@ -19,8 +19,8 @@ import { firstOfMonthAhead, groupAction, lineAction, personAction, register, txR
  * client's `standardRules` would send (a short-cut, not a work-around), then drive every later
  * step (settings edits, preview, commit) through the real UI.
  *
- * Money assertions are symbol-agnostic ("2,500.00", not "€2,500.00") because the
- * registration form pre-selects the currency from the browser locale, while the
+ * Money assertions are symbol-agnostic ("2,500.00", not "€2,500.00") so they hold
+ * whatever currency a spec registers with, while the
  * commit stamps transfers EUR (the documented ALLOC-058 limitation).
  *
  * Each test registers its own fresh user so the specs stay isolated.

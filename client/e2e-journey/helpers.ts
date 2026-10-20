@@ -59,11 +59,11 @@ export async function register(
   await page.getByLabel('Last name').fill('Tester')
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(password)
-  // Pin the home currency: the form's default is locale-derived (GBP under this suite's
-  // en-GB locale), the first budget month adopts it, and the suite's money assertions
-  // are written in €. Registering in EUR keeps months, accounts and transactions
-  // coherent in one currency regardless of the runner's locale. A spec that exercises the
-  // non-EUR path (first-month-currency.spec.ts) overrides this explicitly.
+  // Pin the home currency: the form preselects EUR, the first budget month adopts it, and
+  // the suite's money assertions are written in €. Selecting it explicitly keeps months,
+  // accounts and transactions coherent in one currency even if the form's default ever
+  // changes. A spec that exercises the non-EUR path (first-month-currency.spec.ts)
+  // overrides this explicitly.
   await page.getByLabel('Currency').selectOption(opts.currency ?? 'EUR')
   // Terms checkbox has no id/aria-label — reach it through its wrapping label text.
   await page.locator('label', { hasText: 'I agree to the' }).getByRole('checkbox').check()

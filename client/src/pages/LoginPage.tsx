@@ -32,8 +32,8 @@ export function LoginPage() {
   const [password, setPassword] = useState('')
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
-  // A welcoming first guess from the visitor's browser locale (fully overridable
-  // below); euro / comma-dot stays the fallback. Computed once.
+  // Euro preselected; the number format guessed from the visitor's browser locale
+  // (both fully overridable below). Computed once.
   const [localeDefaults] = useState(detectLocaleDefaults)
   const [currency, setCurrency] = useState(localeDefaults.currency)
   const [numberFormat, setNumberFormat] = useState<string>(localeDefaults.numberFormat)
