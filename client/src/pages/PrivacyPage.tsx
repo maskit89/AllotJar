@@ -17,6 +17,7 @@ import { LegalLayout } from './LegalLayout'
 // which); R2 bucket allotjar has location hint Western Europe (WEUR); GA retention 2 months; the
 // IIS/HTTPERR log clean-up task runs; error alerts go to a Gmail address (Google's bullet).
 const SERVER_LOCATION = 'the United States'
+// WEUR is R2's location hint, not an EU jurisdiction guarantee; enough for the beta.
 const BACKUP_LOCATION = 'Western Europe'
 // The R2 bucket lock (allotjar-lock-rule, 60 days, whole bucket) outlasts #368's 35-day expiry
 // for db-backups-enc/, so backups stay 60 days (checked 20 Oct 2026). Lower it if the lock goes.
@@ -24,6 +25,8 @@ const OFFSITE_BACKUP_DAYS = 60
 const LOG_RETENTION = 'up to 90 days'
 const ANALYTICS_RETENTION = '2 months'
 // True only once each provider's data processing terms are accepted and filed, InterServer's too.
+// The Gmail alert inbox has none (consumer Gmail), so Google's bullet says so; move the alerts to a
+// mailbox with a DPA before charging.
 const PROCESSOR_TERMS = '[TO CONFIRM: each under a data processing agreement]'
 // The safeguard for the US transfer: the EU-US Data Privacy Framework if InterServer is
 // certified, otherwise Standard Contractual Clauses signed with it.
@@ -152,7 +155,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Google</strong> confirms who you are if you choose to sign in with Google, runs
-          analytics if you accept them, and hosts the Gmail mailbox our error reports go to.
+          analytics if you accept them, and hosts the Gmail mailbox our error reports go to (under Google’s standard terms, not a
+          data processing agreement).
         </li>
       </ul>
       <p>
