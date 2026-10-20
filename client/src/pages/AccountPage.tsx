@@ -14,6 +14,7 @@ import { ChangePasswordDialog } from '../components/settings/ChangePasswordDialo
 import { LeaveHouseholdDialog } from '../components/settings/LeaveHouseholdDialog'
 import { DeleteAccountDialog, type DeletePreview, type DeleteProof } from '../components/settings/DeleteAccountDialog'
 import { DownloadDataCard } from '../components/settings/DownloadDataCard'
+import { DevicesCard } from '../components/settings/DevicesCard'
 import { GoogleMark, OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, SAVE_BUTTON, Tile } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -706,6 +707,8 @@ export function AccountPage() {
                 </p>
               )}
             </section>
+
+            <DevicesCard />
 
             <DownloadDataCard>
               <div className={ROW}>

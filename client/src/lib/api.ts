@@ -81,11 +81,22 @@ function redirectToLogin() {
 // production the SPA is served behind the same host. withCredentials so the refresh cookie rides along.
 export const api = axios.create({ baseURL: '/api', withCredentials: true })
 
-// Attach the in-memory bearer token to every outgoing request.
+/** True when the app runs installed (opened from the home screen), not in a browser tab. */
+export function isInstalledApp(): boolean {
+  if (typeof window === 'undefined') return false
+  const iosStandalone = (navigator as Navigator & { standalone?: boolean }).standalone === true
+  return iosStandalone || window.matchMedia?.('(display-mode: standalone)').matches === true
+}
+
+// Attach the in-memory bearer token to every outgoing request, and say when the app runs installed
+// so the list of signed-in devices can tell "AllotJar app on iPhone" from "Safari on iPhone".
 api.interceptors.request.use((config) => {
   const token = getToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  }
+  if (isInstalledApp()) {
+    config.headers['X-AllotJar-App'] = '1'
   }
   return config
 })
