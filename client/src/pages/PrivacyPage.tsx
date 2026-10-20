@@ -115,7 +115,7 @@ export function PrivacyPage() {
         change your choice at any time in Help.
       </p>
       <p>
-        Our fonts are served from our own server, so opening a page sends nothing to Google. The
+        Our fonts are served from our own server, so opening AllotJar sends nothing to Google. The
         “Sign in with Google” button on the sign-in page does load from Google, which lets Google
         see your IP address when you open that page.
       </p>
@@ -195,11 +195,11 @@ export function PrivacyPage() {
       <p>Under the GDPR you can:</p>
       <ul>
         <li>
-          <strong>get a copy of your data</strong>: use “Download my data” in Settings for a full copy
-          you can also take to another service;
+          <strong>get a copy of your data</strong>: use “Download my data” on your Account page for a
+          copy of your household’s data in files you can also take to another service;
         </li>
         <li>
-          <strong>delete your account</strong>: use “Delete my account” in Settings;
+          <strong>delete your account</strong>: use “Delete my account” on your Account page;
         </li>
         <li>correct anything that is wrong, which you can mostly do in the app yourself;</li>
         <li>restrict or object to how we use your data;</li>
