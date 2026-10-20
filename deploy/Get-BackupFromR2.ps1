@@ -52,6 +52,11 @@ if ($Name -eq 'latest') {
 if ($Name -notmatch '^[\w.-]+\.bak$') { throw "Unexpected backup name '$Name'." }
 
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+# The decrypted copy holds every user's data: keep the folder to SYSTEM + Administrators (Windows only).
+if ($IsWindows -ne $false) {
+    & icacls.exe $OutDir /inheritance:r /grant:r 'SYSTEM:(OI)(CI)F' 'BUILTIN\Administrators:(OI)(CI)F' | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "Could not restrict access to $OutDir (icacls exit $LASTEXITCODE)." }
+}
 $out = Join-Path $OutDir $Name
 Write-Host "Downloading and decrypting ${CryptRemote}:$Name -> $out" -ForegroundColor Cyan
 & $Rclone copyto --config $RcloneConf "${CryptRemote}:$Name" $out --s3-no-check-bucket

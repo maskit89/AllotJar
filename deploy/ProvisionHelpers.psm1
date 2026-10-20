@@ -459,4 +459,18 @@ function ConvertTo-RcloneObscured {
     return $out.Trim()
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured
+<#
+.SYNOPSIS
+    `rclone reveal` of an obscured value (obscured values are not secret-safe, so passing one
+    as an argument is fine). Used to prove that what rclone.conf will use is exactly the text
+    that was typed, and that it equals the password-manager copy: an encoding or BOM slip
+    would otherwise leave a key that works on the VPS only.
+#>
+function Get-RcloneRevealed {
+    param([Parameter(Mandatory)][string]$Rclone, [Parameter(Mandatory)][string]$Obscured)
+    $out = & $Rclone reveal $Obscured
+    if ($LASTEXITCODE -ne 0) { throw "rclone reveal failed (exit $LASTEXITCODE)." }
+    return (($out -join "`n") -replace "(\r?\n)+$", '')
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed

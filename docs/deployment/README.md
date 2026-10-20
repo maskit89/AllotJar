@@ -189,28 +189,34 @@ One-time setup on the VPS:
    **The password manager entry is the real home of the key**: `rclone.conf` only holds it in obscured
    (reversible) form on the VPS, and a lost VPS loses that copy. Lose the secrets and every backup in R2
    is unreadable for good.
-4. **Test it** — one verified backup, encrypted, shipped off-host and size-checked:
-   ```powershell
-   powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd -R2Bucket <bucket>
-   ```
-5. **Automate it** — re-register the daily prod task (this also copies the current scripts into
-   `C:\deploy`, so do step 3 first; a task running the new scripts without `[r2crypt]` fails and
-   emails you via the healthchecks ping, rather than uploading plain text):
+4. **Automate it** — re-register the daily prod task from the new `deploy` folder (this also copies
+   the new scripts into `C:\deploy`, so do step 3 first; until you do, the registered task keeps running
+   its old copy of the script and keeps uploading plain backups):
    ```powershell
    powershell -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup -R2Bucket <bucket> -PingUrl <healthchecks url>
    ```
+5. **Test it** — one verified backup, encrypted, shipped off-host and size-checked (the encrypted object
+   is about 2 KB larger than the `.bak`), then prove the password-manager entry matches the VPS:
+   ```powershell
+   powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd -R2Bucket <bucket>
+   powershell -File .\Set-BackupEncryption.ps1 -Bucket <bucket> -CheckKey
+   ```
+   `-CheckKey` asks for the two secrets again (copy them from the password manager) and prints OK or MISMATCH.
 6. **Expire old copies** — R2 lifecycle rules, set in the Cloudflare dashboard (R2 > the bucket >
    Settings > Object lifecycle rules; the bucket-scoped token cannot do this):
    * prefix `db-backups-enc/` — delete objects after **35 days**;
    * prefix `db-backups/` — delete objects after **7 days** (the plain-text backups from before
-     encryption; once the first encrypted night has landed this folder is dead weight and a privacy risk).
+     encryption). Add this one only after `-CheckKey` says OK.
+
+   **Type the trailing slash**: `db-backups` alone also matches `db-backups-enc/`.
 
    Local copies still follow `-RetentionDays` (14). If the bucket has a bucket lock (retention) rule,
    keep every expiry at or above its period. Backups outlive an account deletion by up to the expiry
    period; the privacy policy should say so.
 
-Tasks registered before this change carry `-R2Prefix "db-backups"`; with the new script they refuse to
-upload (the crypt remote points at `db-backups-enc`) until re-registered in step 5.
+Tasks registered before this change carry `-R2Prefix "db-backups"`. They keep running the old copy of the
+script (and uploading plain backups) until re-registered in step 4; if the new script is ever run with that
+old prefix it refuses to upload, because the crypt remote points at `db-backups-enc`.
 
 ### Restore test (prove the off-host copies are usable)
 
@@ -234,8 +240,8 @@ logical files after the target, re-grants the app-pool login and health-checks t
 still-encrypted file. Record each restore test (date, backup used, result) in the development log.
 
 **If the VPS is lost** the backups are still in R2, and the key is in your password manager. On the
-replacement server: install rclone, create `C:\deploy\rclone.conf` with an `[r2]` remote (a new token
-is fine; step 2 above), run `Set-BackupEncryption.ps1 -Bucket allotjar` and paste the **same** password and salt from the password
+replacement server: install rclone, create `C:\deploy\rclone.conf` with an `[r2]` remote (a new Object Read & Write
+token is fine, the setup proof uploads and deletes a test file; step 2 above), run `Set-BackupEncryption.ps1 -Bucket allotjar` and paste the **same** password and salt from the password
 manager, then `Get-BackupFromR2.ps1 -Bucket allotjar` and `Migrate-FromBak.ps1`. A wrong password or
 salt fails with `failed to authenticate decrypted block`; it can never produce a wrong database.
 

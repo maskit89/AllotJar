@@ -17,6 +17,13 @@
     your password manager under one entry: if the VPS is lost, the rclone.conf copy is lost
     with it, and without these two secrets every backup in R2 is unreadable for good.
 
+    -CheckKey proves the password-manager copy matches the VPS: it asks for the two secrets
+    again (open the entry, copy them from there, not from where you typed them first) and
+    compares them with what rclone.conf decrypts to, printing only OK or MISMATCH. Run it
+    once after the entry is saved and closed, BEFORE the plain backups are allowed to expire.
+    Secrets must be printable ASCII (a character outside it can be written in another code
+    page and silently make the VPS key differ from the entry).
+
     Refuses to run when [r2crypt] already exists (it would replace the key and orphan every
     backup made under the old one). -VerifyOnly re-runs just the proof against the existing
     remote.
@@ -24,6 +31,7 @@
 .EXAMPLE
     .\Set-BackupEncryption.ps1 -Bucket allotjar
     .\Set-BackupEncryption.ps1 -Bucket allotjar -VerifyOnly
+    .\Set-BackupEncryption.ps1 -Bucket allotjar -CheckKey
 #>
 [CmdletBinding()]
 param(
@@ -33,7 +41,8 @@ param(
     [string]$Remote      = 'r2',
     [string]$Prefix      = 'db-backups-enc',
     [string]$CryptRemote = 'r2crypt',
-    [switch]$VerifyOnly
+    [switch]$VerifyOnly,
+    [switch]$CheckKey
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,16 +55,45 @@ $conf = Get-Content -LiteralPath $RcloneConf -Raw
 if ((Get-RcloneConfValue -ConfText $conf -Section $Remote -Key 'type') -ne 's3') { throw "rclone.conf has no [$Remote] remote of type s3 - set up R2 access first." }
 $exists = [bool](Get-RcloneConfValue -ConfText $conf -Section $CryptRemote -Key 'type')
 
-function Read-Secret([string]$what) {
+function Read-Secret([string]$what, [switch]$NoConfirm) {
     while ($true) {
         $a = Read-Host "Paste the $what (hidden)" -AsSecureString
-        $b = Read-Host "Paste the $what again to confirm (hidden)" -AsSecureString
-        $pa = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($a))
-        $pb = [Runtime.InteropServices.Marshal]::PtrToStringBSTR([Runtime.InteropServices.Marshal]::SecureStringToBSTR($b))
-        if ($pa -ne $pb) { Write-Warning 'The two entries differ. Try again.'; continue }
+        if (-not $NoConfirm) { $b = Read-Host "Paste the $what again to confirm (hidden)" -AsSecureString }
+        $ba = [IntPtr]::Zero; $bb = [IntPtr]::Zero
+        try {
+            $ba = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($a)
+            $pa = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ba)
+            $pb = $pa
+            if (-not $NoConfirm) {
+                $bb = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($b)
+                $pb = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bb)
+            }
+        } finally {
+            if ($ba -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ba) }
+            if ($bb -ne [IntPtr]::Zero) { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bb) }
+        }
+        if ($pa -cne $pb) { Write-Warning 'The two entries differ. Try again.'; continue }
         if ($pa.Length -lt 20) { Write-Warning 'Use at least 20 characters. Try again.'; continue }
+        if ($pa -notmatch '^[\x20-\x7E]+$') { Write-Warning 'Use printable ASCII characters only (letters, digits, symbols; no accents or currency signs). Generate a new one in the password manager.'; continue }
         return $pa
     }
+}
+
+if ($CheckKey) {
+    if (-not $exists) { throw "[$CryptRemote] is not in $RcloneConf yet." }
+    Write-Host 'Open the password manager entry and copy the values from THERE.' -ForegroundColor Yellow
+    $okAll = $true
+    foreach ($pair in @(@('PASSWORD', 'password'), @('SALT', 'password2'))) {
+        $typed  = Read-Secret $pair[0] -NoConfirm
+        $stored = Get-RcloneConfValue -ConfText $conf -Section $CryptRemote -Key $pair[1]
+        $same = $typed -ceq (Get-RcloneRevealed -Rclone $Rclone -Obscured $stored)
+        $typed = $null
+        Write-Host ('{0}: {1}' -f $pair[0], $(if ($same) { 'OK, matches the VPS' } else { 'MISMATCH' })) -ForegroundColor $(if ($same) { 'Green' } else { 'Red' })
+        if (-not $same) { $okAll = $false }
+    }
+    if (-not $okAll) { throw 'The password manager entry does NOT match the key on the VPS. Fix the entry (or tell the thread) before anything else.' }
+    Write-Host 'The password manager entry matches the key on the VPS.' -ForegroundColor Green
+    return
 }
 
 if ($VerifyOnly) {
@@ -71,12 +109,18 @@ if ($VerifyOnly) {
     if ($pw -ceq $salt) { throw 'The password and the salt must differ.' }
     $pwObs   = ConvertTo-RcloneObscured -Rclone $Rclone -Secret $pw
     $saltObs = ConvertTo-RcloneObscured -Rclone $Rclone -Secret $salt
+    # What rclone will use must be exactly what was typed (no code-page or BOM change on the way in).
+    if ((Get-RcloneRevealed -Rclone $Rclone -Obscured $pwObs) -cne $pw -or (Get-RcloneRevealed -Rclone $Rclone -Obscured $saltObs) -cne $salt) {
+        throw 'rclone did not store the secrets exactly as typed (an encoding problem). Nothing was written. Use plain ASCII secrets.'
+    }
     $pw = $null; $salt = $null
     $section = "`r`n[$CryptRemote]`r`ntype = crypt`r`nremote = ${Remote}:${Bucket}/${Prefix}`r`nfilename_encryption = off`r`ndirectory_name_encryption = false`r`npassword = $pwObs`r`npassword2 = $saltObs`r`n"
     $backup = "$RcloneConf.before-encryption"
     Copy-Item -LiteralPath $RcloneConf -Destination $backup -Force
+    # A copy takes C:\deploy's ACL, not the original's: give it the original's (SYSTEM + Administrators only).
+    Set-Acl -LiteralPath $backup -AclObject (Get-Acl -LiteralPath $RcloneConf)
     [System.IO.File]::AppendAllText($RcloneConf, $section, (New-Object System.Text.UTF8Encoding($false)))
-    Info "Added [$CryptRemote] to $RcloneConf (a copy of the old file is at $backup; delete it once the proof below passes)."
+    Info "Added [$CryptRemote] to $RcloneConf (a locked-down copy of the old file is at $backup; it is deleted once the proof below passes)."
     $conf = Get-Content -LiteralPath $RcloneConf -Raw
 }
 
@@ -115,4 +159,5 @@ try {
 } finally {
     Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue
 }
+if ($backup -and (Test-Path -LiteralPath $backup)) { Remove-Item -LiteralPath $backup -Force; Info "Deleted $backup." }
 Write-Host "Encryption works: stored encrypted, read back identical. Nightly backups through ${CryptRemote} go to r2:${Bucket}/${Prefix}/." -ForegroundColor Green
