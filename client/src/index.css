@@ -1,11 +1,12 @@
-@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap');
+/* Self-hosted (no request to Google before consent): variable weight 100-900, latin subsets by unicode-range. */
+@import "@fontsource-variable/hanken-grotesk/wght.css";
 @import "tailwindcss";
 /* Enter/exit animations for the shadcn/ui building blocks (dialogs, menus, popovers). */
 @import "tw-animate-css";
 
 /* Design tokens. Tailwind v4 reads theme from CSS, so no JS config. */
 @theme {
-  --font-sans: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-sans: "Hanken Grotesk Variable", "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 
   /* Brand accent — the AllotJar redesign "calm fintech" green (reference palette).
      600 is the solid accent (white text clears AA at 6.4:1); 700 is the hover/press.
