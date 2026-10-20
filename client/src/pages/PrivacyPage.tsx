@@ -14,7 +14,8 @@ import { LegalLayout } from './LegalLayout'
  */
 const SERVER_LOCATION = '[TO CONFIRM: the VPS data centre]'
 const EMAIL_PROVIDER = '[TO CONFIRM: Cloudflare or Resend]'
-const OFFSITE_BACKUP_DAYS = '[TO CONFIRM: R2 expiry]'
+// The R2 lifecycle rule for encrypted backups (#368).
+const OFFSITE_BACKUP_DAYS = 35
 
 export function PrivacyPage() {
   return (
