@@ -366,4 +366,97 @@ function Get-UrlOrigin {
     return $uri.GetLeftPart([UriPartial]::Authority).ToLowerInvariant()
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin
+<#
+.SYNOPSIS
+    One value from one [section] of rclone.conf text, or $null when the section or key is
+    absent. Pure text parsing so a test can drive it (rclone itself is not needed).
+#>
+function Get-RcloneConfValue {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ConfText,
+        [Parameter(Mandatory)][string]$Section,
+        [Parameter(Mandatory)][string]$Key
+    )
+    $inSection = $false
+    foreach ($line in ($ConfText -split "\r?\n")) {
+        $t = $line.Trim()
+        if ($t -match '^\[(.+)\]$') { $inSection = ($Matches[1] -ieq $Section); continue }
+        if ($inSection -and $t -match '^([^=\s]+)\s*=\s*(.*)$' -and $Matches[1] -ieq $Key) { return $Matches[2].Trim() }
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Why the encrypted backup remote in rclone.conf cannot be used (an empty list means it
+    can). Backups go to R2 ONLY through a crypt remote that points at
+    <Remote>:<Bucket>/<Prefix>: a missing remote, a different type, a different target (the
+    plain prefix, another bucket) or readable file names would each ship unencrypted data or
+    scatter it, so the upload refuses instead of falling back to plain text.
+#>
+function Get-BackupCryptRemoteProblems {
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$ConfText,
+        [Parameter(Mandatory)][string]$CryptRemote,
+        [Parameter(Mandatory)][string]$Remote,
+        [Parameter(Mandatory)][string]$Bucket,
+        [Parameter(Mandatory)][string]$Prefix
+    )
+    $problems = @()
+    $type = Get-RcloneConfValue -ConfText $ConfText -Section $CryptRemote -Key 'type'
+    if (-not $type) {
+        return @("rclone.conf has no [$CryptRemote] remote, so the backup would not be encrypted. Run Set-BackupEncryption.ps1 once (docs/deployment/README.md > Off-host backups).")
+    }
+    if ($type -ne 'crypt') { $problems += "[$CryptRemote] in rclone.conf is type '$type', not 'crypt'." }
+    $want = "${Remote}:${Bucket}/${Prefix}"
+    $has  = Get-RcloneConfValue -ConfText $ConfText -Section $CryptRemote -Key 'remote'
+    if ($has -ne $want) { $problems += "[$CryptRemote] points at '$has', expected '$want'." }
+    foreach ($k in 'password', 'password2') {
+        if (-not (Get-RcloneConfValue -ConfText $ConfText -Section $CryptRemote -Key $k)) { $problems += "[$CryptRemote] has no $k (the encryption key and its salt)." }
+    }
+    $fe = Get-RcloneConfValue -ConfText $ConfText -Section $CryptRemote -Key 'filename_encryption'
+    if ($fe -ne 'off') { $problems += "[$CryptRemote] filename_encryption is '$fe', expected 'off' (the .bak names stay readable so the newest backup can be found)." }
+    return $problems
+}
+
+<#
+.SYNOPSIS
+    True when the file starts with rclone crypt's "RCLONE\0\0" magic: an encrypted download
+    that was never decrypted. Migrate-FromBak.ps1 refuses these with a pointer to
+    Get-BackupFromR2.ps1 instead of letting SQL Server fail on garbage.
+#>
+function Test-RcloneCryptFile {
+    param([Parameter(Mandatory)][string]$Path)
+    $magic = [byte[]](0x52, 0x43, 0x4C, 0x4F, 0x4E, 0x45, 0x00, 0x00)
+    $buf = New-Object byte[] 8
+    $fs = [System.IO.File]::OpenRead($Path)
+    try { $n = $fs.Read($buf, 0, 8) } finally { $fs.Dispose() }
+    if ($n -lt 8) { return $false }
+    for ($i = 0; $i -lt 8; $i++) { if ($buf[$i] -ne $magic[$i]) { return $false } }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    `rclone obscure` of a secret, passed on STDIN with no trailing newline (a piped string
+    would carry one, and rclone would obscure it as part of the password) so the secret never
+    appears on a command line.
+#>
+function ConvertTo-RcloneObscured {
+    param([Parameter(Mandatory)][string]$Rclone, [Parameter(Mandatory)][string]$Secret)
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Rclone
+    $psi.Arguments = 'obscure -'
+    $psi.RedirectStandardInput = $true
+    $psi.RedirectStandardOutput = $true
+    $psi.UseShellExecute = $false
+    $proc = [System.Diagnostics.Process]::Start($psi)
+    $proc.StandardInput.Write($Secret)
+    $proc.StandardInput.Close()
+    $out = $proc.StandardOutput.ReadToEnd()
+    $proc.WaitForExit()
+    if ($proc.ExitCode -ne 0 -or -not $out.Trim()) { throw "rclone obscure failed (exit $($proc.ExitCode))." }
+    return $out.Trim()
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured

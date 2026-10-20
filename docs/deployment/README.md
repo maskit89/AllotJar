@@ -153,12 +153,15 @@ powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1 -Database Zer
 ```
 `.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time/retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
 
-### Off-host backups (Cloudflare R2)
+### Off-host backups (Cloudflare R2, encrypted)
 
 Local `.bak` files are point-in-time recovery only — a disk/host/ransomware event takes out the
 data **and** the backups together. `Backup-Database.ps1 -R2Bucket <bucket>` also ships each
-**verified** backup to Cloudflare R2 (via `Upload-BackupToR2.ps1`), where the bucket's **Object
-Lock** retention makes copies immutable — unremovable even by a compromised server.
+**verified** backup to Cloudflare R2 (via `Upload-BackupToR2.ps1`). The backup holds every user's
+financial data, so it is **encrypted on the VPS before it leaves** (rclone `crypt`, authenticated
+XSalsa20-Poly1305) and lands as `db-backups-enc/<name>.bak.bin`. File names stay readable so the
+newest backup can be found. The upload **refuses to run** unless `rclone.conf` has the matching
+`[r2crypt]` remote; it never falls back to a plain upload.
 
 One-time setup on the VPS:
 
@@ -178,18 +181,36 @@ One-time setup on the VPS:
    ```powershell
    icacls C:\deploy\rclone.conf /inheritance:r /grant:r "SYSTEM:R" "BUILTIN\Administrators:F"
    ```
-3. **Test it** — one verified backup, shipped off-host and size-checked:
+3. **Create the encryption key** — `Set-BackupEncryption.ps1 -Bucket <bucket>`. You type two long random
+   secrets (a password and a salt, 20+ characters each, generated and **saved in your password manager
+   first**) as hidden input; the script adds an `[r2crypt]` remote to `rclone.conf` and proves it with a
+   throwaway file (stored encrypted, read back identical). It never prints a secret and refuses to run
+   when `[r2crypt]` exists, so it cannot replace a key by accident. `-VerifyOnly` re-runs only the proof.
+   **The password manager entry is the real home of the key**: `rclone.conf` only holds it in obscured
+   (reversible) form on the VPS, and a lost VPS loses that copy. Lose the secrets and every backup in R2
+   is unreadable for good.
+4. **Test it** — one verified backup, encrypted, shipped off-host and size-checked:
    ```powershell
    powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd -R2Bucket <bucket>
    ```
-4. **Automate it** — re-register the daily prod task with the R2 flag so every night's verified
-   backup goes off-host:
+5. **Automate it** — re-register the daily prod task (this also copies the current scripts into
+   `C:\deploy`, so do step 3 first; a task running the new scripts without `[r2crypt]` fails and
+   emails you via the healthchecks ping, rather than uploading plain text):
    ```powershell
-   powershell -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup -R2Bucket <bucket>
+   powershell -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup -R2Bucket <bucket> -PingUrl <healthchecks url>
    ```
+6. **Expire old copies** — R2 lifecycle rules, set in the Cloudflare dashboard (R2 > the bucket >
+   Settings > Object lifecycle rules; the bucket-scoped token cannot do this):
+   * prefix `db-backups-enc/` — delete objects after **35 days**;
+   * prefix `db-backups/` — delete objects after **7 days** (the plain-text backups from before
+     encryption; once the first encrypted night has landed this folder is dead weight and a privacy risk).
 
-Remote retention is enforced by the bucket's Object Lock + lifecycle rules (set in the Cloudflare
-dashboard), independent of the local `-RetentionDays` prune.
+   Local copies still follow `-RetentionDays` (14). If the bucket has a bucket lock (retention) rule,
+   keep every expiry at or above its period. Backups outlive an account deletion by up to the expiry
+   period; the privacy policy should say so.
+
+Tasks registered before this change carry `-R2Prefix "db-backups"`; with the new script they refuse to
+upload (the crypt remote points at `db-backups-enc`) until re-registered in step 5.
 
 ### Restore test (prove the off-host copies are usable)
 
@@ -199,17 +220,24 @@ touched). On the VPS, in an elevated Windows PowerShell, from a copy of this `de
 ```powershell
 # 1. keep staging's own data so it can be put back afterwards
 powershell -File .\Backup-Database.ps1 -Database ZeroBudgetStaging
-# 2. fetch the newest production backup from R2
-C:\deploy\rclone\rclone.exe copy --config C:\deploy\rclone.conf r2:allotjar/db-backups/ZeroBudgetProd_<stamp>.bak C:\deploy\restore-test\
+# 2. fetch the newest production backup from R2, decrypted (prints the .bak's path)
+powershell -File .\Get-BackupFromR2.ps1 -Bucket allotjar
 # 3. restore it onto staging (asks you to type the target database name)
 powershell -File .\Migrate-FromBak.ps1 -Environment staging -BakPath C:\deploy\restore-test\ZeroBudgetProd_<stamp>.bak
 # 4. afterwards, put staging's own data back the same way, from the file step 1 wrote
+# 5. delete C:\deploy\restore-test\*.bak: the decrypted copy holds every user's data in plain text
 ```
 `Migrate-FromBak.ps1` verifies the file first (`RESTORE VERIFYONLY WITH CHECKSUM`), restores onto
 the target database's **own** files (never the source's: production's `.mdf` is a live file of
 another database on the same instance, and the script refuses any destination that is), renames the
-logical files after the target, re-grants the app-pool login and health-checks the API. Record each
-restore test (date, backup used, result) in the development log.
+logical files after the target, re-grants the app-pool login and health-checks the API. `Migrate-FromBak.ps1` refuses a
+still-encrypted file. Record each restore test (date, backup used, result) in the development log.
+
+**If the VPS is lost** the backups are still in R2, and the key is in your password manager. On the
+replacement server: install rclone, create `C:\deploy\rclone.conf` with an `[r2]` remote (a new token
+is fine; step 2 above), run `Set-BackupEncryption.ps1 -Bucket allotjar` and paste the **same** password and salt from the password
+manager, then `Get-BackupFromR2.ps1 -Bucket allotjar` and `Migrate-FromBak.ps1`. A wrong password or
+salt fails with `failed to authenticate decrypted block`; it can never produce a wrong database.
 
 **Provisioning can no longer downgrade this.** `Provision-Production.ps1` re-registers the daily
 tasks, and `Register-ScheduledTask -Force` overwrites — so a re-run used to silently replace an

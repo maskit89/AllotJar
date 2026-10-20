@@ -14,8 +14,9 @@
     Register-BackupTask.ps1 grants it CREATE ANY DATABASE and db_backupoperator
     (no sysadmin).
 
-    When -R2Bucket is set, the verified backup is also copied off-host to Cloudflare
-    R2 (via Upload-BackupToR2.ps1 next to this script) so a disk/host/ransomware event
+    When -R2Bucket is set, the verified backup is also encrypted and copied off-host to
+    Cloudflare R2 (via Upload-BackupToR2.ps1 next to this script; it refuses to upload
+    unencrypted, see Set-BackupEncryption.ps1) so a disk/host/ransomware event
     can't take out the data and every recovery point at once. Only verified backups
     are shipped, and the R2 upload failing fails the whole run.
 #>
@@ -32,7 +33,8 @@ param(
     [string]$Rclone        = 'C:\deploy\rclone\rclone.exe',
     [string]$RcloneConf    = 'C:\deploy\rclone.conf',
     [string]$R2Remote      = 'r2',
-    [string]$R2Prefix      = 'db-backups',
+    [string]$R2Prefix      = 'db-backups-enc',
+    [string]$R2CryptRemote = 'r2crypt',
 
     # Optional dead-man's-switch URL (healthchecks.io style): GET after a successful run,
     # GET <url>/fail after a failed one. Never makes the backup itself fail.
@@ -94,10 +96,10 @@ if ($R2Bucket) {
         throw "Upload-BackupToR2.ps1 not found next to this script ($uploader) - needed for -R2Bucket."
     }
     & $uploader -File $file -Bucket $R2Bucket -Database $Database `
-        -Rclone $Rclone -RcloneConf $RcloneConf -Remote $R2Remote -Prefix $R2Prefix
+        -Rclone $Rclone -RcloneConf $RcloneConf -Remote $R2Remote -Prefix $R2Prefix -CryptRemote $R2CryptRemote
 }
 
-# Prune old LOCAL backups (remote retention is enforced by the R2 lifecycle/Object Lock).
+# Prune old LOCAL backups (remote retention is enforced by the R2 lifecycle rule).
 $cutoff = (Get-Date).AddDays(-$RetentionDays)
 Get-ChildItem -Path $BackupDir -Filter "$($Database)_*.bak" |
     Where-Object { $_.LastWriteTime -lt $cutoff } |
