@@ -11,8 +11,8 @@ import { closeMenu, groupAction, openTxMenu, register, txAction, txRows } from '
  * revert, the refusal of an account in another currency, and the Type=Transfer injection guard on
  * the generic endpoints (PR #167's money-vanish regression) end-to-end.
  *
- * Money assertions are symbol-agnostic ("1,700.00", not "€1,700.00") because
- * the registration form pre-selects the currency from the browser locale.
+ * Money assertions are symbol-agnostic ("1,700.00", not "€1,700.00") so they
+ * hold whatever currency a spec registers with.
  */
 
 // AccountDetailPage signs a transfer by direction with U+2212, not a hyphen.
