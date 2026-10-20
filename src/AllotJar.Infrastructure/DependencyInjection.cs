@@ -12,6 +12,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
+using AllotJar.Infrastructure.Retention;
 using AllotJar.Infrastructure.Statements;
 
 namespace AllotJar.Infrastructure;
@@ -156,6 +157,11 @@ public static class DependencyInjection
 
         // Refresh tokens backing the HttpOnly-cookie session (issue / rotate / revoke).
         services.AddScoped<IRefreshTokenService, RefreshTokenService>();
+
+        // Compliance fix 9: delete expired sign-in tokens and long-expired invitations once a day,
+        // so the privacy policy's retention periods hold for logins that never come back.
+        services.AddScoped<ExpiredRecordsPurge>();
+        services.AddHostedService<ExpiredRecordsPurgeService>();
 
         // --- Google sign-in ----------------------------------------------------
         // ID-token validation for POST /auth/google. The fake is DOUBLE-gated: the config flag AND

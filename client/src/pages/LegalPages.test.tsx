@@ -56,6 +56,10 @@ describe('PrivacyPage', () => {
     expect(screen.getByText(/the transfer is protected by/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: /how long we keep it/i })).toBeInTheDocument()
     expect(screen.getByText(/14 days/)).toBeInTheDocument()
+    // Compliance fix 9: tied to RefreshTokenService.LifetimeDays (+1 for the daily purge) and
+    // ExpiredRecordsPurge.InviteGraceDays by RetentionPolicyGuardTests on the server side.
+    expect(screen.getByText(/deleted within 31 days of its last use/)).toBeInTheDocument()
+    expect(screen.getByText(/30 days after its link\s+expires/)).toBeInTheDocument()
     expect(screen.getByText(/fonts are served from our own server/i)).toBeInTheDocument()
     // Any login, including one an owner gives a household person, is for 16 and over (review P2-1).
     expect(screen.getByText(/anyone you give one must be 16 or over/)).toBeInTheDocument()

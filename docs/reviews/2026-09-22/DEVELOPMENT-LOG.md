@@ -1497,3 +1497,12 @@ Follow-ups from the review (reviews/pr-380/REVIEW.md):
 - #380 P3-2: a refresh that races Sign out on that same device can outlive the sign-out, because `RefreshToken` has no concurrency token. Fix with a rowversion or a conditional update.
 - #380 P3-3 (cleanup part): expired token rows, which now hold device names, are pruned only when that login next signs in or refreshes. Either prune them in the nightly job, or have the privacy policy say ended sign-ins are deleted within 30 days.
 - #380 P3-4: iPadOS reports a Mac user agent unless it is in the installed app, so an iPad usually reads "Safari on Mac". The client could send a touch hint.
+
+## Expired sign-ins and invitations are deleted every day (compliance fix 9) — 20 October 2026
+
+Christopher asked for compliance fixes 9 to 15. Fix 9 purges expired refresh tokens and invitations and keeps IIS logs to 90 days. The IIS and HTTPERR part already runs: the `AllotJar-IisLogCleanup` task from #371's server steps (block 4b), which he confirmed on 20 Oct. This PR adds the purge. The API runs it five minutes after it starts and then once a day. Each run deletes every refresh token past its expiry, whichever login it belongs to, and every invitation nobody accepted 30 days after its link expired. A rotated or signed-out token that has not expired is kept, so replaying a stolen one still triggers the theft response. Until 30 days after an invitation's link expires, the owner still sees it and can send it again. The privacy policy now says a sign-in's record, with its device name, is deleted within 31 days of its last use (a token expires at most 30 days after it was minted, and the purge runs daily), and an unaccepted invitation is deleted 30 days after its link expires. This closes the cleanup part of #380 P3-3.
+
+Follow-ups from the review (reviews/pr-382/REVIEW.md; P3-1 and P3-2 fixed in the PR):
+- #382 P3-1 (server part): the purge runs only while the API is up. On production the 5-minute health-ping task keeps it up; staging idles. Setting the API pools' `idleTimeout` to 0, or turning on preload, would not depend on the ping. This is a server step and needs Christopher's go.
+- #382 P3-3: once an invitation is purged, its link reads "invalid or has already been used" instead of "expired". Possible copy change: "invalid, expired or already used".
+- #382 P3-4 (pre-existing): a refresh at its token's exact expiry can lose to the purge's delete and return a 500. This is the same missing concurrency token as #380 P3-2.

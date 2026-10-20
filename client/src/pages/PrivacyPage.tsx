@@ -25,6 +25,11 @@ const BACKUP_LOCATION = 'Western Europe'
 const OFFSITE_BACKUP_DAYS = 35
 const LOG_RETENTION = 'up to 90 days'
 const ANALYTICS_RETENTION = '2 months'
+// Compliance fix 9: the API's daily purge (ExpiredRecordsPurge) deletes a refresh token once it
+// expires, at most 30 days after its sign-in was last used, so within 31 days; and an unaccepted
+// invitation 30 days after its link expires (ExpiredRecordsPurge.InviteGraceDays).
+const SIGN_IN_RECORD_DAYS = 31
+const INVITE_GRACE_DAYS = 30
 // Data processing terms, 20 Oct 2026: Cloudflare's DPA is part of its self-serve terms and
 // Google Analytics' data processing terms are accepted. InterServer has no DPA yet (asked for one),
 // so its bullet says it works under its own terms and DPF commitments: change it when the DPA
@@ -201,14 +206,17 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Sign-in sessions</strong>: each ends after 30 days unused, 90 days after you signed
-          in, or when you sign out, whichever comes first.
+          in, or when you sign out, whichever comes first. Once it has ended, its record, with the
+          device name, is deleted within {SIGN_IN_RECORD_DAYS} days of its last use.
         </li>
         <li>
           <strong>Passkeys and recovery codes</strong>: until you remove them or delete your
           account.
         </li>
         <li>
-          <strong>Invitations</strong>: an invitation link works for 7 days.
+          <strong>Invitations</strong>: an invitation link works for 7 days. One nobody accepts is
+          deleted, with the email address it was sent to, {INVITE_GRACE_DAYS} days after its link
+          expires.
         </li>
         <li>
           <strong>Web server logs and error report emails</strong>: {LOG_RETENTION}. Error entries

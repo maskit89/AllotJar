@@ -28,6 +28,7 @@ import { ReportsPage } from './pages/ReportsPage'
 import { ImportPage } from './pages/ImportPage'
 import { HelpPage } from './pages/HelpPage'
 import { Onboarding } from './onboarding/Onboarding'
+import { OperatorBar } from './components/OperatorBar'
 
 /**
  * The boot splash while the session is restored from the refresh cookie (restyle PR 20): the warm
@@ -241,6 +242,7 @@ export default function App() {
       {isAuthenticated && !needsConsent && !mustChangePassword && <Onboarding />}
       {isAuthenticated && !mustChangePassword && <ConsentModal />}
       {isAuthenticated && <PasswordChangeModal />}
+      {isAuthenticated && <OperatorBar />}
     </MonthProvider>
   )
 }
