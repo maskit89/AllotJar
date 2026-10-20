@@ -25,6 +25,7 @@ public class HouseholdMembership : BaseEntity
     /// <summary>The email the membership/invite is for.</summary>
     public string InvitedEmail { get; set; } = string.Empty;
 
+    [MaskCardNumbers]
     public string? DisplayName { get; set; }
 
     /// <summary>SHA-256 of the one-time invite token (link mode). The raw token is shown to the owner once.</summary>

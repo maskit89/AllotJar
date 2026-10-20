@@ -5,6 +5,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Application.Transactions;
 using AllotJar.Domain.Enums;
+using AllotJar.Domain.Services;
 
 namespace AllotJar.Application.Imports.Commands.PreviewImport;
 
@@ -91,6 +92,15 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
                 ?? throw new NotFoundException($"No statement parser is registered for format '{request.Format}'.");
             statement = parser.Parse(request.Content);
         }
+
+        // No card number reaches the screen or the store (compliance fix 12): mask the payees now,
+        // as every save does, so the possible-duplicate and budget-line hints compare them with the
+        // stored, masked ones. The references were made from the bank's own text and stay as they
+        // are, so duplicate detection and transfer matching are unchanged.
+        statement = statement with
+        {
+            Entries = statement.Entries.Select(e => e with { Payee = CardNumberMask.Mask(e.Payee)! }).ToList(),
+        };
 
         // Drop rows we've already imported. The filter is the COMMIT's dedup exactly (shared
         // StatementReferences): scoped to the statement account and to the leg that account's

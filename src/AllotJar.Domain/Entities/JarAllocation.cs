@@ -36,6 +36,7 @@ public class JarAllocation : BaseEntity
     public Guid? ReturnOfTransferId { get; set; }
 
     /// <summary>An optional user note (e.g. why money was moved).</summary>
+    [MaskCardNumbers]
     public string? Note { get; set; }
 
     public DateTime CreatedUtc { get; set; }

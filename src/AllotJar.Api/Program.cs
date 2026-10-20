@@ -173,6 +173,9 @@ await BackfillOwnerMembersAsync(app);
 // Settles jar moves made before departures were recorded (P3-8).
 await BackfillJarDeparturesAsync(app);
 
+// Masks any card number stored before every save masked them (compliance fix 12; idempotent).
+await BackfillCardNumbersAsync(app);
+
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 
 // State plainly, once, which outbound-email provider actually resolved. Without this, "is email
@@ -319,6 +322,28 @@ static async Task BackfillJarDeparturesAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogError(ex, "Jar-departure backfill failed; nothing was saved. Continuing startup.");
+    }
+}
+
+// Masks card numbers in payees, notes and names saved before fix 12. Idempotent and non-fatal:
+// a failure leaves the text as it was, and the next startup tries again. The count is logged at
+// Warning (see LogEmailProvider) so the Event Log shows it.
+static async Task BackfillCardNumbersAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var masked = await CardNumberBackfill.BackfillAsync(db);
+        if (masked > 0)
+        {
+            logger.LogWarning("Card-number backfill: masked {Texts} stored text(s).", masked);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Card-number backfill failed; nothing was saved. Continuing startup.");
     }
 }
 
