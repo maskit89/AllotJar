@@ -215,7 +215,8 @@ export function PrivacyPage() {
       <h2>How we protect it</h2>
       <p>
         Everything travels encrypted (TLS). Passwords and sign-in tokens are stored only as hashes,
-        backups are encrypted before they leave our server, and sign-in is protected by rate limits,
+        bank details on your accounts are encrypted in our database, backups are encrypted before
+        they leave our server, and sign-in is protected by rate limits,
         a lockout after repeated wrong passwords and a check against known breached passwords. No
         system is perfectly secure; if a breach puts your data at risk, we will tell you and the
         regulator as the law requires.

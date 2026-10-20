@@ -211,6 +211,8 @@ public class DirectInviteFirstSignInTests
         {
             b.UseEnvironment("Staging");
             b.UseSetting("Email:AppBaseUrl", "https://staging.allotjar.com");
+            // Outside Development the API refuses to start without its own bank-details key.
+            b.UseSetting("BankDetailsEncryption:Key", Convert.ToBase64String(new byte[32].Select((_, i) => (byte)(i + 1)).ToArray()));
         });
         var run = Guid.NewGuid().ToString("N")[..8];
         var email = $"nomail-{run}@firstsignin.test";

@@ -98,6 +98,29 @@ powershell -File .\Import-ToServer.ps1 -BacpacPath C:\deploy\ZeroBudget.bacpac
 powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1   # skips SQL install; grants on the new DB
 ```
 
+### 4. Bank details key (each stack)
+
+Account IBANs, BICs, sort codes and account numbers are encrypted in the database (AES-256-GCM)
+with a key in the stack's settings file, `BankDetailsEncryption:Key`: 32 bytes in base64, a
+**different key for staging and production**. Without it the API refuses to start outside
+Development, and `Deploy.ps1` refuses to deploy (the stack keeps its old build).
+
+The key is the SHA-256 of a long random passphrase (32+ characters) that you generate and **save in
+your password manager first**, one entry per stack. That entry is the real home of the key: a backup
+restored on a new server needs the same key, or every bank detail in it reads as unreadable. The
+server steps for the first setup are a paste block that asks for the passphrase as hidden input,
+adds the section to the settings file (after a backup copy and a content check) and prints only
+the key id, an 8-character fingerprint the API also logs at startup
+(`Bank details encryption: key <id>; encrypted <n> stored value(s) ...` in the Application log).
+
+On its first start with encryption the API encrypts every bank detail saved before it (and logs the
+count); later starts find nothing left to do. A value written with a key the stack does not have
+(for example production's data restored onto staging in the restore test) makes the API log an
+Error at startup, and the screens for those accounts fail until the key is there: list the old key
+under `BankDetailsEncryption:PreviousKeys` (an array of base64 keys) to read it. To change a key,
+move the old one into `PreviousKeys` and set the new one as `Key`; values are rewritten with the new
+key as they are next saved.
+
 ### Adding a domain + TLS (later)
 Once you have a domain:
 - Point a DNS **A record** at the VPS public IP, then re-run `Setup-Server.ps1 -Domain "budget.yourdomain.com"` to bind the host header.

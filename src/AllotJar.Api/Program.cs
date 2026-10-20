@@ -17,6 +17,7 @@ using AllotJar.Infrastructure.Alerts;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
+using AllotJar.Infrastructure.Persistence.Encryption;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -27,6 +28,11 @@ const string RefreshRateLimitPolicy = "auth-refresh";
 // --- Layer composition ------------------------------------------------------
 builder.Services.AddApplication();
 builder.Services.AddInfrastructure(builder.Configuration);
+
+// Bank details (IBAN, BIC, sort code, account number) are encrypted at rest with this site's own
+// key (compliance fix 10). Outside Development a missing or development key stops startup here,
+// before anything could be written with a key anyone can read.
+BankDetailsEncryption.Configure(builder.Configuration, builder.Environment.IsDevelopment());
 
 // Error alerts: with ErrorAlerts:Recipient set, every Error-level log entry (an unhandled exception
 // answered as a 500, a rejected email send, a startup step that failed and let the API go on) is
@@ -172,6 +178,9 @@ await BackfillOwnerMembersAsync(app);
 
 // Settles jar moves made before departures were recorded (P3-8).
 await BackfillJarDeparturesAsync(app);
+
+// Encrypts bank details saved before encryption (compliance fix 10; idempotent).
+await EncryptBankDetailsAsync(app);
 
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 
@@ -319,6 +328,35 @@ static async Task BackfillJarDeparturesAsync(WebApplication app)
     catch (Exception ex)
     {
         logger.LogError(ex, "Jar-departure backfill failed; nothing was saved. Continuing startup.");
+    }
+}
+
+// Encrypts the bank details of accounts saved before compliance fix 10, after the migration that
+// widened their columns. Idempotent and non-fatal: a plain value still reads as it is, and the next
+// start tries again. The count is logged at Warning so the deploy's check of the Event Log sees it,
+// and values written with a key this site lacks are an Error (an alert): their account screens fail.
+static async Task EncryptBankDetailsAsync(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        var result = await BankDetailsBackfill.EncryptPlaintextAsync(db, CancellationToken.None);
+        logger.LogWarning(
+            "Bank details encryption: key {KeyId}; encrypted {Encrypted} stored value(s) saved before encryption.",
+            BankDetailsCipher.CurrentKeyId, result.Encrypted);
+        if (result.UnreadableKeyValues > 0)
+        {
+            logger.LogError(
+                "Bank details encryption: {Count} stored value(s) were encrypted with a key this site does not have " +
+                "(it has {KeyId}); the accounts holding them cannot be read. Restore the key that wrote them.",
+                result.UnreadableKeyValues, BankDetailsCipher.CurrentKeyId);
+        }
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Bank details encryption backfill failed; plain values stay readable. Continuing startup.");
     }
 }
 
