@@ -28,7 +28,7 @@ param(
     [string]$Rclone        = 'C:\deploy\rclone\rclone.exe',
     [string]$RcloneConf    = 'C:\deploy\rclone.conf',
     [string]$R2Remote      = 'r2',
-    [string]$R2Prefix      = 'db-backups',
+    [string]$R2Prefix      = 'db-backups-enc',
 
     # The account the task runs as must be able to take backups. By default this script
     # gives NT AUTHORITY\SYSTEM the SQL rights to back up -Database (idempotent; needs the
@@ -107,7 +107,7 @@ if ($R2Bucket -and -not (Get-R2BucketFromArgumentLine -ArgumentLine $storedArgs)
 
 Write-Host "Scheduled task '$TaskName' registered: daily at $Time as SYSTEM." -ForegroundColor Green
 if ($R2Bucket) {
-    Write-Host "Off-host copy: each verified backup ships to R2 bucket '$R2Bucket'." -ForegroundColor Green
+    Write-Host "Off-host copy: each verified backup is encrypted (rclone remote r2crypt) and shipped to R2 bucket '$R2Bucket'." -ForegroundColor Green
 }
 Write-Host "Backups -> $BackupDir (retain $RetentionDays days). Test it now with:"
 Write-Host "  Start-ScheduledTask -TaskName $TaskName"
