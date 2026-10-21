@@ -20,6 +20,9 @@ test.describe('on a phone', () => {
     await amount.fill('20')
     const bar = page.getByRole('toolbar', { name: 'Calculator keys' })
     await expect(bar).toBeVisible()
+    // No on-screen keyboard here: the bar's bottom edge is the screen's.
+    const box = (await bar.boundingBox())!
+    expect(Math.round(box.y + box.height)).toBe(844)
     await bar.getByRole('button', { name: 'Plus' }).tap()
     await page.keyboard.type('30')
     await expect(amount).toHaveValue('20+30')

@@ -69,6 +69,34 @@ describe('OperatorBar', () => {
       expect(amount.value).toBe('2×0+')
     })
 
+    it('sits on the keyboard: its bottom edge at the bottom of the visual viewport', () => {
+      // iOS with the keyboard up: the page scrolled 120px and 400px left above the keyboard.
+      const vv = Object.assign(new EventTarget(), { offsetTop: 120, height: 400 })
+      vi.stubGlobal('visualViewport', vv)
+      vi.spyOn(document.documentElement, 'clientHeight', 'get').mockReturnValue(844)
+      render(<Form />)
+      act(() => screen.getByRole('textbox', { name: 'Amount' }).focus())
+      const bar = screen.getByRole('toolbar', { name: 'Calculator keys' })
+      expect(bar.style.top).toBe('520px')
+      expect(bar.style.transform).toBe('translateY(-100%)')
+      expect(bar.style.bottom).toBe('')
+      // On the keyboard: no home-bar padding, even scrolled to the page's end (edge at the bottom).
+      expect(bar).toHaveClass('pb-1.5')
+      act(() => {
+        Object.assign(vv, { offsetTop: 444 })
+        vv.dispatchEvent(new Event('scroll'))
+      })
+      expect(bar.style.top).toBe('844px')
+      expect(bar).toHaveClass('pb-1.5')
+      // The keyboard closed (the field still focused, as on an iPad with a hardware keyboard).
+      act(() => {
+        Object.assign(vv, { offsetTop: 0, height: 844 })
+        vv.dispatchEvent(new Event('resize'))
+      })
+      expect(bar).not.toHaveClass('pb-1.5')
+      vi.restoreAllMocks()
+    })
+
     it('keeps the field focused when a key is pressed', () => {
       render(<Form />)
       const amount = screen.getByRole('textbox', { name: 'Amount' })
