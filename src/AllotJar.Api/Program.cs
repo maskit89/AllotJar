@@ -25,6 +25,8 @@ var builder = WebApplication.CreateBuilder(args);
 const string SpaCorsPolicy = "SpaCors";
 const string AuthRateLimitPolicy = "auth";
 const string RefreshRateLimitPolicy = "auth-refresh";
+// Seconds between the background migration retries while SQL Server does not answer at startup.
+const int StartupRetrySeconds = 15;
 
 // --- Layer composition ------------------------------------------------------
 builder.Services.AddApplication();
@@ -60,6 +62,9 @@ builder.Services.AddAuthorization();
 
 // Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test, plus a readiness
 // check tagged "ready" that asks SQL Server whether it answers, for the health ping task below.
+// Closed only while SQL Server keeps the startup migrations waiting (see ApplyMigrationsAsync).
+builder.Services.AddSingleton<DatabaseStartupGate>();
+
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: [DatabaseHealthCheck.Tag]);
 
@@ -169,27 +174,25 @@ var app = builder.Build();
 // First, so everything after it (the rate limiter in particular) sees the visitor's address.
 app.UseForwardedHeaders();
 app.UseMiddleware<ExceptionHandlingMiddleware>();
+// Answers 503 while SQL Server keeps the startup migrations waiting.
+app.UseMiddleware<DatabaseStartupGateMiddleware>();
 
 // Apply any pending EF Core migrations on startup so the configured SQL Server
 // schema is always current — in Development against LocalDB, and in Production
 // against the SQL Server service on the VPS right after a deploy. Migrations are
-// additive and idempotent: they never drop existing data.
-await ApplyMigrationsAsync(app);
-
-// Ensure every existing login owns an Owner membership for their household (idempotent).
-await BackfillMembershipsAsync(app);
-
-// Ensure every household has the owner as member #1, so a household is never "0 members".
-await BackfillOwnerMembersAsync(app);
-
-// Settles jar moves made before departures were recorded (P3-8).
-await BackfillJarDeparturesAsync(app);
-
-// Brings stored bank details onto this site's key (compliance fix 10; idempotent).
-await EncryptBankDetailsAsync(app);
-
-// Reports card numbers stored before every save masked them (compliance fix 12); changes nothing.
-await CheckCardNumbersAsync(app);
+// additive and idempotent: they never drop existing data. If SQL Server still doesn't
+// answer after the first retries, the API starts anyway with its gate closed and keeps
+// retrying in the background, rather than failing to start.
+if (await ApplyMigrationsAsync(app))
+{
+    await RunStartupBackfillsAsync(app);
+}
+else
+{
+    var gate = app.Services.GetRequiredService<DatabaseStartupGate>();
+    gate.Close();
+    _ = FinishDatabaseStartupAsync(app, gate);
+}
 
 // Repair pre-#142 starter budgets whose "Savings" group defaulted to Expense (idempotent).
 
@@ -256,7 +259,8 @@ app.Run();
 // Applies any pending EF Core migrations on startup. Retries briefly so the API
 // doesn't fail to boot while the SQL Server service is still coming up (e.g. right
 // after a VPS reboot). Migrations are additive and never drop existing data.
-static async Task ApplyMigrationsAsync(WebApplication app)
+// Returns false when every attempt failed; the caller then finishes in the background.
+static async Task<bool> ApplyMigrationsAsync(WebApplication app)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
@@ -269,7 +273,7 @@ static async Task ApplyMigrationsAsync(WebApplication app)
         {
             await db.Database.MigrateAsync();
             logger.LogInformation("Database migrations applied (attempt {Attempt}).", attempt);
-            return;
+            return true;
         }
         catch (Exception ex) when (attempt < maxAttempts)
         {
@@ -278,7 +282,72 @@ static async Task ApplyMigrationsAsync(WebApplication app)
                 attempt, maxAttempts);
             await Task.Delay(TimeSpan.FromSeconds(3));
         }
+        catch (Exception ex)
+        {
+            // An Error, so it reaches the error alert email once; the background retries log at Warning.
+            logger.LogError(ex,
+                "Migrations failed {Max} times at startup. The API starts anyway and answers 503 until " +
+                "the database answers; it retries every {Seconds}s in the background.",
+                maxAttempts, StartupRetrySeconds);
+        }
     }
+    return false;
+}
+
+// Retries the startup migrations until they apply (or the API stops), then runs the backfills and
+// opens the gate. Logs a Warning every 20 failed attempts (about 5 minutes) so the event log shows
+// it is still waiting, and a Warning once it opens.
+static async Task FinishDatabaseStartupAsync(WebApplication app, DatabaseStartupGate gate)
+{
+    var stopping = app.Lifetime.ApplicationStopping;
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            await Task.Delay(TimeSpan.FromSeconds(StartupRetrySeconds), stopping);
+            using (var scope = app.Services.CreateScope())
+            {
+                await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.MigrateAsync(stopping);
+            }
+        }
+        catch (OperationCanceledException) when (stopping.IsCancellationRequested)
+        {
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (attempt % 20 == 0)
+            {
+                logger.LogWarning(ex, "Migrations still failing after {Attempts} background attempt(s); the API keeps answering 503.", attempt);
+            }
+            continue;
+        }
+
+        await RunStartupBackfillsAsync(app);
+        gate.Open();
+        logger.LogWarning("Migrations applied after {Attempts} background attempt(s); the API now serves requests.", attempt);
+        return;
+    }
+}
+
+// The startup work that needs the migrated schema, in order. Each step is non-fatal.
+static async Task RunStartupBackfillsAsync(WebApplication app)
+{
+    // Ensure every existing login owns an Owner membership for their household (idempotent).
+    await BackfillMembershipsAsync(app);
+
+    // Ensure every household has the owner as member #1, so a household is never "0 members".
+    await BackfillOwnerMembersAsync(app);
+
+    // Settles jar moves made before departures were recorded (P3-8).
+    await BackfillJarDeparturesAsync(app);
+
+    // Brings stored bank details onto this site's key (compliance fix 10; idempotent).
+    await EncryptBankDetailsAsync(app);
+
+    // Reports card numbers stored before every save masked them (compliance fix 12); changes nothing.
+    await CheckCardNumbersAsync(app);
 }
 
 // Seeds an Owner membership for any existing login that lacks one, so pre-existing single-user
