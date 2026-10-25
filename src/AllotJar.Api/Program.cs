@@ -16,6 +16,7 @@ using AllotJar.Infrastructure;
 using AllotJar.Infrastructure.Alerts;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
+using AllotJar.Infrastructure.Logging;
 using AllotJar.Infrastructure.Persistence;
 using AllotJar.Infrastructure.Persistence.Encryption;
 
@@ -40,6 +41,11 @@ BankDetailsEncryption.Configure(builder.Configuration, builder.Environment.IsDev
 // Event Log on the VPS records the same entries, but nobody reads it unprompted; this is what tells
 // Christopher something broke. Off (nothing registered) when no recipient is configured.
 builder.Services.AddErrorAlerts(builder.Configuration);
+
+// Email addresses are masked in every log line (c***@example.com), whoever writes it: our own
+// lines, a provider's rejection text, a SQL error quoting a duplicate key. The Event Log, the
+// console and the error alert emails then never hold a user's address.
+builder.Services.MaskEmailAddressesInLogs();
 
 // HTTP-context-backed implementation of the Application's ICurrentUser. The per-request
 // HouseholdContext is populated by HouseholdResolutionMiddleware and read back by CurrentUser.

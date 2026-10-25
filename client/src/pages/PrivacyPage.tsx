@@ -41,7 +41,7 @@ const TRANSFER_SAFEGUARD = 'the EU-US Data Privacy Framework, under which each o
 
 export function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" lastUpdated="20 October 2026">
+    <LegalLayout title="Privacy Policy" lastUpdated="25 October 2026">
       <p>
         This policy explains what personal data AllotJar holds, why, who else handles it, how long
         we keep it and what rights you have. AllotJar is a budgeting app at{' '}
@@ -91,8 +91,8 @@ export function PrivacyPage() {
         </li>
         <li>
           <strong>Technical data</strong>: our web server logs each request with its IP address and
-          browser type, and when something breaks an error report is emailed to us, which can
-          include your email address.
+          browser type, and when something breaks an error report is emailed to us. Email addresses
+          are masked in our logs and error reports, so they never hold yours in full.
         </li>
         <li>
           <strong>Analytics, only if you accept them</strong>: which pages are used, with a hashed

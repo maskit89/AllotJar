@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using AllotJar.Infrastructure.Logging;
 
 namespace AllotJar.Infrastructure.Alerts;
 
@@ -91,7 +92,8 @@ public static class ErrorEventFactory
         string? origin = null;
         if (exception is not null)
         {
-            exceptionType = exception.GetType().FullName;
+            // A masked stand-in (EmailMaskingLogger) reports the type that was actually thrown.
+            exceptionType = (exception is MaskedException masked ? masked.OriginalType : exception.GetType()).FullName;
             var text = exception.ToString();
             detail = text.Length <= MaxExceptionChars ? text : text[..MaxExceptionChars] + "\n… (cut)";
             origin = Origin(exception);
