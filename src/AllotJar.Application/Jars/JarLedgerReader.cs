@@ -332,6 +332,204 @@ public sealed class JarLedgerSource
         _accounts.FirstOrDefault(a => a.Id == accountId) is { } account ? ViewOf(account, asOf) : null;
 
     /// <summary>
+    /// <see cref="ViewAt"/> for one pass over many dates of one account, as the history checks
+    /// read it on every date it has an operation. From the second date, the account's whole
+    /// ledger is walked once (<see cref="AccountTimeline"/>) and each date is looked up in it,
+    /// instead of the ledger being rebuilt from the opening for every date (quadratic: seconds on
+    /// years of daily rows, #297 P3-2). The walk reads the loaded rows as they are when it is
+    /// made: a caller that changes them (a new opening balance) takes a new viewer after.
+    /// </summary>
+    public Func<DateOnly, JarLedgerView?> Viewer(Guid accountId)
+    {
+        if (_accounts.FirstOrDefault(a => a.Id == accountId) is not { } account)
+        {
+            return _ => null;
+        }
+        var reads = 0;
+        AccountTimeline? timeline = null;
+        var built = false;
+        return asOf =>
+        {
+            if (++reads < 2 || account.OpeningDate is not DateOnly openingDate || asOf < openingDate)
+            {
+                return ViewOf(account, asOf);
+            }
+            if (!built)
+            {
+                timeline = AccountTimeline.Build(this, account, openingDate);
+                built = true;
+            }
+            return timeline?.ViewAt(asOf) ?? ViewOf(account, asOf);
+        };
+    }
+
+    /// <summary>
+    /// The ledger of one account walked once from its opening: the balances after each date that
+    /// has an operation, so a view on any date is a lookup. It gives exactly what
+    /// <see cref="ViewOf"/> gives. An operation counts on a date when it is dated on or before it,
+    /// whichever date the ledger is read to (each operation's date is its transaction's own
+    /// posting date), and every balance is a sum of the operations counted. What does depend on
+    /// the date read to, a transfer still waiting for its receipt, is worked out for that date.
+    /// A ledger the checks of <see cref="ActualSavingsLedger.Calculate"/> refuse has no timeline:
+    /// its views are read the slow way, which refuses on the same dates as before.
+    /// </summary>
+    private sealed class AccountTimeline
+    {
+        private JarLedgerSource _source = null!;
+        private Account _account = null!;
+        private DateOnly _openingDate;
+        private List<Guid> _designated = null!;
+        private DateOnly[] _dates = null!;
+        private decimal[] _balances = null!;
+        private decimal[] _unallocated = null!;
+        private Dictionary<Guid, decimal>[] _jars = null!;
+        // Jars posted to here that do not designate the account, with where each is first posted
+        // (the order Calculate adds them in): (date, position in the operations).
+        private Dictionary<Guid, List<(DateOnly Date, int Position)>> _extras = null!;
+        private DateOnly[] _unreconciled = null!;
+        private List<Transaction> _waitingReceipts = null!;
+        private HashSet<Guid> _carried = null!;
+
+        public static AccountTimeline? Build(JarLedgerSource source, Account account, DateOnly openingDate)
+        {
+            var unreconciledDates = new List<DateOnly>();
+            var (all, _, _) = source.OperationsOf(account, openingDate, DateOnly.MaxValue, unreconciledDates);
+            var operations = all
+                .Where(o => o.OwnerId == account.OwnerId && o.AccountId == account.Id && o.Date >= openingDate)
+                .ToList();
+            var last = operations.Count == 0 ? openingDate : operations.Max(o => o.Date);
+            if (last < openingDate)
+            {
+                last = openingDate;
+            }
+            try
+            {
+                // The whole history passes Calculate's checks, so every date's part of it does.
+                ActualSavingsLedger.Calculate(account, openingDate, last, source._jars, source._readable, operations, source._postingDates);
+            }
+            catch (InvalidOperationException)
+            {
+                return null;
+            }
+
+            var timeline = new AccountTimeline
+            {
+                _source = source,
+                _account = account,
+                _openingDate = openingDate,
+                _designated = source._jars.Where(j => j.OwnerId == account.OwnerId && j.FundingAccountId == account.Id).Select(j => j.Id).ToList(),
+                _extras = new(),
+                _unreconciled = unreconciledDates.Order().ToArray(),
+                _carried = source._carried.TryGetValue(account.Id, out var jarIds) ? jarIds : new HashSet<Guid>(),
+            };
+            var designated = timeline._designated.ToHashSet();
+            var position = 0;
+            foreach (var operation in operations)
+            {
+                foreach (var posting in operation.Postings)
+                {
+                    if (posting.JarId is Guid jarId && !designated.Contains(jarId))
+                    {
+                        if (!timeline._extras.TryGetValue(jarId, out var firsts))
+                        {
+                            timeline._extras[jarId] = firsts = new();
+                        }
+                        firsts.Add((operation.Date, position));
+                    }
+                    position++;
+                }
+            }
+
+            var byDate = operations.GroupBy(o => o.Date).OrderBy(g => g.Key).ToList();
+            timeline._dates = byDate.Select(g => g.Key).ToArray();
+            timeline._balances = new decimal[byDate.Count];
+            timeline._unallocated = new decimal[byDate.Count];
+            timeline._jars = new Dictionary<Guid, decimal>[byDate.Count];
+            var balance = account.OpeningBalance;
+            var unallocated = account.OpeningBalance;
+            var jars = new Dictionary<Guid, decimal>();
+            for (var i = 0; i < byDate.Count; i++)
+            {
+                foreach (var posting in byDate[i].SelectMany(o => o.Postings))
+                {
+                    balance += posting.Amount;
+                    if (posting.JarId is Guid jarId)
+                    {
+                        jars[jarId] = jars.GetValueOrDefault(jarId) + posting.Amount;
+                    }
+                    else
+                    {
+                        unallocated += posting.Amount;
+                    }
+                }
+                timeline._balances[i] = balance;
+                timeline._unallocated[i] = unallocated;
+                timeline._jars[i] = new Dictionary<Guid, decimal>(jars);
+            }
+
+            // Only a transfer with no departure date can be waiting for its receipt.
+            timeline._waitingReceipts = source._readable
+                .Where(t => t.Type == TransactionType.Transfer
+                            && t.OwnerId == account.OwnerId
+                            && (t.AccountId == account.Id || t.TransferAccountId == account.Id)
+                            && source._postingDates.TryGetValue(t.Id, out var dates)
+                            && dates.DepartedOn is null)
+                .ToList();
+            return timeline;
+        }
+
+        public JarLedgerView ViewAt(DateOnly asOf)
+        {
+            var at = Array.BinarySearch(_dates, asOf);
+            if (at < 0)
+            {
+                at = ~at - 1;
+            }
+            var sums = at >= 0 ? _jars[at] : new Dictionary<Guid, decimal>();
+
+            // In Calculate's order: the jars designating the account, then the others as first posted.
+            var jarBalances = _designated.ToDictionary(id => id, id => sums.GetValueOrDefault(id));
+            foreach (var (jarId, _) in _extras
+                         .Select(e => (e.Key, First: e.Value.Where(f => f.Date <= asOf).Select(f => f.Position).DefaultIfEmpty(-1).Min()))
+                         .Where(e => e.First >= 0)
+                         .OrderBy(e => e.First))
+            {
+                jarBalances[jarId] = sums.GetValueOrDefault(jarId);
+            }
+
+            var pending = _waitingReceipts.Count == 0
+                ? (IReadOnlyList<PendingTransferReceipt>)Array.Empty<PendingTransferReceipt>()
+                : ActualAccountLedger.Entries(_account, _openingDate, asOf, _waitingReceipts, _source._postingDates).PendingReceipts;
+            var balance = at >= 0 ? _balances[at] : _account.OpeningBalance;
+            var ledger = new SavingsLedgerBalance(asOf, balance, new System.Collections.ObjectModel.ReadOnlyDictionary<Guid, decimal>(jarBalances),
+                at >= 0 ? _unallocated[at] : _account.OpeningBalance)
+            {
+                PendingTransferReceipts = pending,
+            };
+            var unreconciled = UpperBound(_unreconciled, asOf);
+            return new JarLedgerView(asOf, _account, ledger, false, unreconciled) { CarriedJars = _carried };
+        }
+
+        private static int UpperBound(DateOnly[] sorted, DateOnly value)
+        {
+            int lo = 0, hi = sorted.Length;
+            while (lo < hi)
+            {
+                var mid = (lo + hi) / 2;
+                if (sorted[mid] <= value)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+            return lo;
+        }
+    }
+
+    /// <summary>
     /// The dates after <paramref name="after"/>, future-dated entries included, on which the
     /// account's ledger has an operation: its balances change only on these days, so a check
     /// that must hold on every later date reads these and no others.
@@ -506,7 +704,7 @@ public sealed class JarLedgerSource
     /// (a derived operation has none), for <see cref="ContributionsBetween"/>.
     /// </summary>
     private (List<JarLedgerOperation> Operations, int Unreconciled, Dictionary<Guid, JarAllocationKind> Kinds) OperationsOf(
-        Account account, DateOnly openingDate, DateOnly asOf)
+        Account account, DateOnly openingDate, DateOnly asOf, List<DateOnly>? unreconciledDates = null)
     {
         var entries = ActualAccountLedger.Entries(account, openingDate, asOf, _readable, _postingDates);
         var operations = new List<JarLedgerOperation>();
@@ -528,6 +726,7 @@ public sealed class JarLedgerSource
                 if (op.Postings.Sum(p => p.Amount) != movement.Amount || !attributed.Add(transactionId))
                 {
                     unreconciled++;
+                    unreconciledDates?.Add(movement.Date);
                     continue;
                 }
                 operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, movement.Date, transactionId,
@@ -550,6 +749,7 @@ public sealed class JarLedgerSource
                         || op.Date > returnedOn))
                 {
                     unreconciled++;
+                    unreconciledDates?.Add(op.Date);
                     continue;
                 }
                 operations.Add(new JarLedgerOperation(op.Id, op.OwnerId, op.AccountId, op.Date, null,

@@ -27,25 +27,46 @@ namespace AllotJar.Application.Budgets;
 /// </summary>
 public static class BudgetActuals
 {
-    public static async Task ApplyAsync(
+    /// <param name="savingsBalances">
+    /// False leaves <see cref="BudgetItem.SavingsAvailable"/> unset, for a caller that never shows
+    /// it (the reports): it reads the whole jar ledger, once per month asked for.
+    /// </param>
+    public static Task ApplyAsync(
         IApplicationDbContext db,
         string ownerId,
         BudgetMonth month,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool savingsBalances = true) =>
+        ApplyAsync(db, ownerId, new[] { month }, cancellationToken, savingsBalances);
+
+    /// <summary>
+    /// The same for several months at once, in a fixed number of queries rather than a few per
+    /// month (a year of reports): each line's sums depend only on the rows assigned to it, and
+    /// each month's waiting count only on its own dates, so reading them together changes nothing.
+    /// </summary>
+    public static async Task ApplyAsync(
+        IApplicationDbContext db,
+        string ownerId,
+        IReadOnlyCollection<BudgetMonth> months,
+        CancellationToken cancellationToken,
+        bool savingsBalances = true)
     {
-        // How many of this month's rows are in another currency and still wait for their
+        if (months.Count == 0)
+        {
+            return;
+        }
+
+        // How many of each month's rows are in another currency and still wait for their
         // budget-currency amount. Those rows are EXCLUDED from every sum below — their amount is
         // not budget-currency money (rule 44). The count marks the aggregates as incomplete
         // instead of silently wrong (computed even when the month has no lines yet).
-        month.FxPendingCount = await db.Transactions
-            .Where(HouseholdMoney.Counts(db))
-            .CountAsync(t => t.OwnerId == ownerId
-                             && t.FxPending
-                             && t.Date.Year == month.Year
-                             && t.Date.Month == month.Month,
-                cancellationToken);
+        var waiting = await FxPendingCountsAsync(db, ownerId, months.Select(m => (m.Year, m.Month)), cancellationToken);
+        foreach (var month in months)
+        {
+            month.FxPendingCount = waiting.GetValueOrDefault((month.Year, month.Month));
+        }
 
-        var items = month.Categories.SelectMany(c => c.Items).ToList();
+        var items = months.SelectMany(m => m.Categories).SelectMany(c => c.Items).ToList();
         if (items.Count == 0)
         {
             return;
@@ -53,7 +74,8 @@ public static class BudgetActuals
 
         // Income lines roll up income transactions; expense lines roll up expense
         // transactions. Track which ids are income so each line matches its kind.
-        var incomeItemIds = month.Categories
+        var incomeItemIds = months
+            .SelectMany(m => m.Categories)
             .Where(c => c.Kind == CategoryKind.Income)
             .SelectMany(c => c.Items)
             .Select(i => i.Id)
@@ -72,6 +94,7 @@ public static class BudgetActuals
             .GroupBy(t => new { ItemId = t.BudgetItemId!.Value, t.Type, IsRefund = t.RefundOfTransactionId != null })
             .Select(g => new { g.Key.ItemId, g.Key.Type, g.Key.IsRefund, Total = g.Sum(t => t.BudgetAmount ?? t.Amount) })
             .ToListAsync(cancellationToken);
+        var sumsByItem = sums.ToLookup(s => s.ItemId);
 
         // Slices of split transactions. A split transaction has BudgetItemId == null
         // so it never appears above — no double counting. Each slice inherits the
@@ -94,11 +117,12 @@ public static class BudgetActuals
 
         foreach (var item in items)
         {
+            var lineSums = sumsByItem[item.Id];
             if (incomeItemIds.Contains(item.Id))
             {
                 // Received income: income rows that are not refunds (rule 41), plus income slices.
-                var received = sums
-                    .Where(s => s.ItemId == item.Id && s.Type == TransactionType.Income && !s.IsRefund)
+                var received = lineSums
+                    .Where(s => s.Type == TransactionType.Income && !s.IsRefund)
                     .Sum(s => s.Total);
                 var receivedSlices = splitSums.TryGetValue((item.Id, TransactionType.Income), out var r) ? r : 0m;
                 item.ActualAmount = received + receivedSlices;
@@ -107,18 +131,65 @@ public static class BudgetActuals
             }
 
             // Spent: expense rows and slices, net of the refunds received against the line.
-            var spent = sums
-                .Where(s => s.ItemId == item.Id && s.Type == TransactionType.Expense)
+            var spent = lineSums
+                .Where(s => s.Type == TransactionType.Expense)
                 .Sum(s => s.Total);
             var spentSlices = splitSums.TryGetValue((item.Id, TransactionType.Expense), out var v) ? v : 0m;
-            var refunded = sums
-                .Where(s => s.ItemId == item.Id && s.IsRefund)
+            var refunded = lineSums
+                .Where(s => s.IsRefund)
                 .Sum(s => s.Total);
             item.RefundedAmount = refunded;
             item.ActualAmount = spent + spentSlices - refunded;
         }
 
-        await ApplySavingsBalancesAsync(db, ownerId, month, cancellationToken);
+        if (savingsBalances)
+        {
+            foreach (var month in months)
+            {
+                await ApplySavingsBalancesAsync(db, ownerId, month, cancellationToken);
+            }
+        }
+    }
+
+    /// <summary>
+    /// For each of <paramref name="months"/>, how many of the household's rows dated in it still
+    /// wait for their budget-currency amount (rule 44): one query over the span they cover.
+    /// </summary>
+    public static async Task<Dictionary<(int Year, int Month), int>> FxPendingCountsAsync(
+        IApplicationDbContext db,
+        string ownerId,
+        IEnumerable<(int Year, int Month)> months,
+        CancellationToken cancellationToken)
+    {
+        var asked = months.Distinct().ToList();
+        if (asked.Count == 0)
+        {
+            return new Dictionary<(int Year, int Month), int>();
+        }
+        var (from, through) = Span(asked);
+        var counts = await db.Transactions
+            .Where(HouseholdMoney.Counts(db))
+            .Where(t => t.OwnerId == ownerId && t.FxPending && t.Date >= from && t.Date <= through)
+            .GroupBy(t => new { t.Date.Year, t.Date.Month })
+            .Select(g => new { g.Key.Year, g.Key.Month, Count = g.Count() })
+            .ToListAsync(cancellationToken);
+        return counts.ToDictionary(c => (c.Year, c.Month), c => c.Count);
+    }
+
+    /// <summary>
+    /// The dates from the first of these months to the last day of the last, widened to the
+    /// calendar's ends for a year no date can have (a report asked for year 0): a span at least
+    /// as wide, read again month by month.
+    /// </summary>
+    public static (DateOnly From, DateOnly Through) Span(IReadOnlyCollection<(int Year, int Month)> months)
+    {
+        var first = months.Min();
+        var last = months.Max();
+        var from = first.Year is >= 1 and <= 9999 ? new DateOnly(first.Year, first.Month, 1) : DateOnly.MinValue;
+        var through = last.Year is >= 1 and <= 9999
+            ? new DateOnly(last.Year, last.Month, DateTime.DaysInMonth(last.Year, last.Month))
+            : DateOnly.MaxValue;
+        return (from, through);
     }
 
     /// <summary>

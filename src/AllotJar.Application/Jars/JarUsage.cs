@@ -28,15 +28,32 @@ public static class JarUsage
             .Select(p => p.JarId!.Value)
             .Distinct()
             .ToListAsync(cancellationToken);
-        var spent = await db.BudgetItems
+        // The jars' lines first, then which of them carry a row or a slice: one query joining
+        // every line to every transaction scans the whole history (F3).
+        var lines = await db.BudgetItems
             .AsNoTracking()
             .Where(i => i.SavingsId != null && ids.Contains(i.SavingsId.Value)
-                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId
-                        && (db.Transactions.Any(t => t.BudgetItemId == i.Id)
-                            || db.TransactionSplits.Any(s => s.BudgetItemId == i.Id)))
-            .Select(i => i.SavingsId!.Value)
-            .Distinct()
+                        && i.BudgetCategory.BudgetMonth.OwnerId == ownerId)
+            .Select(i => new { i.Id, JarId = i.SavingsId!.Value })
             .ToListAsync(cancellationToken);
+        var lineIds = lines.Select(l => l.Id).ToList();
+        var used = new HashSet<Guid>();
+        if (lineIds.Count > 0)
+        {
+            used.UnionWith(await db.Transactions
+                .AsNoTracking()
+                .Where(t => t.BudgetItemId != null && lineIds.Contains(t.BudgetItemId.Value))
+                .Select(t => t.BudgetItemId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken));
+            used.UnionWith(await db.TransactionSplits
+                .AsNoTracking()
+                .Where(s => s.BudgetItemId != null && lineIds.Contains(s.BudgetItemId.Value))
+                .Select(s => s.BudgetItemId!.Value)
+                .Distinct()
+                .ToListAsync(cancellationToken));
+        }
+        var spent = lines.Where(l => used.Contains(l.Id)).Select(l => l.JarId);
         return posted.Concat(spent).ToHashSet();
     }
 
