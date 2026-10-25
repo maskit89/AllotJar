@@ -1,9 +1,7 @@
-using System.Data.Common;
 using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Diagnostics;
 using AllotJar.Domain.Entities;
 using AllotJar.Infrastructure.Identity;
 using AllotJar.Infrastructure.Persistence;
@@ -23,33 +21,16 @@ public class RefreshPruneRaceSqlTests
 
     public RefreshPruneRaceSqlTests(SqlServerFixture fixture) => _fixture = fixture;
 
-    /// <summary>Holds the first SaveChanges of its context until released.</summary>
-    private sealed class SaveGate : SaveChangesInterceptor
-    {
-        public readonly TaskCompletionSource Reached = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public readonly TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private int _calls;
-
-        public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-            DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
-        {
-            if (Interlocked.Increment(ref _calls) == 1)
-            {
-                Reached.SetResult();
-                await Release.Task;
-            }
-            return result;
-        }
-    }
-
     private static string Hash(string raw) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 
-    private ApplicationDbContext Gated(SaveGate gate) =>
+    private ApplicationDbContext Gated(CommandGate gate) =>
         new(new DbContextOptionsBuilder<ApplicationDbContext>().UseSqlServer(_fixture.ConnectionString).AddInterceptors(gate).Options);
 
     private async Task<Exception?> RaceAsync(string rawA, string rawB)
     {
-        var gate = new SaveGate();
+        // Held at its first write (the prune), before the rotation claims its token: since #380
+        // P3-2 the claim is its own statement, so holding at the save would hold after it.
+        var gate = CommandGate.FirstWrite();
         await using var dbB = Gated(gate);
         var b = Task.Run(() => new RefreshTokenService(dbB).RotateAsync(rawB));
         await gate.Reached.Task;                       // B has read its token and the expired list

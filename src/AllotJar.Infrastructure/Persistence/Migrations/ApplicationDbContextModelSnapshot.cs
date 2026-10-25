@@ -767,6 +767,9 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
                     b.Property<DateTime>("SessionStartedUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("SignedOutUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("TokenHash")
                         .IsRequired()
                         .HasMaxLength(200)

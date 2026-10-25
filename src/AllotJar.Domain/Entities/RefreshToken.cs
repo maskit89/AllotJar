@@ -35,6 +35,14 @@ public class RefreshToken
     /// <summary>Set when the token is rotated on use, or revoked (logout / theft response).</summary>
     public DateTime? RevokedUtc { get; set; }
 
+    /// <summary>
+    /// Set when the sign-in this token belongs to was signed out (sign-out, a device signed out from
+    /// the Devices list, sign out everywhere, a password change, the theft response). Unlike
+    /// <see cref="RevokedUtc"/>, a rotation never sets it, so a refresh that raced the sign-out can
+    /// tell it lost and end the token it just minted.
+    /// </summary>
+    public DateTime? SignedOutUtc { get; set; }
+
     /// <summary>Hash of the token that superseded this one on rotation — enables reuse detection.</summary>
     public string? ReplacedByTokenHash { get; set; }
 }

@@ -327,6 +327,79 @@ public class RefreshTokenServiceTests
         (await svc.RotateAsync(other)).Succeeded.Should().BeTrue();
     }
 
+    [Fact]
+    public async Task Signing_out_with_a_cookie_a_refresh_just_rotated_ends_the_whole_sign_in()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var raw = await svc.IssueAsync("user-1");
+        var laptop = await svc.IssueAsync("user-1");
+        var rot = await svc.RotateAsync(raw);   // the refresh won; the sign-out still sends the old cookie
+
+        (await svc.RevokeAsync(raw)).Should().Be("user-1");
+
+        (await svc.RotateAsync(rot.NewRawToken!)).Succeeded.Should().BeFalse("the replacement belongs to the same sign-in");
+        (await svc.RotateAsync(laptop)).Succeeded.Should().BeTrue("another device's sign-in is not touched");
+    }
+
+    [Fact]
+    public async Task A_rotated_cookie_of_a_signed_out_sign_in_is_refused_without_the_theft_response()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var raw = await svc.IssueAsync("user-1");
+        var laptop = await svc.IssueAsync("user-1");
+        var rot = await svc.RotateAsync(raw);
+        await svc.RevokeAsync(rot.NewRawToken!);
+        var rotated = await db.RefreshTokens.SingleAsync(t => t.TokenHash == HashFor(raw));
+        rotated.RevokedUtc = DateTime.UtcNow - RefreshTokenService.ReplayGraceWindow - TimeSpan.FromSeconds(1);
+        await db.SaveChangesAsync();
+
+        var replay = await svc.RotateAsync(raw);
+
+        replay.Succeeded.Should().BeFalse();
+        replay.Superseded.Should().BeFalse();
+        (await svc.RotateAsync(laptop)).Succeeded.Should().BeTrue("the sign-out already ended that sign-in, so nothing else is burned");
+    }
+
+    [Fact]
+    public async Task Confirm_passes_a_rotation_no_sign_out_reached()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+
+        var rot = await svc.RotateAsync(await svc.IssueAsync("user-1"));
+
+        (await svc.ConfirmAsync(rot.NewRawToken!)).Should().BeTrue();
+        (await svc.RotateAsync(rot.NewRawToken!)).Succeeded.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Confirm_refuses_and_ends_a_new_token_whose_sign_in_was_signed_out_meanwhile()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+        var raw = await svc.IssueAsync("user-1");
+        var rot = await svc.RotateAsync(raw);
+
+        // The sign-out marked the sign-in, but its revoke ran before the new token was saved.
+        (await db.RefreshTokens.SingleAsync(t => t.TokenHash == HashFor(raw))).SignedOutUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        (await svc.ConfirmAsync(rot.NewRawToken!)).Should().BeFalse();
+        (await db.RefreshTokens.CountAsync(t => t.RevokedUtc == null)).Should().Be(0);
+    }
+
+    [Fact]
+    public async Task Confirm_refuses_an_unknown_token()
+    {
+        using var db = NewContext();
+
+        (await new RefreshTokenService(db).ConfirmAsync("never-issued")).Should().BeFalse();
+    }
+
     private static string HashFor(string raw) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 }

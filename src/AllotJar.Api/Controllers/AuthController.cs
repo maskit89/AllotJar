@@ -618,6 +618,14 @@ public partial class AuthController : ControllerBase
         {
             await answer.CommitAsync(ct);
         }
+
+        // A sign-out of this sign-in at the same moment wins over the refresh: the new token is
+        // revoked and the browser is signed out, as it asked to be.
+        if (!await _refreshTokens.ConfirmAsync(rotation.NewRawToken!, ct))
+        {
+            ClearRefreshCookie();
+            return Unauthorized();
+        }
         SetRefreshCookie(rotation.NewRawToken!, rotation.ExpiresUtc);
         return Ok(response);
     }
@@ -1223,7 +1231,8 @@ public partial class AuthController : ControllerBase
         }
 
         var rotated = await _refreshTokens.RotateAsync(current, CurrentDevice(), ct);
-        if (!rotated.Succeeded || rotated.UserId != userId)
+        if (!rotated.Succeeded || rotated.UserId != userId
+            || !await _refreshTokens.ConfirmAsync(rotated.NewRawToken!, ct))
         {
             return;
         }
