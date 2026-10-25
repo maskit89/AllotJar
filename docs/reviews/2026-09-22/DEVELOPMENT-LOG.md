@@ -1665,6 +1665,14 @@ All ten staging Deploys (runs 276 to 286, except the hand-started run below) pas
 - Review nit, not worth a push: `vi.restoreAllMocks()` sits at the end of the new unit test, so a failing assertion would leave its `clientHeight` spy for later tests.
 - Unchanged from the previous records: the before-charging items (InterServer's DPA, the alert mailbox off personal Gmail, the event log) and every follow-up listed above.
 
+## Email addresses masked in the app's logs (PR #390) — 25 October 2026
+
+The Windows event log still received users' email addresses, for example `Email to … was NOT sent`. The API now wraps its logger factory, so every log line (our own, ASP.NET Core's, EF Core's, a provider's rejection text, a SQL error quoting a duplicate key) reaches the event log, the console and the error alert emails with addresses masked as `c***@example.com`. The per-provider filters still apply, alerts still group by template and name the type that was thrown. The privacy policy says addresses are masked in the app's logs and error reports. The dev console copy of an email (LogBodies) is masked too, so its links no longer work; use the `/api/dev/emails` mailbox.
+
+Follow-ups from the review (reviews/pr-390/REVIEW.md; P2-2, P3-1, P3-2, P3-3 and P3-4 fixed in the PR):
+- #390 P2-1 (server part): the IIS request logs still record the query string and the Referer, and the verification and reset links carry `?email=…&token=…` (the page's own requests then send that URL as their Referer), so each opened link leaves the address and a live token there for up to 90 days. Dropping `UriQuery` and `Referer` from the W3C log fields of the four sites fixes it; the reviewed server step is in the project files (`log-masking/SERVER-STEPS-iis-query.md`), for Christopher after #390 merges. The policy sentence stays "the app's logs" even then, because HTTP.sys's HTTPERR log can still record a full URL for a request it rejects.
+- #390 P3-4 (rest): `MaskedException` stands in for a logged exception only when its text holds an address; it keeps the stack trace and type but not `Data`, `TargetSite` or an `AggregateException`'s later inner exceptions (its text still shows them, masked).
+
 ## Follow-ups from the review of #391 (sign-out beats a token refresh)
 
 #391 fixes #380 P3-2 (a refresh racing a sign-out could outlive it) and #382 P3-4 (a refresh at its token's exact expiry could lose to the purge and return a 500). The review's P3-1 (a failed check after the commit now signs only that device out) and P3-2 (the Devices list skips a sign-in marked signed out) were fixed in the PR. Logged:
