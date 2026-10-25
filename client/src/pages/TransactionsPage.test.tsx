@@ -307,6 +307,8 @@ describe('TransactionsPage manual sheet', () => {
     await txAction(user, 'Tesco', 'Delete transaction: Tesco')
     const dialog = await screen.findByRole('dialog', { name: 'Delete this transaction?' })
     expect(dialog).toHaveTextContent(/Tesco/)
+    // The line is the dialog's description, so a screen reader reads which row with the title.
+    expect(dialog).toHaveAccessibleDescription(/Tesco/)
     expect(mockDelete).not.toHaveBeenCalled()
 
     await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))

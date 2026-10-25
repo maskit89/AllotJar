@@ -2552,6 +2552,7 @@ export function TransactionsPage() {
               sheet
               title="Delete this transaction?"
               onClose={cancel}
+              describedBy="tx-delete-what"
               footer={
                 <div className={DIALOG_ACTIONS}>
                   <Button variant="ghost" onClick={cancel} className={DIALOG_CANCEL}>
@@ -2570,7 +2571,7 @@ export function TransactionsPage() {
                 </div>
               }
             >
-              <p className={DIALOG_BODY}>
+              <p id="tx-delete-what" className={DIALOG_BODY}>
                 {shortDate(dt.date)} · {dt.payee || (dt.type === TransactionType.Transfer ? 'Transfer' : transactionTypeLabel(dt.type))} · {formatMoney(fromAmount(dt.amount), dt.currency)}
                 {hasFee && <> · its fee too</>}
               </p>
