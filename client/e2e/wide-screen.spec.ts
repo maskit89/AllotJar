@@ -90,16 +90,28 @@ test.describe('every page on a 3840px-wide screen', () => {
         }
         const main = document.getElementById('main-content')!
         const column = main.querySelector(':scope > div')!
-        const blocks = [...column.children]
-          .map((el) => ({ name: `${el.tagName.toLowerCase()}.${el.className}`.slice(0, 80), width: el.getBoundingClientRect().width }))
-          .filter((b) => b.width > 0)
+        const label = (el: Element) => `${el.tagName.toLowerCase()}.${el.className}`.slice(0, 80)
+        // A block that takes up no room (an empty banner's wrapper) is not a card.
+        const shown = (el: Element) => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0
+        const blocks = [...column.children].filter(shown).map((el) => ({ name: label(el), width: el.getBoundingClientRect().width, min: width(column) }))
+        // The cards inside the page's wrappers: a grid's child is at least as wide as the narrowest
+        // track it can sit in, so one capped narrower than that (a KPI tile, a detail card) is found.
+        for (const grid of column.querySelectorAll('*')) {
+          if (getComputedStyle(grid).display !== 'grid') continue
+          const tracks = getComputedStyle(grid).gridTemplateColumns.split(' ').map(parseFloat).filter((n) => n > 0)
+          // Only grids of cards: a row laid out in a few fixed-width tracks is not one.
+          if (tracks.length === 0 || Math.min(...tracks) < 150) continue
+          for (const card of grid.children) {
+            if (shown(card) && getComputedStyle(card).position !== 'absolute') blocks.push({ name: `${label(card)} in ${label(grid)}`, width: card.getBoundingClientRect().width, min: Math.min(...tracks) })
+          }
+        }
         return { body: width(column), bar: width(main.querySelector('header > div')!), blocks }
       })
       expect(Math.abs(inner.body - (3432 - 80))).toBeLessThanOrEqual(1)
       expect(Math.abs(inner.bar - (3432 - 80))).toBeLessThanOrEqual(1)
       expect(inner.blocks.length).toBeGreaterThan(0)
       for (const block of inner.blocks) {
-        expect(Math.abs(block.width - inner.body), block.name).toBeLessThanOrEqual(1)
+        expect(block.width, block.name).toBeGreaterThanOrEqual(block.min - 1)
       }
     })
   }
