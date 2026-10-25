@@ -81,10 +81,9 @@ describe('useProgressiveList', () => {
 
   it('draws every row for printing', () => {
     vi.stubGlobal('IntersectionObserver', FakeObserver)
-    render(<List total={100} />)
-    act(() => {
-      window.dispatchEvent(new Event('beforeprint'))
-    })
-    expect(screen.getByText('100 drawn')).toBeInTheDocument()
+    const { container } = render(<List total={100} />)
+    // No act(): the print is laid out as soon as the event's listeners return.
+    window.dispatchEvent(new Event('beforeprint'))
+    expect(container.textContent).toContain('100 drawn')
   })
 })

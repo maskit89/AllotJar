@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { flushSync } from 'react-dom'
 
 interface Options {
   /** Rows drawn in any case: the row being edited, or one a save moved further down. Once drawn, they stay drawn. */
@@ -45,9 +46,10 @@ export function useProgressiveList(total: number, { atLeast = 0, resetKey, first
     return () => observer.disconnect()
   }, [sentinel, supported, step, limit])
 
-  // The browser's print shows the whole list.
+  // The browser's print shows the whole list: drawn before the listener returns, since the
+  // print is laid out straight after it.
   useEffect(() => {
-    const all = () => setLimit((l) => Math.max(l, total))
+    const all = () => flushSync(() => setLimit((l) => Math.max(l, total)))
     window.addEventListener('beforeprint', all)
     return () => window.removeEventListener('beforeprint', all)
   }, [total])
