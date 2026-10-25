@@ -74,11 +74,14 @@ for (const { width, column, cols } of [
 }
 
 // Every page uses the same column (Christopher, 19 Oct: nothing moves between pages), so a page
-// that keeps to a narrower width of its own fails here.
+// that keeps to a narrower width of its own fails here, and so does a card capped narrower inside
+// a page: every block the page puts in the column, the first card included, spans it.
+const WIDE_ROUTES = [...AUTHED_ROUTES, '/accounts/acc1']
+
 test.describe('every page on a 3840px-wide screen', () => {
   test.use({ viewport: { width: 3840, height: 1000 } })
-  for (const path of AUTHED_ROUTES) {
-    test(`${path} uses the full 3432px column, the top bar with it`, async ({ page }) => {
+  for (const path of WIDE_ROUTES) {
+    test(`${path} uses the full 3432px column, the top bar and every card with it`, async ({ page }) => {
       await open(page, path)
       const inner = await page.evaluate(() => {
         const width = (el: Element) => {
@@ -86,17 +89,25 @@ test.describe('every page on a 3840px-wide screen', () => {
           return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
         }
         const main = document.getElementById('main-content')!
-        return { body: width(main.querySelector(':scope > div')!), bar: width(main.querySelector('header > div')!) }
+        const column = main.querySelector(':scope > div')!
+        const blocks = [...column.children]
+          .map((el) => ({ name: `${el.tagName.toLowerCase()}.${el.className}`.slice(0, 80), width: el.getBoundingClientRect().width }))
+          .filter((b) => b.width > 0)
+        return { body: width(column), bar: width(main.querySelector('header > div')!), blocks }
       })
       expect(Math.abs(inner.body - (3432 - 80))).toBeLessThanOrEqual(1)
       expect(Math.abs(inner.bar - (3432 - 80))).toBeLessThanOrEqual(1)
+      expect(inner.blocks.length).toBeGreaterThan(0)
+      for (const block of inner.blocks) {
+        expect(Math.abs(block.width - inner.body), block.name).toBeLessThanOrEqual(1)
+      }
     })
   }
 })
 
 test.describe('the widest screen', () => {
   test.use({ viewport: { width: 2560, height: 1440 } })
-  for (const path of AUTHED_ROUTES) {
+  for (const path of WIDE_ROUTES) {
     test(`${path} does not overflow horizontally`, async ({ page }) => {
       await open(page, path)
       const { scrollW, clientW } = await page.evaluate(() => ({
