@@ -2,29 +2,48 @@
 // Run with `node scripts/make-og-image.mjs` from the client/ directory; the PNG is
 // committed as a static asset, so this is NOT part of the production build.
 //
-// Brand rule (brand/README §2): the OG card is a large feature moment, so it uses
-// the **realistic** mark (`allotjar-mark.svg`) as the showpiece and the ready-made
-// **reversed lockup** (`allotjar-lockup-reversed.svg`) for the brand row — both read
-// straight from brand/, never hand-drawn. The gradient + gold pill use brand tokens.
+// The jar is the app icon's glass jar (`allotjar-app-icon.svg`, the Dashboard shelf's
+// drawing), read straight from brand/, never redrawn: the showpiece is that jar without
+// its tile, and the brand row is the favicon beside the wordmark, so the card matches
+// the home-screen and tab icons. The gradient + gold pill use brand tokens.
+//
+// Bump ?v= on og:image and twitter:image in index.html whenever this picture changes:
+// the PNG keeps its name and share previews cache it by URL.
 //
 // Uses the Playwright Chromium that the a11y e2e tests already depend on. If the
-// browser binary is missing, run `npx playwright install chromium` first.
+// browser binary is missing, run `npx playwright install chromium` first, or set
+// PW_CHROMIUM to a Chromium executable to use instead.
 
 import { chromium } from '@playwright/test'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { crc32, deflateSync, inflateSync } from 'node:zlib'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const brandDir = path.resolve(here, '..', '..', 'brand')
 const outDir = path.join(process.cwd(), 'public', 'og')
 const outFile = path.join(outDir, 'allotjar-og.png')
 
-// Pull the actual production brand assets — do not redraw the jar here.
-const [realisticMark, reversedLockup] = await Promise.all([
-  readFile(path.join(brandDir, 'allotjar-mark.svg'), 'utf8'),
-  readFile(path.join(brandDir, 'allotjar-lockup-reversed.svg'), 'utf8'),
+// Pull the actual production brand asset — do not redraw the jar here.
+const [appIcon, favicon] = await Promise.all([
+  readFile(path.join(brandDir, 'allotjar-app-icon.svg'), 'utf8'),
+  readFile(path.join(brandDir, 'allotjar-favicon.svg'), 'utf8'),
 ])
+
+// The jar alone: drop the app icon's two 160×160 tile rects (the green and its glow) and crop the
+// view box to the jar group (translate(43.5,30) scale(1.14) of the 64×84 jar, shadow included).
+const tile = /<rect x="0" y="0" width="160" height="160" rx="37" fill="url\(#(t|glow)\)"\/>/g
+if ((appIcon.match(tile) ?? []).length !== 2) {
+  throw new Error('allotjar-app-icon.svg changed: expected two 160×160 tile rects')
+}
+const jar = appIcon
+  .replace(tile, '')
+  .replace('viewBox="0 0 160 160" width="512" height="512"', 'viewBox="50 33 60 96"')
+  .replace('aria-label="AllotJar app icon"', 'aria-hidden="true"')
+// The brand row uses the favicon (the same jar, bigger on a tighter tile, so it reads at
+// 56 px), as an image so its gradient ids don't clash with the jar's.
+const iconSrc = `data:image/svg+xml;base64,${Buffer.from(favicon).toString('base64')}`
 
 const html = `<!doctype html>
 <html>
@@ -42,40 +61,73 @@ const html = `<!doctype html>
         display: flex; align-items: center; gap: 56px; padding: 96px;
       }
       .left { flex: 1; min-width: 0; }
-      /* Reversed lockup (flat mark + "AllotJar" wordmark, paper + #5FC093). */
-      .brand { margin-bottom: 40px; }
-      .brand svg { height: 46px; width: auto; display: block; }
+      /* Brand row: the favicon + the reversed wordmark (paper + #5FC093, brand/README §4). */
+      .brand { margin-bottom: 40px; display: flex; align-items: center; gap: 16px; }
+      .brand img { width: 56px; height: 56px; display: block; box-shadow: 0 0 0 1.5px rgba(255,255,255,0.18); border-radius: 12px; }
+      .brand span { font-size: 40px; font-weight: 800; letter-spacing: -0.035em; color: #F4F6F3; }
+      .brand span b { font-weight: 800; color: #5FC093; }
       h1 { font-size: 92px; font-weight: 800; line-height: 1.02; letter-spacing: -0.035em; }
       .sub { margin-top: 28px; font-size: 34px; font-weight: 500; color: rgba(255,255,255,0.86); }
       .url {
         margin-top: 44px; display: inline-block; font-size: 26px; font-weight: 700;
         color: #15533A; background: #D7A93E; padding: 12px 22px; border-radius: 999px;
       }
-      /* Realistic mark — the showpiece. Sized by height so the drop coin + cast
-         shadow (viewBox 0 -13 64 101) stay in frame; CSS overrides its width/height. */
-      .right { flex-shrink: 0; filter: drop-shadow(0 22px 44px rgba(0,0,0,0.34)); }
-      .right svg { height: 404px; width: auto; display: block; }
+      /* The glass jar — the showpiece, with a soft gold glow behind it like the icon's. */
+      .right {
+        flex-shrink: 0; padding: 20px 28px;
+        background: radial-gradient(closest-side, rgba(232,195,106,0.24), rgba(232,195,106,0));
+        filter: drop-shadow(0 22px 40px rgba(0,0,0,0.28));
+      }
+      .right svg { height: 420px; width: auto; display: block; }
     </style>
   </head>
   <body>
     <div class="left">
-      <div class="brand">${reversedLockup}</div>
+      <div class="brand"><img src="${iconSrc}" alt="" /><span>Allot<b>Jar</b></span></div>
       <h1>Give every<br />euro a job.</h1>
       <p class="sub">Zero-based budgeting, in your currency.</p>
       <span class="url">allotjar.com</span>
     </div>
-    <div class="right">${realisticMark}</div>
+    <div class="right">${jar}</div>
   </body>
 </html>`
 
-const browser = await chromium.launch()
+const browser = await chromium.launch(process.env.PW_CHROMIUM ? { executablePath: process.env.PW_CHROMIUM } : {})
 try {
   await mkdir(outDir, { recursive: true })
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 })
   await page.setContent(html, { waitUntil: 'networkidle' })
-  await page.waitForTimeout(400) // let the web font paint (wordmark + drop-coin €)
-  await page.screenshot({ path: outFile })
+  await page.waitForTimeout(400) // let the web font paint (wordmark)
+  await writeFile(outFile, recompress(await page.screenshot()))
   console.log(`og image written: ${outFile}`)
 } finally {
   await browser.close()
+}
+
+// Chromium writes its screenshots with fast compression (~350 KB here); WhatsApp skips
+// share images much over 300 KB. Re-deflate the pixel data at level 9: the same pixels,
+// about 40% smaller (needs Node 20.15+ for zlib.crc32).
+function recompress(png) {
+  const parts = [png.subarray(0, 8)]
+  const idat = []
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8)
+    head.writeUInt32BE(data.length)
+    head.write(type, 4, 'latin1')
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])))
+    parts.push(head, data, crc)
+  }
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at)
+    const type = png.toString('latin1', at + 4, at + 8)
+    const data = png.subarray(at + 8, at + 8 + length)
+    if (type === 'IDAT') idat.push(data)
+    else {
+      if (type === 'IEND') chunk('IDAT', deflateSync(inflateSync(Buffer.concat(idat)), { level: 9, memLevel: 9 }))
+      chunk(type, data)
+    }
+    at += 12 + length
+  }
+  return Buffer.concat(parts)
 }
