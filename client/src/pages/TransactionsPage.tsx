@@ -7,6 +7,7 @@ import { KpiRow, KpiTile } from '../components/KpiTile'
 import { DASH_CARD } from '../components/budget/card'
 import { TxDay, type TxDayState, type TxRowContext, type TxRowEvent } from '../components/transactions/TxRow'
 import { Modal } from '../components/Modal'
+import { DIALOG_ACTIONS, DIALOG_BAD, DIALOG_BODY, DIALOG_CANCEL } from '../components/settings/parts'
 import { TransactionsIcon } from '../components/icons'
 import { useFeatures } from '../features/FeatureContext'
 import { useMonth } from '../features/MonthContext'
@@ -310,6 +311,9 @@ export function TransactionsPage() {
   const [paidFromPrompt, setPaidFromPrompt] = useState<
     { transaction: TransactionDto; budgetItemId: string; value: string } | null
   >(null)
+  // Delete from a row's ⋯ asks first: on a phone the menu's Delete sits right under the other
+  // actions, so one mis-tap would otherwise delete the row (#337 review P3-3).
+  const [deletePrompt, setDeletePrompt] = useState<TransactionDto | null>(null)
 
   const ledgerOf = useCallback(
     (accountId: string | null | undefined) => (accountId ? ledgers.find((l) => l.accountId === accountId) : undefined),
@@ -1413,13 +1417,13 @@ export function TransactionsPage() {
 
   // Focus back to the row once its editor (or the dialog it raised) has closed; see pendingFocus.
   useEffect(() => {
-    if (!pendingFocus || showAdd || crossMonthPrompt || paidFromPrompt || convertingId) return
+    if (!pendingFocus || showAdd || crossMonthPrompt || paidFromPrompt || convertingId || deletePrompt) return
     setPendingFocus(null)
     const { id, targets, order, ifLost } = pendingFocus
     const active = document.activeElement
     if (ifLost && active && active !== document.body && active.isConnected) return
     focusTarget(id, targets, order)?.focus()
-  }, [pendingFocus, showAdd, crossMonthPrompt, paidFromPrompt, convertingId])
+  }, [pendingFocus, showAdd, crossMonthPrompt, paidFromPrompt, convertingId, deletePrompt])
 
   // The split editor opens on its first line's amount (the line itself is filled in).
   const [splitPanel, setSplitPanel] = useState<HTMLDivElement | null>(null)
@@ -1515,7 +1519,7 @@ export function TransactionsPage() {
         return
       }
       case 'delete':
-        void removeTransaction(t.id)
+        setDeletePrompt(t)
         return
       case 'assign':
         setAssigningId(t.id)
@@ -2543,6 +2547,45 @@ export function TransactionsPage() {
           </div>
         </Modal>
       )}
+
+      {/* Delete asks first. Delete closes the dialog and deletes (focus then goes to the nearest
+          row, as before); Cancel, Escape or the scrim keep the row, and focus goes back to its ⋯. */}
+      {deletePrompt &&
+        (() => {
+          const dt = deletePrompt
+          const cancel = () => setDeletePrompt(null)
+          const hasFee = transactions.some((x) => x.feeForTransferId === dt.id)
+          return (
+            <Modal
+              sheet
+              title="Delete this transaction?"
+              onClose={cancel}
+              describedBy="tx-delete-what"
+              footer={
+                <div className={DIALOG_ACTIONS}>
+                  <Button variant="ghost" onClick={cancel} className={DIALOG_CANCEL}>
+                    Cancel
+                  </Button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeletePrompt(null)
+                      void removeTransaction(dt.id)
+                    }}
+                    className={DIALOG_BAD}
+                  >
+                    Delete
+                  </button>
+                </div>
+              }
+            >
+              <p id="tx-delete-what" className={DIALOG_BODY}>
+                {shortDate(dt.date)} · {dt.payee || (dt.type === TransactionType.Transfer ? 'Transfer' : transactionTypeLabel(dt.type))} · {formatMoney(fromAmount(dt.amount), dt.currency)}
+                {hasFee && <> · its fee too</>}
+              </p>
+            </Modal>
+          )
+        })()}
 
       {/* Rule 79's inline prompt: "+ Assign" put a payment from a jar-backed account on a line
           that is not a jar. Unallocated is the default; closing the prompt saves nothing. */}

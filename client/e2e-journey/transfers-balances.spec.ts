@@ -233,15 +233,17 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await expect(groceries).toContainText('400.00 left')
   await expect(page.getByLabel(/^Remaining to budget:/)).toHaveText(remainingBefore)
 
-  // --- TRF-030: delete the transfer — immediate, NO confirmation dialog — and
+  // --- TRF-030: delete the transfer — after the "Delete this transaction?" confirm — and
   // both legs revert.
   await page.getByRole('link', { name: 'Transactions' }).click()
   const deleted = page.waitForResponse(
     (r) => r.request().method() === 'DELETE' && new URL(r.url()).pathname.startsWith('/api/transactions/') && r.ok(),
   )
   await txAction(page, txRows(page).filter({ hasText: 'Stash move' }), 'Delete transaction: Stash move')
+  const confirm = page.getByRole('dialog', { name: 'Delete this transaction?' })
+  await confirm.getByRole('button', { name: 'Delete', exact: true }).click()
   await deleted
-  await expect(page.getByRole('dialog')).toHaveCount(0) // no confirm modal ever appeared
+  await expect(page.getByRole('dialog')).toHaveCount(0)
   await expect(page.getByText('No transactions yet')).toBeVisible()
 
   // Balances are back to their openings, and both account registers are empty.

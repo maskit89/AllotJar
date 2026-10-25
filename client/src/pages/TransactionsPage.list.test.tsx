@@ -10,7 +10,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
-import { txAction, txItems } from '../test/rowMenu'
+import { txAction, txDelete, txItems } from '../test/rowMenu'
 import { TransactionsPage } from './TransactionsPage'
 import { setMoneyFormat } from '../lib/money'
 import { todayIso } from '../lib/dates'
@@ -247,7 +247,7 @@ describe('TransactionsPage list — focus stays in place', () => {
     renderPage()
     await screen.findByText('Alpha', {}, { timeout: 5000 })
 
-    await txAction(user, 'Alpha', 'Delete transaction: Alpha')
+    await txDelete(user, 'Alpha')
     await waitFor(() => expect(screen.queryByText('Alpha')).not.toBeInTheDocument())
     await waitFor(() => expect(more('Beta')).toHaveFocus())
   })
@@ -263,7 +263,7 @@ describe('TransactionsPage list — focus stays in place', () => {
     renderPage()
     await screen.findByText('Alpha', {}, { timeout: 5000 })
 
-    await txAction(user, 'Alpha', 'Delete transaction: Alpha')
+    await txDelete(user, 'Alpha')
     await waitFor(() => expect(screen.queryByText('Alpha')).not.toBeInTheDocument())
     await waitFor(() => expect(more('Beta')).toHaveFocus())
   })

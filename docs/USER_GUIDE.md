@@ -230,7 +230,7 @@ Your budget counts one currency. When you paid in another one (a meal abroad, an
 
 ### Editing, deleting, finding
 
-- The edit control changes date, payee, amount and type in place (type is locked on a refund and on a purchase that has refunds — see *Refunds*); the delete control removes the transaction.
+- The edit control changes date, payee, amount and type in place (type is locked on a refund and on a purchase that has refunds — see *Refunds*); **Delete** asks first, then removes the transaction (a transfer takes its fee with it).
 - The search box filters by payee as you type; **Unassigned only** shows just the transactions still needing a home — a quick way to do your weekly tidy-up.
 
 ## 5. Accounts

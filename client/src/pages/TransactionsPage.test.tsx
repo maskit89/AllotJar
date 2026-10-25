@@ -7,7 +7,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
-import { txAction, txNote } from '../test/rowMenu'
+import { txAction, txDelete, txNote } from '../test/rowMenu'
 import { TransactionsPage } from './TransactionsPage'
 import { setMoneyFormat } from '../lib/money'
 import { budgetCategory, budgetItem, budgetMonth } from '../test/fixtures/budget'
@@ -260,7 +260,7 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
+    await txDelete(user, 'Tesco')
 
     await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
     expect(screen.getByRole('status')).toHaveTextContent(warning)
@@ -291,10 +291,38 @@ describe('TransactionsPage manual sheet', () => {
 
     renderPage()
 
-    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
+    await txDelete(user, 'Tesco')
 
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t1'))
     await waitFor(() => expect(screen.queryByText('Tesco')).not.toBeInTheDocument())
+  })
+
+  // #337 review P3-3: Delete in the ⋯ asks first, so a mis-tap on the phone sheet deletes nothing.
+  it('asks before deleting, and Cancel keeps the row and returns focus to its ⋯', { timeout: 15000 }, async () => {
+    mockLoad([tx()])
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
+    const dialog = await screen.findByRole('dialog', { name: 'Delete this transaction?' })
+    expect(dialog).toHaveTextContent(/Tesco/)
+    // The line is the dialog's description, so a screen reader reads which row with the title.
+    expect(dialog).toHaveAccessibleDescription(/Tesco/)
+    expect(mockDelete).not.toHaveBeenCalled()
+
+    await user.click(within(dialog).getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockDelete).not.toHaveBeenCalled()
+    expect(screen.getByText('Tesco')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Tesco: more actions' })).toHaveFocus())
+
+    // Escape closes it the same way.
+    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
+    await screen.findByRole('dialog', { name: 'Delete this transaction?' })
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(mockDelete).not.toHaveBeenCalled()
   })
 
   // W13 (P56): money from someone else's private account shows on the budget line it was put on,
