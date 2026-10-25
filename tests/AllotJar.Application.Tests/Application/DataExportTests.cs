@@ -161,6 +161,12 @@ public class DataExportTests
         return (joint, mine, line);
     }
 
+    /// <summary>
+    /// Sam's opening balance (5000) as a number on its own: a bare "5000" would also match inside a
+    /// random id or a timestamp, so a digit, letter, hyphen or point on either side rules it out.
+    /// </summary>
+    private const string SamsOpeningBalance = @"(?<![\w.\-])5000(\.0+)?(?![\w.])";
+
     [Fact]
     public async Task The_owners_download_leaves_out_another_logins_private_account_and_its_money()
     {
@@ -188,7 +194,7 @@ public class DataExportTests
                 .And.NotContain(SamsIban, name)
                 .And.NotContain(mine.ToString(), name)
                 .And.NotContain("Pharmacy", name)
-                .And.NotContain("5000", name);
+                .And.NotMatchRegex(SamsOpeningBalance, name);
         }
     }
 
