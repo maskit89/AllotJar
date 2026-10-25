@@ -16,7 +16,7 @@ vi.mock('../lib/api', async (importOriginal) => (await import('../test/apiMock')
 
 import { mockGet, mockPut, mockPost, mockDelete, resetApiMocks } from '../test/apiMock'
 import { renderWithProviders } from '../test/render'
-import { txAction, txItems, txNote, txRow } from '../test/rowMenu'
+import { txAction, txDelete, txItems, txNote, txRow } from '../test/rowMenu'
 import { TransactionsPage } from './TransactionsPage'
 import { formatDate, monthYear, shortDate } from '../lib/dates'
 
@@ -914,7 +914,7 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await txAction(user, 'Move', 'Delete transaction: Move')
+    await txDelete(user, 'Move')
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t1'))
     await waitFor(() => expect(screen.queryByText('Move')).not.toBeInTheDocument())
   })
@@ -940,6 +940,10 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     // The fee row says what it is behind its (i) (the row has no chip for it).
     expect(await rowHint(user, 'Fee: Move')).toContain('A transfer’s fee: edit the transfer to change it.')
     await txAction(user, 'Move', 'Delete transaction: Move')
+    // The dialog says the fee goes with it.
+    const dialog = await screen.findByRole('dialog', { name: 'Delete this transaction?' })
+    expect(dialog).toHaveTextContent(/Move · .* · its fee too/)
+    await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
     await waitFor(() => expect(mockDelete).toHaveBeenCalledWith('/transactions/t-tr'))
     await waitFor(() => expect(screen.queryByText('Move')).not.toBeInTheDocument())
     expect(screen.queryByRole('button', { name: 'About Fee: Move' })).not.toBeInTheDocument()
@@ -955,7 +959,7 @@ describe('TransactionsPage catalog — inline edit & delete', () => {
     const user = userEvent.setup()
     renderPage()
 
-    await txAction(user, 'Tesco', 'Delete transaction: Tesco')
+    await txDelete(user, 'Tesco')
     expect(await screen.findByText('Could not delete that transaction.', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.getByText('Tesco')).toBeInTheDocument()
   })
