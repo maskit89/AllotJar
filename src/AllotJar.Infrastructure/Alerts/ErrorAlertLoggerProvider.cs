@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using AllotJar.Infrastructure.Logging;
 
 namespace AllotJar.Infrastructure.Alerts;
 
@@ -50,7 +51,9 @@ public sealed class ErrorAlertLoggerProvider : ILoggerProvider
             // A visitor who closed the tab mid-request surfaces as an OperationCanceledException
             // through the catch-all middleware. That is not an error of the app's; HttpClient's
             // timeouts (a TaskCanceledException wrapping a TimeoutException) still are.
-            if (exception is OperationCanceledException && exception.InnerException is not TimeoutException) return;
+            // MaskedException.TypeOf sees through the email-masking stand-in.
+            if (typeof(OperationCanceledException).IsAssignableFrom(MaskedException.TypeOf(exception))
+                && !typeof(TimeoutException).IsAssignableFrom(MaskedException.TypeOf(exception!.InnerException))) return;
             try
             {
                 _queue.TryEnqueue(ErrorEventFactory.Create(
@@ -91,7 +94,8 @@ public static class ErrorEventFactory
         string? origin = null;
         if (exception is not null)
         {
-            exceptionType = exception.GetType().FullName;
+            // A masked stand-in (EmailMaskingLogger) reports the type that was actually thrown.
+            exceptionType = MaskedException.TypeOf(exception)!.FullName;
             var text = exception.ToString();
             detail = text.Length <= MaxExceptionChars ? text : text[..MaxExceptionChars] + "\n… (cut)";
             origin = Origin(exception);

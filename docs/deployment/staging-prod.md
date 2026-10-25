@@ -181,8 +181,9 @@ provider cannot alert about itself for ever.
    ```json
    "ErrorAlerts": { "Recipient": "you@example.com", "TestOnStartup": true }
    ```
-2. Recycle the API app pool. The Event Log gets `Error alerts: emailing you@example.com about
-   Error-level log entries (Production; …)` at Warning, or `Error alerts are configured for … but
+2. Recycle the API app pool. The Event Log gets `Error alerts: emailing y***@example.com about
+   Error-level log entries (Production; …)` at Warning (log lines mask email addresses, so the
+   recipient shows only its first letter and domain), or `Error alerts are configured for … but
    outbound email is not, so they are only logged` when `Email` is incomplete, or `Error alerts are
    OFF` when no recipient is set. `TestOnStartup` logs one Error, so within about `BatchSeconds` a
    test email arrives: `[AllotJar Production] Error: Error alerts test: …`.
