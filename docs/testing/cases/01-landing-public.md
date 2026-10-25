@@ -240,7 +240,7 @@
 - **Expected:**
   - `<title>AllotJar — Zero-Based Budgeting App</title>` (em dash).
   - Meta description starting "AllotJar is a zero-based budgeting app crafted in Europe…".
-  - `<link rel="canonical" href="https://www.allotjar.com/">`; `<meta name="robots" content="index, follow, max-image-preview:large">`; `<meta name="theme-color" content="#1F6B4D">`; favicon links to `/brand/allotjar-favicon.svg` + PNG sizes.
+  - `<link rel="canonical" href="https://www.allotjar.com/">`; `<meta name="robots" content="index, follow, max-image-preview:large">`; `<meta name="theme-color" content="#1F6B4D">`; favicon links to `/brand/allotjar-favicon.svg?v=2` + PNG sizes.
   - JSON-LD parses as valid JSON: `@type: SoftwareApplication`, `applicationCategory: FinanceApplication`, `offers.price: "0"` / `priceCurrency: "EUR"`, `url: https://www.allotjar.com/`. Being a data block it is NOT blocked by the CSP (`script-src 'self'` doesn't apply to `type="application/ld+json"`), and no CSP violation appears in the console.
 - **Automated:** No
 
@@ -252,7 +252,7 @@
   1. Inspect the OG/Twitter meta tags in the served `/` HTML.
   2. `GET /og/allotjar-og.png` on the app host.
 - **Expected:**
-  - `og:type=website`, `og:site_name=AllotJar`, `og:title=AllotJar — Zero-Based Budgeting App`, `og:url=https://www.allotjar.com/`, `og:image=https://www.allotjar.com/og/allotjar-og.png` with `og:image:width=1200`/`height=630`, `og:image:alt`, `og:locale=en_GB`.
+  - `og:type=website`, `og:site_name=AllotJar`, `og:title=AllotJar — Zero-Based Budgeting App`, `og:url=https://www.allotjar.com/`, `og:image=https://www.allotjar.com/og/allotjar-og.png?v=2` with `og:image:width=1200`/`height=630`, `og:image:alt`, `og:locale=en_GB`.
   - `twitter:card=summary_large_image` + title/description/image/alt tags present.
   - The image asset exists on the app host and is a 1200×630 PNG. (The absolute `www` URL inside the tags resolves now that `www` serves the production app — see LAND-040.)
 - **Automated:** No
