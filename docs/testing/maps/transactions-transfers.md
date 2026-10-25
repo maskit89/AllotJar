@@ -57,7 +57,7 @@ Columns: Date · Payee · Category · Account · Amount · (actions). `min-w-[72
 - Row hover actions (visible on hover/focus, only when `canEnterData`):
   - **✎** "Edit transaction" — NOT rendered for transfers.
   - **⑂** "Split across budget lines" — NOT rendered for transfers (income and expense both splittable).
-  - **✕** "Delete transaction" — rendered for ALL rows including transfers (no confirmation dialog; deletes immediately).
+  - **Delete** in the row's ⋯ ("Delete transaction: …") — rendered for ALL rows including transfers; it opens a "Delete this transaction?" dialog (date · payee · amount, "its fee too" for a transfer with a fee) and deletes only on its Delete (#389).
 - Inline edit row (replaces the row, TransactionsPage.tsx:718-791): date, payee, amount, type select (Expense/Income only), account select ("No account", when accounts exist), member select ("No member", when `members.length >= 2`). Buttons **Save** / **Cancel**. Starting an edit closes any open split editor and vice versa.
 - Inline split editor (violet row under the transaction, TransactionsPage.tsx:952-1077):
   - Header: `Split “{payee || date}” ({total})` + remainder chip: **"Fully allocated"** (emerald) or **"{money} left"** (rose; can go negative).
@@ -222,7 +222,7 @@ Amount parsing (`parseMinor`, client/src/lib/money.ts:264-299): accepts "." or "
 8. **`unassignedOnly` (server) ≠ Unassigned (UI)**: server counts transfers and split parents as unassigned (BudgetItemId null); UI excludes both. The UI never sends the param; API-level tests must expect the wider set.
 9. **`GET /transactions?month=7` without `year` matches July of EVERY year** (independent filters).
 10. **Hero label vs data**: totals cover all-time transactions but the eyebrow names the viewed month (see §1). Also `today()` uses the UTC date.
-11. **Delete is immediate and un-confirmed** in the register (contrast: account delete got a confirmation modal in PR #168). Splits cascade away with the parent.
+11. **Delete asks first** in the register ("Delete this transaction?", #389; account delete got its confirmation modal in PR #168). Splits cascade away with the parent.
 12. **BankReference dedup backstop**: unique filtered index on (OwnerId, BankReference) — manual transactions (null ref) exempt; never change the ref composition (import subsystem, PR #154/#159). Manual create/update never sets BankReference.
 13. **FK topology** (TransactionConfiguration.cs): `TransferAccountId` is Restrict (delete-account handler must clear it first — pinned by `DeleteAccount_ClearsTransfersPointingAtIt_AndKeepsTheTransaction`); `AccountId`/`BudgetItemId`/`MemberId` SetNull. CI backend job runs EF InMemory (no FK enforcement) — enforced-FK writer changes need a case in `tests/AllotJar.IntegrationTests/` (real SQL).
 14. **Role matrix**: all transaction commands are Limited+; ReadOnly can only GET. The UI mirrors this via `canEnterData` (entry affordances) and `canWrite` (Import link). Household switcher: `ICurrentUser.OwnerId` is the ACTIVE household — same login writes to whichever household is selected; Forbidden (not NotFound) on cross-household ids.

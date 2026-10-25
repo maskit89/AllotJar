@@ -237,13 +237,14 @@ export const TxRow = memo(function TxRow({ t, phone, ctx, dayId, saving, assigni
     })
   }
   if (rowEditable && !isFeeRow) {
-    // Straight away, as before: no confirmation (deleting a transfer also drops its fee row).
+    // Asks first in a dialog (deleting a transfer also drops its fee row).
     actions.push({
       key: 'delete',
       label: 'Delete',
       ariaLabel: `Delete transaction: ${name}`,
       icon: <Trash2 aria-hidden />,
       danger: true,
+      after: 'dialog',
       separatorBefore: actions.length > 0,
       disabled: saving,
       onSelect: () => dispatch({ type: 'delete', t }),
