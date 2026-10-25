@@ -659,24 +659,26 @@
 
 ## Delete
 
-### TX-068 - Delete a transaction immediately (no confirmation)
+### TX-068 - Delete a transaction after confirming
 - **Priority:** P0
 - **Type:** Happy
 - **Preconditions:** An expense "Tesco 40.00" assigned to Groceries on Joint.
 - **Steps:**
-  1. Hover the row and click **✕** (aria `Delete transaction: Tesco`, title "Delete transaction").
-- **Expected:** `DELETE /transactions/{id}` fires **with no confirmation dialog**; on 204 the row is removed, `transaction_deleted` fires, Groceries' actual drops 40.00 and Joint's derived balance rises 40.00. Hero totals recompute.
+  1. Open the row's ⋯ and choose **Delete** (aria `Delete transaction: Tesco`).
+  2. In the "Delete this transaction?" dialog (date · payee · amount), click **Delete**.
+- **Expected:** Nothing is sent until step 2. Then `DELETE /transactions/{id}` fires; on 204 the row is removed, `transaction_deleted` fires, Groceries' actual drops 40.00 and Joint's derived balance rises 40.00. Hero totals recompute. A transfer with a fee adds "· its fee too" to the dialog's line.
 - **Automated:** Yes (TransactionsPage.test.tsx "delete"; ManualTransactionTests delete + ownership)
 
-### TX-069 - Delete is un-confirmed here (contrast with account delete)
-- **Priority:** P2
+### TX-069 - Cancelling the delete keeps the transaction
+- **Priority:** P1
 - **Type:** Edge
-- **Origin:** transactions map §7.11 / delete is immediate and un-confirmed (accounts got a confirm modal in PR #168)
+- **Origin:** #337 review P3-3: on phones Delete sits as a full-width row right under the other actions, so a mis-tap used to delete at once (hard delete).
 - **Preconditions:** Any transaction.
 - **Steps:**
-  1. Click the ✕ delete action.
-- **Expected:** Deletion happens on the single click — there is deliberately **no** "Delete transaction?" modal (unlike account deletion). An accidental click is unrecoverable (hard delete).
-- **Automated:** No
+  1. Choose **Delete** from the row's ⋯.
+  2. Click **Cancel** (or press Escape, tap the scrim, or swipe the phone sheet's handle).
+- **Expected:** No `DELETE` request; the row stays; focus returns to the row's ⋯.
+- **Automated:** Yes (TransactionsPage.test.tsx "asks before deleting")
 
 ### TX-070 - Deleting a split transaction cascades its slices
 - **Priority:** P1

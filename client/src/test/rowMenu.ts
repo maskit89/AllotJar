@@ -1,4 +1,4 @@
-import { screen } from '@testing-library/react'
+import { screen, within } from '@testing-library/react'
 import type { UserEvent } from '@testing-library/user-event'
 
 /**
@@ -133,3 +133,10 @@ export const signInAction = (user: UserEvent, email: string, item: string) =>
 /** Opens a sign-in's ⋯ menu (on "Other sign-ins") and returns its items' accessible names, in order. */
 export const signInItems = async (user: UserEvent, email: string): Promise<string[]> =>
   (await accountItems(user, `Sign-in ${email}`)).map((i) => i.name)
+
+/** Deletes a row from its ⋯ menu: picks Delete, then confirms in the "Delete this transaction?" dialog. */
+export async function txDelete(user: UserEvent, row: string) {
+  await txAction(user, row, `Delete transaction: ${row}`)
+  const dialog = await screen.findByRole('dialog', { name: 'Delete this transaction?' }, { timeout: 5000 })
+  await user.click(within(dialog).getByRole('button', { name: 'Delete' }))
+}
