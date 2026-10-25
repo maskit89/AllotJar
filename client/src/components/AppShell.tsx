@@ -56,8 +56,6 @@ export function AppShell({
    * the top bar is as on every other page.
    */
   back?: { to: string; label: string }
-  // Kept for call-site compatibility; the frame uses one column (`--content-max`, index.css).
-  maxWidth?: '4xl' | '5xl'
   children: ReactNode
 }) {
   const { canWrite, canEnterData, isReadOnly } = useAuth()
