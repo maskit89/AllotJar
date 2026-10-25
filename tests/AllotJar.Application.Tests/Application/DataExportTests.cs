@@ -161,6 +161,14 @@ public class DataExportTests
         return (joint, mine, line);
     }
 
+    /// <summary>
+    /// Sam's opening balance (5000) as a number: with a sign, a currency code or a decimal part, in
+    /// the JSON or a CSV. A bare "5000" would also match inside a random id or a timestamp, so a hex
+    /// digit or point right before it, a letter or digit and a hyphen before it (a segment of an id),
+    /// or a letter, digit or point after it rules a match out.
+    /// </summary>
+    private const string SamsOpeningBalance = @"(?<![0-9A-Fa-f.])(?<![0-9A-Za-z]-)5000(\.0+)?(?![\w.])";
+
     [Fact]
     public async Task The_owners_download_leaves_out_another_logins_private_account_and_its_money()
     {
@@ -188,7 +196,7 @@ public class DataExportTests
                 .And.NotContain(SamsIban, name)
                 .And.NotContain(mine.ToString(), name)
                 .And.NotContain("Pharmacy", name)
-                .And.NotContain("5000", name);
+                .And.NotMatchRegex(SamsOpeningBalance, name);
         }
     }
 
@@ -206,7 +214,8 @@ public class DataExportTests
         pharmacy.StatementMatch.Should().Be("2026-06-10|40|D");
 
         var files = Unzip(DataExportArchive.Build(export));
-        files["accounts.csv"].Should().Contain(SamsIban);
+        files["accounts.csv"].Should().Contain(SamsIban).And.MatchRegex(SamsOpeningBalance, "the pattern must find the balance where it is written");
+        files["allotjar-data.json"].Should().MatchRegex(SamsOpeningBalance);
         files["transactions.csv"].Should().Contain("2026-06-10|40|D");
     }
 
