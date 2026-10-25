@@ -183,7 +183,7 @@ export function AccountDetailPage() {
   )
 
   // Years of rows are drawn a batch at a time as the list scrolls (see useProgressiveList).
-  const { shown, more, sentinelRef } = useProgressiveList(rows.length)
+  const { shown, more, sentinelRef } = useProgressiveList(rows.length, { resetKey: id })
   // One group a month (the month a row shows in).
   const months = useMemo(() => {
     const groups: Array<{ key: string; rows: RegisterRow[] }> = []

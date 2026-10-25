@@ -20,8 +20,8 @@ class FakeObserver {
   }
 }
 
-function List({ total, atLeast = 0 }: { total: number; atLeast?: number }) {
-  const { shown, more, sentinelRef } = useProgressiveList(total, atLeast, 10, 20)
+function List({ total, atLeast = 0, resetKey }: { total: number; atLeast?: number; resetKey?: string }) {
+  const { shown, more, sentinelRef } = useProgressiveList(total, { atLeast, resetKey, first: 10, step: 20 })
   return (
     <div>
       <p>{shown} drawn</p>
@@ -58,9 +58,33 @@ describe('useProgressiveList', () => {
     expect(screen.queryByTestId('sentinel')).not.toBeInTheDocument()
   })
 
-  it('always draws the rows asked for, beyond the batch', () => {
+  it('always draws the rows asked for, beyond the batch, and keeps them drawn after', () => {
     vi.stubGlobal('IntersectionObserver', FakeObserver)
-    render(<List total={100} atLeast={37} />)
-    expect(screen.getByText('37 drawn')).toBeInTheDocument()
+    const { rerender } = render(<List total={2000} atLeast={1500} />)
+    expect(screen.getByText('1500 drawn')).toBeInTheDocument()
+    rerender(<List total={2000} atLeast={0} />)
+    expect(screen.getByText('1500 drawn')).toBeInTheDocument()
+  })
+
+  it('starts again from the first batch for another list', () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    const { rerender } = render(<List total={100} resetKey="a" />)
+    act(() => {
+      inView = true
+      observers.forEach((o) => o.fire())
+    })
+    expect(screen.getByText('100 drawn')).toBeInTheDocument()
+    inView = false
+    rerender(<List total={100} resetKey="b" />)
+    expect(screen.getByText('10 drawn')).toBeInTheDocument()
+  })
+
+  it('draws every row for printing', () => {
+    vi.stubGlobal('IntersectionObserver', FakeObserver)
+    render(<List total={100} />)
+    act(() => {
+      window.dispatchEvent(new Event('beforeprint'))
+    })
+    expect(screen.getByText('100 drawn')).toBeInTheDocument()
   })
 })

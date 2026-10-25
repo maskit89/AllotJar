@@ -1395,7 +1395,7 @@ export function TransactionsPage() {
     const ids = [savingId, assigningId, sheetFor, legId, editingId, refundingId, splittingId, pendingFocus?.id]
     return ids.reduce((last, id) => (id ? Math.max(last, visible.findIndex((t) => t.id === id) + 1) : last), 0)
   }, [visible, savingId, assigningId, sheetFor, legId, editingId, refundingId, splittingId, pendingFocus])
-  const { shown, more, sentinelRef } = useProgressiveList(visible.length, keepDrawn)
+  const { shown, more, sentinelRef } = useProgressiveList(visible.length, { atLeast: keepDrawn })
   // Grouped by day under small headers, newest first.
   const days = useMemo(() => {
     const groups: { date: string; rows: TransactionDto[] }[] = []
