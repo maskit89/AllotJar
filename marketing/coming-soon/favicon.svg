@@ -1,6 +1,22 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 84" width="64" height="84" fill="none" role="img" aria-label="AllotJar">
-  <path d="M17 19L17 25C17 30 9 31 9 39L9 66A13 13 0 0 0 22 79L42 79A13 13 0 0 0 55 66L55 39C55 31 47 30 47 25L47 19Z" fill="#1C6B49"></path>
-  <path d="M9 48Q32 45 55 48L55 66A13 13 0 0 1 42 79L22 79A13 13 0 0 1 9 66Z" fill="#D7A93E"></path>
-  <rect x="13" y="14.5" width="38" height="5" rx="2.5" fill="#C8982E"></rect>
-  <rect x="15" y="3.5" width="34" height="12.5" rx="3.5" fill="#D7A93E"></rect>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" fill="none" role="img" aria-label="AllotJar">
+  <!-- The app icon's glass jar (brand/allotjar-app-icon.svg) drawn bigger on a tighter tile, with
+       bolder lines and no lid ridges, so it still reads at 16 px in a browser tab. -->
+  <defs>
+    <linearGradient id="t" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#247e58"/><stop offset=".55" stop-color="#1a6347"/><stop offset="1" stop-color="#114a32"/></linearGradient>
+    <linearGradient id="gd" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f6df97"/><stop offset=".45" stop-color="#e2b955"/><stop offset="1" stop-color="#b9862a"/></linearGradient>
+    <linearGradient id="lq" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#f1d27e"/><stop offset="1" stop-color="#c9952f"/></linearGradient>
+    <clipPath id="cl"><path d="M8 36 Q8 25 19 24 H45 Q56 25 56 36 V70 Q56 80 46 80 H18 Q8 80 8 70 Z"/></clipPath>
+  </defs>
+  <rect x="0" y="0" width="64" height="64" rx="14" fill="url(#t)"/>
+  <g transform="translate(9.6,3.4) scale(0.7)">
+    <path d="M8 36 Q8 25 19 24 H45 Q56 25 56 36 V70 Q56 80 46 80 H18 Q8 80 8 70 Z" fill="#ffffff" fill-opacity=".18"/>
+    <g clip-path="url(#cl)">
+      <path d="M4 46 q7.5 -2.6 15 0 t15 0 t15 0 t15 0 V84 H4 Z" fill="url(#lq)"/>
+    </g>
+    <path d="M8 36 Q8 25 19 24 H45 Q56 25 56 36 V70 Q56 80 46 80 H18 Q8 80 8 70 Z" fill="none" stroke="#e6f1ea" stroke-opacity=".9" stroke-width="3.4"/>
+    <path d="M15.5 40 Q15.5 32 21 30" fill="none" stroke="#fff" stroke-opacity=".9" stroke-width="3.6" stroke-linecap="round"/>
+    <rect x="16" y="17" width="32" height="8" rx="2.5" fill="#ffffff" fill-opacity=".22" stroke="#e6f1ea" stroke-opacity=".75" stroke-width="2.4"/>
+    <rect x="11" y="3" width="42" height="15" rx="4.5" fill="url(#gd)"/>
+    <rect x="11" y="3" width="42" height="15" rx="4.5" fill="none" stroke="#a87a22" stroke-opacity=".8" stroke-width="1.6"/>
+  </g>
 </svg>
