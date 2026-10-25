@@ -16,8 +16,8 @@ All vector files live in `brand/`. Pre-rendered raster files live in `brand/png/
 | `allotjar-mark-flat.svg` | **Flat mark** — green jar, gold fill, gold lid. No coins/shadow. | Default UI mark wherever the realistic one is too busy or too small (24–96 px): nav, headers, cards. |
 | `allotjar-mark-mono.svg` | **Monochrome** silhouette. Uses `currentColor` (defaults to ink). | One-colour contexts: print, embossing, watermarks, disabled/ghost states. Recolour by setting CSS `color`. |
 | `allotjar-mark-reversed.svg` | **Reversed** — cream jar + gold, for dark/coloured backgrounds. | Any time the mark sits on a dark or saturated surface. |
-| `allotjar-app-icon.svg` | **App icon** — the app's glass jar (gold screw lid, wavy gold fill, as on the Dashboard's jar shelf) on the hero card's green, as a squircle (160×160). Raster sizes are made by `client/scripts/make-pwa-icons.mjs`. | iOS/Android/desktop app icon, store listings, OG avatar. |
-| `allotjar-favicon.svg` | **Favicon** — simplified flat mark, no padding. | Browser tab icon (`<link rel="icon">`). |
+| `allotjar-app-icon.svg` | **App icon** — the app's glass jar (gold screw lid, wavy gold fill, as on the Dashboard's jar shelf) on the hero card's green, as a squircle (160×160). Raster sizes are made by `client/scripts/make-pwa-icons.mjs`. | iOS/Android/desktop app icon, store listings, the share image's jar (`client/scripts/make-og-image.mjs`). |
+| `allotjar-favicon.svg` | **Favicon** — the app icon's glass jar, bigger on a tighter tile with bolder lines and no lid ridges, so it reads at 16 px. PNGs are made by `client/scripts/make-pwa-icons.mjs`. | Browser tab icon (`<link rel="icon">`), the share image's brand row. |
 | `allotjar-lockup.svg` | **Horizontal lockup** — flat mark + "AllotJar" wordmark ("Jar" in green). | Light backgrounds: site header, email signature, docs, footers. |
 | `allotjar-lockup-reversed.svg` | Lockup for **dark** backgrounds. | Dark site header, dark email, video end-cards. |
 | `brand/png/*` | Raster renders of the above at common sizes (app icon 1024/512/192/180, favicon 32/16, mark 512, flat 256). | Anywhere SVG isn't accepted: app stores, social, OG images, Slack, etc. |
@@ -102,8 +102,8 @@ Variable mapping: `--accent` = jar body, `--gold` = lid + fill. Provide both (li
 
 **Favicon**
 ```html
-<link rel="icon" type="image/svg+xml" href="/brand/allotjar-favicon.svg">
-<link rel="icon" type="image/png" sizes="32x32" href="/brand/png/allotjar-favicon-32.png">
+<link rel="icon" type="image/svg+xml" href="/brand/allotjar-favicon.svg?v=2">
+<link rel="icon" type="image/png" sizes="32x32" href="/brand/png/allotjar-favicon-32.png?v=2">
 ```
 
 **Apple touch icon**
