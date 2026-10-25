@@ -2,12 +2,13 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/brand/allotjar-favicon.svg" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/brand/png/allotjar-favicon-32.png" />
-    <link rel="icon" type="image/png" sizes="16x16" href="/brand/png/allotjar-favicon-16.png" />
+    <!-- Bump ?v= on an icon or the share image whenever its art changes: the files keep
+         their names, and browsers, Cloudflare and share previews cache them by URL. -->
+    <link rel="icon" type="image/svg+xml" href="/brand/allotjar-favicon.svg?v=2" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/brand/png/allotjar-favicon-32.png?v=2" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/brand/png/allotjar-favicon-16.png?v=2" />
     <!-- The square (full-bleed) app icon: the iPhone home screen cuts its own rounded shape.
-         Bump ?v= (here and in manifest.webmanifest) whenever the icon art changes: the PNGs
-         keep their names and browsers and Cloudflare cache them. -->
+         Its ?v= is also in manifest.webmanifest. -->
     <link rel="apple-touch-icon" sizes="180x180" href="/brand/png/allotjar-app-icon-maskable-180.png?v=2" />
     <!-- Installable app (PWA): name, icons and start page. The service worker is registered
          from src/lib/serviceWorker.ts; it only shows /offline.html when a page can't load. -->
@@ -32,7 +33,7 @@
       content="Give every euro a job. AllotJar is a zero-based budgeting app for households: plan the month to zero, jars for the big bills, one shared budget — in your currency."
     />
     <meta property="og:url" content="https://www.allotjar.com/" />
-    <meta property="og:image" content="https://www.allotjar.com/og/allotjar-og.png" />
+    <meta property="og:image" content="https://www.allotjar.com/og/allotjar-og.png?v=2" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
     <meta property="og:image:alt" content="AllotJar — give every euro a job" />
@@ -45,7 +46,7 @@
       name="twitter:description"
       content="Give every euro a job. Zero-based budgeting for households, in your currency."
     />
-    <meta name="twitter:image" content="https://www.allotjar.com/og/allotjar-og.png" />
+    <meta name="twitter:image" content="https://www.allotjar.com/og/allotjar-og.png?v=2" />
     <meta name="twitter:image:alt" content="AllotJar — give every euro a job" />
 
     <!-- Structured data: a SoftwareApplication so search engines can show a rich
@@ -61,7 +62,7 @@
         "operatingSystem": "Web",
         "url": "https://www.allotjar.com/",
         "description": "Give every euro a job. AllotJar is a zero-based budgeting app for households: plan the month to zero, set a little aside in jars for the big bills, and budget together from one shared budget — in your currency, the way you write it.",
-        "image": "https://www.allotjar.com/og/allotjar-og.png",
+        "image": "https://www.allotjar.com/og/allotjar-og.png?v=2",
         "inLanguage": "en",
         "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
         "publisher": { "@type": "Organization", "name": "AllotJar", "url": "https://www.allotjar.com/" }

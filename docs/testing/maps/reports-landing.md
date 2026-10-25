@@ -37,7 +37,7 @@ applies only to solo-vs-shared gating, not the feature flag.
 
 - `client/index.html` head: title `AllotJar - Zero-Based Budgeting App` (em dash in source), meta
   description, canonical `https://www.allotjar.com/`, `robots: index, follow, max-image-preview:large`,
-  full Open Graph (og:image `https://www.allotjar.com/og/allotjar-og.png`, 1200x630, locale en_GB) +
+  full Open Graph (og:image `https://www.allotjar.com/og/allotjar-og.png?v=2`, 1200x630, locale en_GB) +
   Twitter `summary_large_image` card, `SoftwareApplication` JSON-LD (price "0", EUR). `theme-init.js`
   loads externally (not inline) so CSP `script-src 'self'` covers it, and applies the dark class
   before paint from `localStorage['zbb.theme']` or `prefers-color-scheme`.
