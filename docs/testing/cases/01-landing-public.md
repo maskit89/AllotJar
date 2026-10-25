@@ -549,10 +549,10 @@
 - **Origin:** staging/beta split (PR #121/#124) — the app's OG URL was deliberately GA-facing and 404'd during beta (Worker-only `/og.png` was the share surface then); at GA cutover the app took over `www`, so its `og:image` URL MUST now resolve
 - **Preconditions:** Live post-cutover topology (`www` = the production app).
 - **Steps:**
-  1. `GET https://www.allotjar.com/og/allotjar-og.png`.
+  1. `GET https://www.allotjar.com/og/allotjar-og.png?v=2`.
   2. Paste `https://www.allotjar.com/` into a link-preview debugger (e.g. an OG scraper).
 - **Expected:**
-  - Step 1: 200, a 1200×630 PNG (the brand-mark share card from `client/public/og/`).
+  - Step 1: 200, a 1200×630 PNG under 300 KB (the glass-jar share card from `client/public/og/`, made by `client/scripts/make-og-image.mjs`).
   - Step 2: the preview uses the app's landing title and the `og/allotjar-og.png` image (the old Worker-era `/og.png` path is gone with the Worker — a 404 there is fine).
 - **Automated:** No
 

@@ -15,9 +15,10 @@
 // PW_CHROMIUM to a Chromium executable to use instead.
 
 import { chromium } from '@playwright/test'
-import { mkdir, readFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { crc32, deflateSync, inflateSync } from 'node:zlib'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const brandDir = path.resolve(here, '..', '..', 'brand')
@@ -97,8 +98,36 @@ try {
   const page = await browser.newPage({ viewport: { width: 1200, height: 630 }, deviceScaleFactor: 1 })
   await page.setContent(html, { waitUntil: 'networkidle' })
   await page.waitForTimeout(400) // let the web font paint (wordmark)
-  await page.screenshot({ path: outFile })
+  await writeFile(outFile, recompress(await page.screenshot()))
   console.log(`og image written: ${outFile}`)
 } finally {
   await browser.close()
+}
+
+// Chromium writes its screenshots with fast compression (~350 KB here); WhatsApp skips
+// share images much over 300 KB. Re-deflate the pixel data at level 9: the same pixels,
+// about 40% smaller (needs Node 20.15+ for zlib.crc32).
+function recompress(png) {
+  const parts = [png.subarray(0, 8)]
+  const idat = []
+  const chunk = (type, data) => {
+    const head = Buffer.alloc(8)
+    head.writeUInt32BE(data.length)
+    head.write(type, 4, 'latin1')
+    const crc = Buffer.alloc(4)
+    crc.writeUInt32BE(crc32(Buffer.concat([head.subarray(4), data])))
+    parts.push(head, data, crc)
+  }
+  for (let at = 8; at < png.length; ) {
+    const length = png.readUInt32BE(at)
+    const type = png.toString('latin1', at + 4, at + 8)
+    const data = png.subarray(at + 8, at + 8 + length)
+    if (type === 'IDAT') idat.push(data)
+    else {
+      if (type === 'IEND') chunk('IDAT', deflateSync(inflateSync(Buffer.concat(idat)), { level: 9, memLevel: 9 }))
+      chunk(type, data)
+    }
+    at += 12 + length
+  }
+  return Buffer.concat(parts)
 }
