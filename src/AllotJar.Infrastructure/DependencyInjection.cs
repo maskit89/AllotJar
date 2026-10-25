@@ -39,6 +39,9 @@ public static class DependencyInjection
         // Expose the context to the Application layer through its abstraction.
         services.AddScoped<IApplicationDbContext>(sp => sp.GetRequiredService<ApplicationDbContext>());
 
+        // Closed only while SQL Server keeps the startup migrations waiting (see the API's Program).
+        services.AddSingleton<DatabaseStartupGate>();
+
         // Statement import format adapters. The handler resolves them all and selects by
         // StatementFormat, so each new bank format is just another registration here.
         services.AddScoped<IStatementParser, Camt053StatementParser>();
