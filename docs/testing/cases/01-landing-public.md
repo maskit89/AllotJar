@@ -240,7 +240,7 @@
 - **Expected:**
   - `<title>AllotJar — Zero-Based Budgeting App</title>` (em dash).
   - Meta description starting "AllotJar is a zero-based budgeting app crafted in Europe…".
-  - `<link rel="canonical" href="https://www.allotjar.com/">`; `<meta name="robots" content="index, follow, max-image-preview:large">`; `<meta name="theme-color" content="#1F6B4D">`; favicon links to `/brand/allotjar-favicon.svg` + PNG sizes.
+  - `<link rel="canonical" href="https://www.allotjar.com/">`; `<meta name="robots" content="index, follow, max-image-preview:large">`; `<meta name="theme-color" content="#1F6B4D">`; favicon links to `/brand/allotjar-favicon.svg?v=2` + PNG sizes.
   - JSON-LD parses as valid JSON: `@type: SoftwareApplication`, `applicationCategory: FinanceApplication`, `offers.price: "0"` / `priceCurrency: "EUR"`, `url: https://www.allotjar.com/`. Being a data block it is NOT blocked by the CSP (`script-src 'self'` doesn't apply to `type="application/ld+json"`), and no CSP violation appears in the console.
 - **Automated:** No
 
@@ -252,7 +252,7 @@
   1. Inspect the OG/Twitter meta tags in the served `/` HTML.
   2. `GET /og/allotjar-og.png` on the app host.
 - **Expected:**
-  - `og:type=website`, `og:site_name=AllotJar`, `og:title=AllotJar — Zero-Based Budgeting App`, `og:url=https://www.allotjar.com/`, `og:image=https://www.allotjar.com/og/allotjar-og.png` with `og:image:width=1200`/`height=630`, `og:image:alt`, `og:locale=en_GB`.
+  - `og:type=website`, `og:site_name=AllotJar`, `og:title=AllotJar — Zero-Based Budgeting App`, `og:url=https://www.allotjar.com/`, `og:image=https://www.allotjar.com/og/allotjar-og.png?v=2` with `og:image:width=1200`/`height=630`, `og:image:alt`, `og:locale=en_GB`.
   - `twitter:card=summary_large_image` + title/description/image/alt tags present.
   - The image asset exists on the app host and is a 1200×630 PNG. (The absolute `www` URL inside the tags resolves now that `www` serves the production app — see LAND-040.)
 - **Automated:** No
@@ -549,10 +549,10 @@
 - **Origin:** staging/beta split (PR #121/#124) — the app's OG URL was deliberately GA-facing and 404'd during beta (Worker-only `/og.png` was the share surface then); at GA cutover the app took over `www`, so its `og:image` URL MUST now resolve
 - **Preconditions:** Live post-cutover topology (`www` = the production app).
 - **Steps:**
-  1. `GET https://www.allotjar.com/og/allotjar-og.png`.
+  1. `GET https://www.allotjar.com/og/allotjar-og.png?v=2`.
   2. Paste `https://www.allotjar.com/` into a link-preview debugger (e.g. an OG scraper).
 - **Expected:**
-  - Step 1: 200, a 1200×630 PNG (the brand-mark share card from `client/public/og/`).
+  - Step 1: 200, a 1200×630 PNG under 300 KB (the glass-jar share card from `client/public/og/`, made by `client/scripts/make-og-image.mjs`).
   - Step 2: the preview uses the app's landing title and the `og/allotjar-og.png` image (the old Worker-era `/og.png` path is gone with the Worker — a 404 there is fine).
 - **Automated:** No
 

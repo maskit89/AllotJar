@@ -74,11 +74,14 @@ for (const { width, column, cols } of [
 }
 
 // Every page uses the same column (Christopher, 19 Oct: nothing moves between pages), so a page
-// that keeps to a narrower width of its own fails here.
+// that keeps to a narrower width of its own fails here, and so does a card capped narrower inside
+// a page: every block the page puts in the column, the first card included, spans it.
+const WIDE_ROUTES = [...AUTHED_ROUTES, '/accounts/acc1']
+
 test.describe('every page on a 3840px-wide screen', () => {
   test.use({ viewport: { width: 3840, height: 1000 } })
-  for (const path of AUTHED_ROUTES) {
-    test(`${path} uses the full 3432px column, the top bar with it`, async ({ page }) => {
+  for (const path of WIDE_ROUTES) {
+    test(`${path} uses the full 3432px column, the top bar and every card with it`, async ({ page }) => {
       await open(page, path)
       const inner = await page.evaluate(() => {
         const width = (el: Element) => {
@@ -86,17 +89,37 @@ test.describe('every page on a 3840px-wide screen', () => {
           return el.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)
         }
         const main = document.getElementById('main-content')!
-        return { body: width(main.querySelector(':scope > div')!), bar: width(main.querySelector('header > div')!) }
+        const column = main.querySelector(':scope > div')!
+        const label = (el: Element) => `${el.tagName.toLowerCase()}.${el.className}`.slice(0, 80)
+        // A block that takes up no room (an empty banner's wrapper) is not a card.
+        const shown = (el: Element) => el.getBoundingClientRect().width > 0 && el.getBoundingClientRect().height > 0
+        const blocks = [...column.children].filter(shown).map((el) => ({ name: label(el), width: el.getBoundingClientRect().width, min: width(column) }))
+        // The cards inside the page's wrappers: a grid's child is at least as wide as the narrowest
+        // track it can sit in, so one capped narrower than that (a KPI tile, a detail card) is found.
+        for (const grid of column.querySelectorAll('*')) {
+          if (getComputedStyle(grid).display !== 'grid') continue
+          const tracks = getComputedStyle(grid).gridTemplateColumns.split(' ').map(parseFloat).filter((n) => n > 0)
+          // Only grids of cards: a row laid out in a few fixed-width tracks is not one.
+          if (tracks.length === 0 || Math.min(...tracks) < 150) continue
+          for (const card of grid.children) {
+            if (shown(card) && getComputedStyle(card).position !== 'absolute') blocks.push({ name: `${label(card)} in ${label(grid)}`, width: card.getBoundingClientRect().width, min: Math.min(...tracks) })
+          }
+        }
+        return { body: width(column), bar: width(main.querySelector('header > div')!), blocks }
       })
       expect(Math.abs(inner.body - (3432 - 80))).toBeLessThanOrEqual(1)
       expect(Math.abs(inner.bar - (3432 - 80))).toBeLessThanOrEqual(1)
+      expect(inner.blocks.length).toBeGreaterThan(0)
+      for (const block of inner.blocks) {
+        expect(block.width, block.name).toBeGreaterThanOrEqual(block.min - 1)
+      }
     })
   }
 })
 
 test.describe('the widest screen', () => {
   test.use({ viewport: { width: 2560, height: 1440 } })
-  for (const path of AUTHED_ROUTES) {
+  for (const path of WIDE_ROUTES) {
     test(`${path} does not overflow horizontally`, async ({ page }) => {
       await open(page, path)
       const { scrollW, clientW } = await page.evaluate(() => ({
