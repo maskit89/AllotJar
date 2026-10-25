@@ -92,7 +92,7 @@ export function PrivacyPage() {
         <li>
           <strong>Technical data</strong>: our web server logs each request with its IP address and
           browser type, and when something breaks an error report is emailed to us. Email addresses
-          are masked in our logs and error reports, so they never hold yours in full.
+          are masked in the app’s logs and error reports.
         </li>
         <li>
           <strong>Analytics, only if you accept them</strong>: which pages are used, with a hashed

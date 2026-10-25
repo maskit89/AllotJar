@@ -18,14 +18,17 @@ public static class EmailMaskingLogs
     /// </summary>
     public static IServiceCollection MaskEmailAddressesInLogs(this IServiceCollection services)
     {
+        // Registered through a factory, so the wrapper can't be told apart by its descriptor; this
+        // marker keeps a second call from wrapping it again.
+        if (services.Any(d => d.ServiceType == typeof(EmailMaskingMarker))) return services;
+        services.AddSingleton<EmailMaskingMarker>();
+
         var original = services.LastOrDefault(d => d.ServiceType == typeof(ILoggerFactory));
         if (original is null)
         {
             services.AddLogging();
             original = services.Last(d => d.ServiceType == typeof(ILoggerFactory));
         }
-        if (original.ImplementationType == typeof(EmailMaskingLoggerFactory)) return services;
-
         services.Remove(original);
         services.AddSingleton<ILoggerFactory>(sp => new EmailMaskingLoggerFactory(CreateInner(sp, original)));
         return services;
@@ -46,6 +49,8 @@ public static class EmailMaskingLogs
         }
         return (ILoggerFactory)ActivatorUtilities.CreateInstance(sp, original.ImplementationType!);
     }
+
+    private sealed class EmailMaskingMarker;
 }
 
 /// <summary>An <see cref="ILoggerFactory"/> whose loggers mask email addresses before any provider sees them.</summary>
@@ -99,10 +104,23 @@ public sealed class EmailMaskingLogger : ILogger
     }
 
     private static bool ValueHasAddress(KeyValuePair<string, object?> pair) =>
-        pair.Key != "{OriginalFormat}" && pair.Value is { } value && EmailMask.HasAddress(value.ToString());
+        pair.Key != "{OriginalFormat}" && pair.Value switch
+        {
+            null => false,
+            string text => EmailMask.HasAddress(text),
+            // A collection's ToString() is its type name; a structured provider would write its items.
+            System.Collections.IEnumerable items => items.Cast<object?>().Any(item => EmailMask.HasAddress(item?.ToString())),
+            var value => EmailMask.HasAddress(value.ToString()),
+        };
 
     private static KeyValuePair<string, object?> MaskValue(KeyValuePair<string, object?> pair) =>
-        ValueHasAddress(pair) ? new(pair.Key, EmailMask.Mask(pair.Value!.ToString()!)) : pair;
+        !ValueHasAddress(pair) ? pair : pair.Value switch
+        {
+            string text => new(pair.Key, EmailMask.Mask(text)),
+            System.Collections.IEnumerable items => new(pair.Key,
+                items.Cast<object?>().Select(item => item is null ? null : EmailMask.Mask(item.ToString() ?? "")).ToArray()),
+            var value => new(pair.Key, EmailMask.Mask(value!.ToString()!)),
+        };
 
     /// <summary>The masked entry: its structured values, and the masked message as its text.</summary>
     private sealed class MaskedState : IReadOnlyList<KeyValuePair<string, object?>>
@@ -152,6 +170,10 @@ public sealed class MaskedException : Exception
 
     /// <summary>The logged exception's type.</summary>
     public Type OriginalType => _original.GetType();
+
+    /// <summary>The type that was thrown: a stand-in's original type, else the exception's own.</summary>
+    public static Type? TypeOf(Exception? exception) =>
+        exception is MaskedException masked ? masked.OriginalType : exception?.GetType();
 
     public override string? StackTrace => _original.StackTrace;
 

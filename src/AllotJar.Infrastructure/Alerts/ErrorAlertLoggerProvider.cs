@@ -51,7 +51,9 @@ public sealed class ErrorAlertLoggerProvider : ILoggerProvider
             // A visitor who closed the tab mid-request surfaces as an OperationCanceledException
             // through the catch-all middleware. That is not an error of the app's; HttpClient's
             // timeouts (a TaskCanceledException wrapping a TimeoutException) still are.
-            if (exception is OperationCanceledException && exception.InnerException is not TimeoutException) return;
+            // MaskedException.TypeOf sees through the email-masking stand-in.
+            if (typeof(OperationCanceledException).IsAssignableFrom(MaskedException.TypeOf(exception))
+                && !typeof(TimeoutException).IsAssignableFrom(MaskedException.TypeOf(exception!.InnerException))) return;
             try
             {
                 _queue.TryEnqueue(ErrorEventFactory.Create(
@@ -93,7 +95,7 @@ public static class ErrorEventFactory
         if (exception is not null)
         {
             // A masked stand-in (EmailMaskingLogger) reports the type that was actually thrown.
-            exceptionType = (exception is MaskedException masked ? masked.OriginalType : exception.GetType()).FullName;
+            exceptionType = MaskedException.TypeOf(exception)!.FullName;
             var text = exception.ToString();
             detail = text.Length <= MaxExceptionChars ? text : text[..MaxExceptionChars] + "\n… (cut)";
             origin = Origin(exception);
