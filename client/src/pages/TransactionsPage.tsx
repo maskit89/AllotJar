@@ -13,6 +13,7 @@ import { useMonth } from '../features/MonthContext'
 import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { useProgressiveList } from '../lib/useProgressiveList'
 import { EVENTS, track } from '../analytics'
 import type {
   AccountDto,
@@ -1388,16 +1389,23 @@ export function TransactionsPage() {
     () => newestFirst(searchText ? filtered.filter((t) => matchesSearch(t, searchText)) : filtered),
     [filtered, searchText],
   )
+  // Years of rows are drawn a batch at a time as the list scrolls (see useProgressiveList); a row
+  // being worked on is always drawn, wherever a save moved it.
+  const keepDrawn = useMemo(() => {
+    const ids = [savingId, assigningId, sheetFor, legId, editingId, refundingId, splittingId, pendingFocus?.id]
+    return ids.reduce((last, id) => (id ? Math.max(last, visible.findIndex((t) => t.id === id) + 1) : last), 0)
+  }, [visible, savingId, assigningId, sheetFor, legId, editingId, refundingId, splittingId, pendingFocus])
+  const { shown, more, sentinelRef } = useProgressiveList(visible.length, keepDrawn)
   // Grouped by day under small headers, newest first.
   const days = useMemo(() => {
     const groups: { date: string; rows: TransactionDto[] }[] = []
-    for (const t of visible) {
+    for (const t of visible.slice(0, shown)) {
       const last = groups[groups.length - 1]
       if (last && last.date === t.date) last.rows.push(t)
       else groups.push({ date: t.date, rows: [t] })
     }
     return groups
-  }, [visible])
+  }, [visible, shown])
 
   useLayoutEffect(() => {
     visibleRef.current = visible
@@ -2687,16 +2695,19 @@ export function TransactionsPage() {
                   : `No match for “${searchText}”.`}
               </p>
             ) : (
-              days.map((d) => (
-                <TxDay
-                  key={d.date}
-                  date={d.date}
-                  rows={d.rows}
-                  phone={phone}
-                  ctx={rowCtx}
-                  state={activeIds.length > 0 && d.rows.some((t) => activeIds.includes(t.id)) ? dayState : null}
-                />
-              ))
+              <>
+                {days.map((d) => (
+                  <TxDay
+                    key={d.date}
+                    date={d.date}
+                    rows={d.rows}
+                    phone={phone}
+                    ctx={rowCtx}
+                    state={activeIds.length > 0 && d.rows.some((t) => activeIds.includes(t.id)) ? dayState : null}
+                  />
+                ))}
+                {more && <div ref={sentinelRef} aria-hidden className="h-px" />}
+              </>
             )}
           </section>
         ))}

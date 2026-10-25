@@ -25,6 +25,7 @@ import { formatDate, monthHeading, shortDate } from '../lib/dates'
 import { hueColor, hueForIndex, type CategoryHue } from '../lib/categoryColors'
 import { jarLinesOf, transactionTypeLabel } from '../lib/transactions'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { useProgressiveList } from '../lib/useProgressiveList'
 
 /**
  * What the Balance hero's (i) says the number counts. Money from another account counts here once
@@ -181,17 +182,19 @@ export function AccountDetailPage() {
     [transactions, id, shownAccount?.openingDate],
   )
 
+  // Years of rows are drawn a batch at a time as the list scrolls (see useProgressiveList).
+  const { shown, more, sentinelRef } = useProgressiveList(rows.length)
   // One group a month (the month a row shows in).
   const months = useMemo(() => {
     const groups: Array<{ key: string; rows: RegisterRow[] }> = []
-    for (const r of rows) {
+    for (const r of rows.slice(0, shown)) {
       const key = r.shown.slice(0, 7)
       const last = groups[groups.length - 1]
       if (last && last.key === key) last.rows.push(r)
       else groups.push({ key, rows: [r] })
     }
     return groups
-  }, [rows])
+  }, [rows, shown])
 
   const currency = account?.currency ?? 'EUR'
   // Optional bank identifiers (rule 76): shown only when recorded, as stored.
@@ -552,18 +555,21 @@ export function AccountDetailPage() {
                 {rows.length === 0 ? (
                   <p className="pt-4 pb-3 text-center text-sm text-slate-500">No transactions on this account yet.</p>
                 ) : (
-                  months.map((m, i) => (
-                    <div key={m.key}>
-                      <h3
-                        className={`${EYEBROW} pb-0.5 max-[699.98px]:pb-0 ${
-                          i === 0 ? 'pt-3 max-[699.98px]:pt-2' : 'pt-[22px] max-[699.98px]:pt-[18px]'
-                        }`}
-                      >
-                        {monthHeading(`${m.key}-01`)}
-                      </h3>
-                      <ul>{m.rows.map((r) => renderRow(r, account))}</ul>
-                    </div>
-                  ))
+                  <>
+                    {months.map((m, i) => (
+                      <div key={m.key}>
+                        <h3
+                          className={`${EYEBROW} pb-0.5 max-[699.98px]:pb-0 ${
+                            i === 0 ? 'pt-3 max-[699.98px]:pt-2' : 'pt-[22px] max-[699.98px]:pt-[18px]'
+                          }`}
+                        >
+                          {monthHeading(`${m.key}-01`)}
+                        </h3>
+                        <ul>{m.rows.map((r) => renderRow(r, account))}</ul>
+                      </div>
+                    ))}
+                    {more && <div ref={sentinelRef} aria-hidden className="h-px" />}
+                  </>
                 )}
               </section>
 
