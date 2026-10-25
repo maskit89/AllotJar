@@ -3,6 +3,7 @@ using System.Net.Http.Json;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using AllotJar.Api.Middleware;
+using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.IntegrationTests.Http;
 
@@ -46,8 +47,9 @@ public class DatabaseStartupGateHttpTests
         (await client.GetAsync("/health/ready")).StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
-    // Boots its own API against a server nothing listens on: the ten startup attempts fail (about
-    // 30 seconds), and the API must still start and answer 503 instead of throwing.
+    // Boots its own API against a server nothing listens on: the startup attempts fail for
+    // DatabaseStartupGate.ForegroundBudget (about 30 seconds), and the API must still start and
+    // answer 503 instead of throwing.
     [Fact]
     public async Task An_api_whose_database_never_answers_starts_and_answers_503()
     {

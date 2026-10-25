@@ -25,8 +25,6 @@ var builder = WebApplication.CreateBuilder(args);
 const string SpaCorsPolicy = "SpaCors";
 const string AuthRateLimitPolicy = "auth";
 const string RefreshRateLimitPolicy = "auth-refresh";
-// Seconds between the background migration retries while SQL Server does not answer at startup.
-const int StartupRetrySeconds = 15;
 
 // --- Layer composition ------------------------------------------------------
 builder.Services.AddApplication();
@@ -62,8 +60,6 @@ builder.Services.AddAuthorization();
 
 // Liveness probe (no DB dependency) consumed by the deploy pipeline's smoke test, plus a readiness
 // check tagged "ready" that asks SQL Server whether it answers, for the health ping task below.
-// Closed only while SQL Server keeps the startup migrations waiting (see ApplyMigrationsAsync).
-builder.Services.AddSingleton<DatabaseStartupGate>();
 
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database", tags: [DatabaseHealthCheck.Tag]);
@@ -256,8 +252,8 @@ app.MapHealthChecks("/health/ready", new HealthCheckOptions
 
 app.Run();
 
-// Applies any pending EF Core migrations on startup. Retries briefly so the API
-// doesn't fail to boot while the SQL Server service is still coming up (e.g. right
+// Applies any pending EF Core migrations on startup. Retries for DatabaseStartupGate.ForegroundBudget
+// so the API doesn't fail to boot while the SQL Server service is still coming up (e.g. right
 // after a VPS reboot). Migrations are additive and never drop existing data.
 // Returns false when every attempt failed; the caller then finishes in the background.
 static async Task<bool> ApplyMigrationsAsync(WebApplication app)
@@ -266,8 +262,10 @@ static async Task<bool> ApplyMigrationsAsync(WebApplication app)
     var db = scope.ServiceProvider.GetRequiredService<ApplicationDbContext>();
     var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
 
-    const int maxAttempts = 10;
-    for (var attempt = 1; attempt <= maxAttempts; attempt++)
+    // Bounded by time, not by count: each failed attempt can take a whole Connect Timeout, and IIS
+    // gives up on a start that runs past its startupTimeLimit (see ForegroundBudget).
+    var elapsed = System.Diagnostics.Stopwatch.StartNew();
+    for (var attempt = 1; ; attempt++)
     {
         try
         {
@@ -275,37 +273,43 @@ static async Task<bool> ApplyMigrationsAsync(WebApplication app)
             logger.LogInformation("Database migrations applied (attempt {Attempt}).", attempt);
             return true;
         }
-        catch (Exception ex) when (attempt < maxAttempts)
+        catch (Exception ex) when (elapsed.Elapsed + TimeSpan.FromSeconds(3) < DatabaseStartupGate.ForegroundBudget)
         {
             logger.LogWarning(ex,
-                "Migration attempt {Attempt}/{Max} failed; SQL Server may still be starting. Retrying in 3s...",
-                attempt, maxAttempts);
+                "Migration attempt {Attempt} failed; SQL Server may still be starting. Retrying in 3s...",
+                attempt);
             await Task.Delay(TimeSpan.FromSeconds(3));
         }
         catch (Exception ex)
         {
-            // An Error, so it reaches the error alert email once; the background retries log at Warning.
+            // An Error, so it reaches the error alert email. Each failed background attempt also makes
+            // EF log a connection Error, so the alert repeats (within its cooldown) until the database answers.
             logger.LogError(ex,
-                "Migrations failed {Max} times at startup. The API starts anyway and answers 503 until " +
-                "the database answers; it retries every {Seconds}s in the background.",
-                maxAttempts, StartupRetrySeconds);
+                "Migrations failed {Attempts} time(s) in {Seconds:0}s at startup. The API starts anyway and " +
+                "answers 503 until the database answers; it keeps retrying in the background.",
+                attempt, elapsed.Elapsed.TotalSeconds);
+            return false;
         }
     }
-    return false;
 }
 
 // Retries the startup migrations until they apply (or the API stops), then runs the backfills and
-// opens the gate. Logs a Warning every 20 failed attempts (about 5 minutes) so the event log shows
-// it is still waiting, and a Warning once it opens.
+// opens the gate. Waits DatabaseStartupGate.RetryInterval between attempts, then SlowRetryInterval
+// after SlowAfter. Logs a Warning every 20 failed attempts so the event log shows it is still
+// waiting, and a Warning once it opens.
 static async Task FinishDatabaseStartupAsync(WebApplication app, DatabaseStartupGate gate)
 {
     var stopping = app.Lifetime.ApplicationStopping;
     var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    var waiting = System.Diagnostics.Stopwatch.StartNew();
     for (var attempt = 1; ; attempt++)
     {
         try
         {
-            await Task.Delay(TimeSpan.FromSeconds(StartupRetrySeconds), stopping);
+            var wait = waiting.Elapsed < DatabaseStartupGate.SlowAfter
+                ? DatabaseStartupGate.RetryInterval
+                : DatabaseStartupGate.SlowRetryInterval;
+            await Task.Delay(wait, stopping);
             using (var scope = app.Services.CreateScope())
             {
                 await scope.ServiceProvider.GetRequiredService<ApplicationDbContext>().Database.MigrateAsync(stopping);
@@ -324,8 +328,19 @@ static async Task FinishDatabaseStartupAsync(WebApplication app, DatabaseStartup
             continue;
         }
 
-        await RunStartupBackfillsAsync(app);
-        gate.Open();
+        // Every backfill is non-fatal on the normal path, so the API serves whatever happens here too.
+        try
+        {
+            await RunStartupBackfillsAsync(app);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Startup backfills failed after the background migrations; the API serves anyway.");
+        }
+        finally
+        {
+            gate.Open();
+        }
         logger.LogWarning("Migrations applied after {Attempts} background attempt(s); the API now serves requests.", attempt);
         return;
     }
