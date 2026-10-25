@@ -363,14 +363,15 @@
 
 ## Deleting a transfer
 
-### TRF-030 - Delete a transfer immediately (no confirmation) and both balances revert
+### TRF-030 - Delete a transfer (after confirming) and both balances revert
 - **Priority:** P0
 - **Type:** Happy
 - **Preconditions:** trf-owner; Current 1,700.00, Pot 800.00 after a 300.00 transfer.
 - **Steps:**
-  1. On `/transactions`, hover the transfer row and click **✕** ("Delete transaction: …").
+  1. On `/transactions`, open the transfer row's ⋯ and choose **Delete** ("Delete transaction: …").
+  2. In "Delete this transaction?", click **Delete**.
 - **Expected:**
-  - `DELETE /api/transactions/{id}` → 204 with NO confirmation dialog (contrast: account delete has a modal); the row is removed from the register; analytics `transaction_deleted` fires.
+  - Nothing is sent until step 2; then `DELETE /api/transactions/{id}` → 204; the row is removed from the register; analytics `transaction_deleted` fires.
   - Balances revert: Current back to **2,000.00**, Pot back to **500.00**. Any splits would cascade, but a transfer has none.
 - **Automated:** Partial (client/src/pages/TransactionsPage.test.tsx — delete a transaction; transfer-specific balance revert not asserted)
 
