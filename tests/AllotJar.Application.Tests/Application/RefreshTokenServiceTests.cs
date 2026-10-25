@@ -400,6 +400,22 @@ public class RefreshTokenServiceTests
         (await new RefreshTokenService(db).ConfirmAsync("never-issued")).Should().BeFalse();
     }
 
+    [Fact]
+    public async Task A_sign_in_marked_signed_out_is_not_listed_even_if_its_revoke_never_ran()
+    {
+        using var db = NewContext();
+        var svc = new RefreshTokenService(db);
+        var raw = await svc.IssueAsync("user-1");
+        var laptop = await svc.IssueAsync("user-1");
+
+        // The process stopped between the sign-out's mark and its revoke.
+        (await db.RefreshTokens.SingleAsync(t => t.TokenHash == HashFor(raw))).SignedOutUtc = DateTime.UtcNow;
+        await db.SaveChangesAsync();
+
+        (await svc.ListActiveAsync("user-1", laptop)).Should().ContainSingle().Which.Current.Should().BeTrue();
+        (await svc.RotateAsync(raw)).Succeeded.Should().BeFalse();
+    }
+
     private static string HashFor(string raw) =>
         Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(raw)));
 }

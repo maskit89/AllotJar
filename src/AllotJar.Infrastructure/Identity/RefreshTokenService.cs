@@ -204,7 +204,8 @@ public class RefreshTokenService : IRefreshTokenService
     {
         var now = DateTime.UtcNow;
         var active = await _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.RevokedUtc == null && t.ExpiresUtc > now)
+            // A marked token counts as ended even if the sign-out's revoke never ran.
+            .Where(t => t.UserId == userId && t.RevokedUtc == null && t.SignedOutUtc == null && t.ExpiresUtc > now)
             .ToListAsync(cancellationToken);
         var currentHash = string.IsNullOrEmpty(currentRawToken) ? null : Hash(currentRawToken);
         var currentSession = currentHash is null

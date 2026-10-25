@@ -1664,3 +1664,9 @@ All ten staging Deploys (runs 276 to 286, except the hand-started run below) pas
 - #376's check that a field low on a sheet is not hidden behind the bar was not reported back. The other iPhone checks in the #372 to #383 record's #376 line are covered by Christopher's confirmation above.
 - Review nit, not worth a push: `vi.restoreAllMocks()` sits at the end of the new unit test, so a failing assertion would leave its `clientHeight` spy for later tests.
 - Unchanged from the previous records: the before-charging items (InterServer's DPA, the alert mailbox off personal Gmail, the event log) and every follow-up listed above.
+
+## Follow-ups from the review of #391 (sign-out beats a token refresh)
+
+#391 fixes #380 P3-2 (a refresh racing a sign-out could outlive it) and #382 P3-4 (a refresh at its token's exact expiry could lose to the purge and return a 500). The review's P3-1 (a failed check after the commit now signs only that device out) and P3-2 (the Devices list skips a sign-in marked signed out) were fixed in the PR. Logged:
+- #391 P3-3 (note, no change needed): tab B's refresh races a password change, or a fresh sign-in, in tab A of the same browser. B's refusal clears the cookie, and if its answer lands after A's, the browser loses A's new cookie and signs out at its next refresh, about 15 minutes later. This fails safe; before #391 the old sign-in stayed alive instead.
+- #391 P3-4 (pre-existing): account deletion removes `RefreshTokens` with a tracked `RemoveRange` (`AccountDeletion.cs`). A purge or prune deleting one of the loaded expired rows first fails the deletion with a 500, and a token minted between the load and the save is left behind. Fix: `ExecuteDeleteAsync` on the login's rows inside the existing transaction.
