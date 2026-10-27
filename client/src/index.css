@@ -1723,48 +1723,46 @@ html {
   color: #fff;
   background: rgb(255 255 255 / 0.07);
 }
-/* The card holds the page's one primary: one sentence, the pill with "Sign in" beside it, the note. */
+/* The card holds the page's one primary: one short sentence, the pill and the note under it,
+   centred. It ends under its content (no sign-in card's minimum height), still standing on the shelf
+   between the jars; the features follow on the sage under the room. */
 .land .auth-main {
-  gap: 48px;
+  gap: 0;
+}
+@media (min-width: 700px) {
+  .land .auth-card {
+    min-height: 0;
+  }
+}
+.land .auth-card {
+  align-items: center;
+  text-align: center;
+}
+.land .auth-card > * + * {
+  margin-top: 18px;
 }
 .land-lead {
-  font-size: 16px;
-  line-height: 1.5;
+  font-size: 17px;
+  line-height: 1.45;
+  text-wrap: balance;
   color: var(--color-foreground);
-}
-.land-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 18px;
 }
 .land-pill {
   width: auto;
-  padding: 0 22px;
+  padding: 0 26px;
   white-space: nowrap;
 }
-.land-signin {
-  display: inline-flex;
-  align-items: center;
-  min-height: 40px;
-  font-size: 14px;
-}
-/* The note rests at the card's foot (the card reaches past the room's foot, as the sign-in's). */
-.land-note {
-  margin-top: auto;
+.land .auth-card > .land-note {
+  margin-top: 12px;
   font-size: 13px;
   color: var(--color-slate-500);
 }
-.land .auth-card > .land-note {
-  padding-top: var(--auth-gap);
-}
-/* Three feature cards (off-white, a tinted glyph, a short title, one line) and one line of promises. */
+/* Three quiet features: a tinted glyph, a short title and a few words; no boxes. They start well
+   under the room's foot. */
 .land-features {
   width: 100%;
-  max-width: 1040px;
-  display: flex;
-  flex-direction: column;
-  gap: 18px;
+  max-width: 880px;
+  margin-top: 120px;
 }
 .land-cards {
   list-style: none;
@@ -1772,28 +1770,26 @@ html {
   padding: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 24px;
+  gap: 32px;
 }
 .land-f {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 22px 24px;
-  border-radius: 16px;
-  border: 1px solid color-mix(in srgb, var(--color-slate-200) 70%, transparent);
-  background: var(--color-card);
-  box-shadow: var(--shadow-card);
+  align-items: center;
+  gap: 8px;
+  text-align: center;
 }
 .land-glyph {
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
+  width: 40px;
+  height: 40px;
+  margin-bottom: 4px;
+  border-radius: 12px;
 }
 .land-glyph svg {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
 }
 .land-f h3 {
   margin: 0;
@@ -1806,34 +1802,8 @@ html {
 .land-f p {
   margin: 0;
   font-size: 14px;
-  line-height: 1.5;
+  line-height: 1.45;
   color: var(--color-slate-500);
-}
-.land-promise {
-  margin: 0;
-  text-align: center;
-  font-size: 13px;
-  color: var(--color-slate-500);
-}
-.land-promise b {
-  font-weight: inherit;
-}
-/* The closing line with the same primary. */
-.land-close {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 18px;
-  padding: 16px 0 0;
-  text-align: center;
-}
-.land-close h2 {
-  margin: 0;
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.025em;
-  line-height: 1.15;
-  color: var(--color-foreground);
 }
 /* The quiet footer of the public pages: the year, Privacy and Terms. */
 .pub-foot {
@@ -1860,14 +1830,9 @@ html {
 .pub-foot a:hover {
   color: var(--color-foreground);
 }
-@media (max-width: 1100px) {
-  .land-cards {
-    gap: 16px;
-  }
-}
 /* Phone: the band and the small shelf as on the sign-in page; the card hangs from the band's foot as
    a card (not the form's sheet to the bottom of the screen: the page goes on under it), with the
-   full gold hairline; the feature cards stack. */
+   full gold hairline; the features stack as rows. */
 @media (max-width: 699.98px) {
   .land .auth-top {
     padding-right: 8px;
@@ -1876,14 +1841,13 @@ html {
     padding: 0 10px;
   }
   .land .auth-main {
-    gap: 20px;
     padding: 0 16px 24px;
   }
   .land .auth-card,
   .dark .land .auth-card {
     flex: none;
     width: auto;
-    padding: 22px 20px 24px;
+    padding: 24px 20px;
     border-radius: 22px;
     background: var(--color-card);
   }
@@ -1904,32 +1868,25 @@ html {
   .dark .land .auth-card::after {
     background: linear-gradient(135deg, rgb(236 200 110 / 0.75), rgb(229 190 94 / 0.14) 32%, rgb(229 190 94 / 0.14) 68%, rgb(236 200 110 / 0.6));
   }
+  .land-features {
+    margin-top: 32px;
+  }
   .land-cards {
     grid-template-columns: minmax(0, 1fr);
-    gap: 12px;
+    gap: 18px;
+    padding: 0 8px;
   }
   /* A row: the glyph at the left, the title and its line beside it. */
   .land-f {
     display: grid;
-    grid-template-columns: 36px minmax(0, 1fr);
-    gap: 3px 14px;
-    padding: 16px 18px;
+    grid-template-columns: 40px minmax(0, 1fr);
+    align-items: center;
+    gap: 0 14px;
+    text-align: left;
   }
   .land-glyph {
     grid-row: 1 / 3;
-    align-self: start;
-  }
-  .land-promise b {
-    display: block;
-  }
-  .land-promise .land-dot {
-    display: none;
-  }
-  .land-close {
-    padding-top: 12px;
-  }
-  .land-close h2 {
-    font-size: 26px;
+    margin: 0;
   }
   .pub-foot {
     padding: 0 16px 24px;

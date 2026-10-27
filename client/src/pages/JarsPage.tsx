@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Archive,
   ArrowLeftRight,
+  ArrowUpDown,
   Check,
   Coins,
   Ellipsis,
@@ -25,6 +26,13 @@ import { GlassJar } from '../components/GlassJar'
 import { InfoHint } from '../components/InfoHint'
 import { MiniBar, StatusChip } from '../components/StatusChip'
 import { ActionSheet, ROW_MENU_TRIGGER, RowMenu, type RowAction } from '../components/RowActions'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from '../components/ui/dropdown-menu'
 import { CARD_TITLE, DASH_CARD, TITLE_HINT } from '../components/budget/card'
 import { JarFormModal } from '../components/JarFormModal'
 import { MoveMoneyModal } from '../components/MoveMoneyModal'
@@ -37,6 +45,7 @@ import { useAuth } from '../auth/AuthContext'
 import { api } from '../lib/api'
 import { readLedgers } from '../lib/jarLedgers'
 import { useMediaQuery } from '../lib/useMediaQuery'
+import { useJarSort } from '../lib/jarSortPref'
 import { hueForIndex, type CategoryHue } from '../lib/categoryColors'
 import type { AccountDto, JarAccountLedgerDto, JarDto } from '../types'
 import { formatMoney, fromAmount } from '../lib/money'
@@ -45,13 +54,17 @@ import { monthYear } from '../lib/dates'
 import {
   byAttention,
   cadenceLabel,
+  isJarSort,
   JAR_CHIP_TONE,
+  JAR_SORTS,
   jarCardChip,
   jarDate,
   jarDueLabel,
   jarHorizonLabel,
   jarLastCycleLabel,
   jarMonthLabel,
+  sortJars,
+  type JarSort,
 } from '../lib/jarStatus'
 
 /**
@@ -73,6 +86,8 @@ export function JarsPage() {
   // Phones (the mock-ups' 700px breakpoint, as on the Dashboard): a jar's ⋯ opens a bottom sheet.
   const phone = useMediaQuery('(max-width: 699.98px)')
   const [jars, setJars] = useState<JarDto[]>([])
+  // The order the cards are shown in, picked above the grid and remembered on this device.
+  const [sort, setSort] = useJarSort()
   const [accounts, setAccounts] = useState<AccountDto[]>([])
   // Whether the accounts list loaded: only then can "no account can hold a jar" be known.
   const [accountsKnown, setAccountsKnown] = useState(false)
@@ -208,7 +223,7 @@ export function JarsPage() {
   // place (or the one before it), else the New jar button, once the dialog has gone.
   const onArchived = useCallback(
     (archived: JarDto) => {
-      const shown = byAttention(jars)
+      const shown = sortJars(jars, sort)
       const at = shown.findIndex(({ jar }) => jar.id === archived.id)
       const next = at < 0 ? undefined : (shown[at + 1] ?? shown[at - 1])
       refocusAfterRemoval.current = { jarId: next?.jar.id ?? null }
@@ -216,7 +231,7 @@ export function JarsPage() {
       closeForm()
       loadLedgers()
     },
-    [jars, closeForm, loadLedgers],
+    [jars, sort, closeForm, loadLedgers],
   )
 
   // Runs after the dialog's own clean-up (which tries the removed card's ⋯), as an update
@@ -298,16 +313,16 @@ export function JarsPage() {
     return names
   }, [jars, accountName])
 
-  // Attention first, each jar keeping the colour of its place in the household's list (as on the
-  // Dashboard's shelf).
-  const ordered = useMemo(() => byAttention(jars), [jars])
+  // Attention first (or the order picked), each jar keeping the colour of its place in the
+  // household's list (as on the Dashboard's shelf).
+  const ordered = useMemo(() => sortJars(jars, sort), [jars, sort])
 
   // The page's own Move money (the mock-up's top-bar action): the move dialog works within one
   // account, so it is offered when every jar sits in the same one. It starts from that account's
   // unallocated money into the jar that needs it most (any jar, or the money, can be chosen there).
   const pageMoveJar =
     canWrite && !loading && jars.length > 0 && jars.every((j) => j.fundingAccountId === jars[0].fundingAccountId)
-      ? (ordered.find(({ jar }) => jar.completedOn === null) ?? ordered[0]).jar
+      ? byAttention(jars).find(({ jar }) => jar.completedOn === null)?.jar ?? jars[0]
       : null
   const moveButton = pageMoveJar && (
     <Button
@@ -365,7 +380,15 @@ export function JarsPage() {
         </KpiRow>
       )}
 
-      {!desktop && moveButton && <div className="flex justify-end">{moveButton}</div>}
+      {/* Sorting only means something with two jars; on a phone it shares the row with Move money. */}
+      {!loading && jars.length > 1 ? (
+        <div className="flex items-center justify-between gap-3">
+          <JarSortMenu value={sort} onChange={setSort} />
+          {!desktop && moveButton}
+        </div>
+      ) : (
+        !desktop && moveButton && <div className="flex justify-end">{moveButton}</div>
+      )}
 
       {error && !showForm && <ErrorBanner>{error}</ErrorBanner>}
 
@@ -738,6 +761,34 @@ function monthNote(jar: JarDto, currency: string, late: boolean): string | null 
     return excess > 0 ? `${formatMoney(excess, currency)} above target` : null
   }
   return jarMonthLabel(jar, currency)
+}
+
+/**
+ * The order of the jar cards: a quiet "⇅ Needs attention" that opens the five orders, the picked
+ * one marked.
+ */
+function JarSortMenu({ value, onChange }: { value: JarSort; onChange: (sort: JarSort) => void }) {
+  const label = JAR_SORTS.find((s) => s.value === value)?.label ?? JAR_SORTS[0].label
+  return (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger
+        aria-label={`Sort jars: ${label}`}
+        className="inline-flex h-9 items-center gap-1.5 rounded-[10px] px-2.5 text-sm font-semibold text-slate-500 transition hover:bg-surface/70 hover:text-slate-900 data-[state=open]:text-slate-900 min-[700px]:-ml-2.5 max-[699.98px]:h-10"
+      >
+        <ArrowUpDown aria-hidden strokeWidth={1.8} className="size-4" />
+        {label}
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" sideOffset={6} className="min-w-[196px] rounded-xl p-1.5 shadow-[var(--shadow-frame-lg)]">
+        <DropdownMenuRadioGroup value={value} onValueChange={(v) => isJarSort(v) && onChange(v)}>
+          {JAR_SORTS.map((s) => (
+            <DropdownMenuRadioItem key={s.value} value={s.value} className="min-h-9 rounded-lg font-medium text-slate-900">
+              {s.label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
 }
 
 function JarCard({
