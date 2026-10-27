@@ -153,7 +153,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 - **Type:** Negative
 - **Preconditions:** Navigate H1 to a month with no BudgetMonth (`notFound`). Test as Adam (Admin), Lena (Limited), Rhea (Read-only).
 - **Steps:**
-  1. As Adam, on the empty month, confirm the create-month hero offers "Start a blank budget" / "Or start from a template" (and "Copy …" when a prior month exists).
+  1. As Adam, on the empty month, confirm the create-month hero offers "Start {Month}" when a prior month exists, else "Start a blank budget" (and "Or start from a template" for the first budget).
   2. As Lena then Rhea, view the same empty month.
   3. As Lena, direct-call `POST /budget` (blank/copy/template) for that month.
 - **Expected:** Adam sees and can use the create controls (`canWrite`). For Lena and Rhea the non-writer hero renders instead: "Ask an admin or the owner to set this month up." with no create buttons (`notFound && !canWrite`). Direct `POST /budget` as Lena → **403**. Only Owner/Admin can materialize a month.

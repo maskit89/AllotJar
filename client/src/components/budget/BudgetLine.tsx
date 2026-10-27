@@ -6,6 +6,7 @@ import {
   CalendarDays,
   Check,
   Coins,
+  CornerDownRight,
   Pencil,
   ReceiptText,
   RotateCcw,
@@ -742,6 +743,67 @@ export function BudgetLine({
           {plannedError}
         </p>
       )}
+    </div>
+  )
+}
+
+/**
+ * The money the month before left over (or overspent), at the top of Income: what the earlier
+ * months left that nobody has given a job yet (MonthLeftover on the server). It counts in
+ * Remaining to budget like income, but it is not income: nothing edits it, and the reports leave
+ * it out. Null before the month starts: it arrives then, so the line says when instead of a figure.
+ */
+export function CarryLine({
+  from,
+  month,
+  minor,
+  currency,
+  phone,
+}: {
+  /** The month the money comes from, e.g. "October". */
+  from: string
+  /** The month this line is in, e.g. "November". */
+  month: string
+  minor: Minor | null
+  currency: string
+  phone: boolean
+}) {
+  const over = minor !== null && minor < 0
+  const cols = phone
+    ? 'grid-cols-[30px_minmax(0,1fr)_auto] @min-[500px]:grid-cols-[30px_minmax(0,1fr)_minmax(0,1.25fr)_88px]'
+    : 'grid-cols-[30px_minmax(0,1fr)_auto_auto] @min-[500px]:grid-cols-[30px_minmax(0,1fr)_minmax(0,1.25fr)_88px_32px]'
+  return (
+    <div
+      data-testid="carry-line"
+      className={`relative grid items-center gap-x-3 py-[11px] not-first:border-t not-first:border-line @min-[500px]:min-h-14 @min-[500px]:gap-x-3.5 @min-[500px]:py-2.5 ${cols}`}
+    >
+      <div className="col-start-1 row-start-1 self-center">
+        <Tile hue="emerald">
+          <CornerDownRight strokeWidth={1.8} />
+        </Tile>
+      </div>
+      <div className="col-start-2 row-start-1 flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate text-sm font-semibold text-slate-900">From {from}</span>
+        <InfoHint
+          label={`About the money from ${from}`}
+          align={phone ? 'center' : 'start'}
+          buttonClassName="relative -my-1 inline-grid size-[22px] place-items-center rounded-full text-slate-500 opacity-85 transition after:absolute after:-inset-[9px] after:content-[''] hover:bg-slate-500/10 hover:opacity-100"
+        >
+          {minor === null
+            ? `What ${from} leaves over arrives here when ${month} starts.`
+            : over
+              ? `${from} spent more than it had. ${month} makes up the difference.`
+              : `Left over from ${from}: not spent and not in a jar. Give it a job this month.`}
+        </InfoHint>
+      </div>
+      <div className="col-start-3 row-start-1 flex justify-end text-right @min-[500px]:col-start-4">
+        <span
+          data-testid="carry-amount"
+          className={`text-sm font-semibold whitespace-nowrap tabular-nums ${over ? 'text-bad' : minor === null ? 'text-slate-500' : 'text-slate-900'}`}
+        >
+          {minor === null ? '—' : over ? `− ${formatMoney(-minor, currency)}` : formatMoney(minor, currency)}
+        </span>
+      </div>
     </div>
   )
 }

@@ -132,6 +132,7 @@ public class LargeHouseholdTimingTests
                 for (var month = 1; month <= 12 && new DateOnly(year, month, 1) <= today; month++)
                 {
                     urls.Add($"/api/budget/{year}/{month}");
+                    urls.Add($"/api/budget/{year}/{month}/wrap-up");
                     urls.Add($"/api/reports/month/{year}/{month}");
                     urls.Add($"/api/transactions?year={year}&month={month}");
                     urls.Add($"/api/jars?year={year}&month={month}");
@@ -153,6 +154,9 @@ public class LargeHouseholdTimingTests
         await Time("Dashboard: budget/current", get, "/api/budget/current");
         await Time("Dashboard: budget/months", get, "/api/budget/months");
         await Time("Budget month a year ago", get, $"/api/budget/{today.Year - 1}/{today.Month}");
+        // The month before's wrap-up: what the Dashboard carries in, summed over every month since the first budget.
+        var before = today.AddMonths(-1);
+        await Time("Dashboard: wrap-up (carry-over)", get, $"/api/budget/{before.Year}/{before.Month}/wrap-up");
         await Time("Transactions (all)", get, "/api/transactions");
         await Time("Transactions this month", get, $"/api/transactions?year={today.Year}&month={today.Month}");
         await Time("Accounts", get, "/api/accounts");

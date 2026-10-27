@@ -335,7 +335,7 @@
 - **Origin:** PR #168 / gotcha "DueDay carries on copy; IsPaid resets" (map §7.10)
 - **Preconditions:** Ana; June 2026 has a Rent bill `DueDay 1`, **paid**; July 2026 does not yet exist.
 - **Steps:**
-  1. On the July not-found create screen click **"Copy June 2026"** (`POST /api/budget { year:2026, month:7, copyFromPrevious:true }`).
+  1. On the July not-found create screen click **"Start July"** (`POST /api/budget { year:2026, month:7, copyFromPrevious:true }`).
 - **Expected:** The new July Rent line keeps `DueDay = 1` (copied — bills recur) but `IsPaid = false` (never copied → reset each month; `CreateBudgetMonthCommandHandler` sets `DueDay = i.DueDay` and omits `IsPaid`). July's Rent therefore shows the "Bill" tag but appears unpaid in the banner (0/… paid). Conversely, a line whose bill was **cleared** in June (`DueDay null`) copies as a plain non-bill line — clearing sticks across the copy, nothing re-arms a due day.
 - **Automated:** Yes (`tests/AllotJar.Application.Tests/Application/BillTrackingTests.cs` "CreateBudgetMonth carries the due day but resets paid"; `CreateBudgetMonthTests.cs`)
 

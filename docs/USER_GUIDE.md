@@ -13,6 +13,7 @@ AllotJar is a zero-based budgeting app crafted in Europe and at home anywhere: e
 3. [The Dashboard](#3-the-dashboard)
    - [Choosing a month](#choosing-a-month)
    - [Creating a month](#creating-a-month)
+   - [Carry-over from last month](#carry-over-from-last-month)
    - [The Remaining-to-Budget banner](#the-remaining-to-budget-banner)
    - [Income](#income)
    - [Expense groups and lines](#expense-groups-and-lines)
@@ -86,11 +87,16 @@ Use the **‹ / ›** arrows in the top bar to move between months. Every month-
 
 ### Creating a month
 
-If the month you're viewing has no budget yet, you'll see three ways to start:
+If the month you're viewing has no budget yet:
 
-- **Copy last month's budget** — brings over your whole structure and planned amounts (actuals reset to zero, bills reset to unpaid). This is the normal month-to-month flow.
-- **Start blank** — a budget with just an Income group. If any of your people has a **Default income** on the People page, the group starts with one income line per person at that amount, attributed to them; otherwise it is empty.
-- **Start from a template** — quick-start layouts (**Essentials**, **Student**, **Family**), each a ready set of income and expense groups and lines with amounts at zero for you to fill in. Templates never create jars: add those from an account on the Jars page (or with **Add jar** in a Savings group) so each has a home for its money.
+- **Once you have a budget,** there is one button, **Start [month]**. It continues your most recent earlier month: the same groups, lines and planned amounts (bills reset to unpaid, nothing spent yet), and every jar's line at this month's contribution. Your jars and accounts keep their balances; starting a month never moves money. Under the button, once the month before has begun, you see how it went: **In** (income received), **Spent** (what you spent, apart from bills your jars paid, since those were saved for earlier), **Into jars** (money you moved into jars) and **Left over** (or **Overspent**). The figures add up, and when an earlier month carried money in, it shows first as **From [month]**.
+- **For your very first budget,** start **blank** (just an Income group; if any of your people has a **Default income** on the People page, it starts with one income line per person at that amount, attributed to them) or **from a template**: **Essentials**, **Student** or **Family**, a ready set of income and expense groups and lines with amounts at zero for you to fill in. Templates never create jars: add those from an account on the Jars page (or with **Add jar** in a Savings group) so each has a home for its money.
+
+### Carry-over from last month
+
+Money a month didn't spend and didn't put in a jar is still in your accounts, so the next month starts with it. Once a month has begun, the first row of its Income group is **From [last month]**, the amount left over, and it counts in **Remaining to budget** like income: give it a job (a line, or a jar's line). An overspent month shows **− amount** in red there and leaves less to plan. A month that hasn't begun yet shows **—**: the amount arrives when it starts.
+
+The row isn't income (Reports leave it out) and you can't edit it: it follows your transactions, so a forgotten receipt entered later for last month changes it. Money you never give a job keeps carrying, month after month; money you spend nets it back out. Your first budget carries nothing in.
 
 ### The Remaining-to-Budget banner
 
@@ -102,7 +108,7 @@ The large coloured banner shows **Income**, **Assigned**, and the difference —
 | 🟢 Green — "Every [currency] has a job 🎉" | Nothing left to assign (the banner names your currency). The budget is balanced. |
 | 🔴 Red — "Over-budgeted — trim a category" | You've planned more than you earn. Reduce something. |
 
-**How it works:** Income = the sum of your income lines' *planned* amounts. Assigned = the sum of every expense line *and* every savings contribution. Putting money into a savings line counts as giving it a job, so the budget only balances once your savings are funded too.
+**How it works:** Income = the sum of your income lines' *planned* amounts, plus what last month left over (see [Carry-over](#carry-over-from-last-month)). Assigned = the sum of every expense line *and* every savings contribution. Putting money into a savings line counts as giving it a job, so the budget only balances once your savings are funded too.
 
 ### Income
 
@@ -453,7 +459,7 @@ Every flag except `Analytics` defaults to **on**. A disabled feature is enforced
 
 ## 13. Everyday tips
 
-- **A sensible monthly rhythm:** create the month by copying the previous one → adjust planned amounts until the banner is green → during the month, add transactions and clear the *Unassigned only* list → tick bills as you pay them → glance at Reports at month-end.
+- **A sensible monthly rhythm:** start the month (it continues the last one) → give last month's leftover a job and adjust planned amounts until the banner is green → during the month, add transactions and clear the *Unassigned only* list → tick bills as you pay them → glance at Reports at month-end.
 - **Inline editing everywhere:** click a value, type, press **Enter** (or click away) to save, **Escape** to cancel. A small pulsing dot means a save is in flight; failed saves roll back and show an error.
 - **Don't fear deletes:** deleting budget lines or accounts never deletes transactions — they just become unassigned/untagged.
 - **The banner won't balance?** Remember savings contributions count as assignments. If you're over-budgeted, trimming a savings contribution is often the easiest fix.

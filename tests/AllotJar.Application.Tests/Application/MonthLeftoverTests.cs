@@ -126,6 +126,18 @@ public class MonthLeftoverTests
     }
 
     [Fact]
+    public async Task AMonthBeforeTheFirstBudget_PassesNothingOn()
+    {
+        await using var db = await SeedAsync();
+
+        var august = await new GetMonthWrapUpQueryHandler(db, new CurrentUserStub(Owner))
+            .Handle(new GetMonthWrapUpQuery(2026, 8), CancellationToken.None);
+
+        august.CarriedIn.Should().Be(0m);
+        august.LeftOver.Should().Be(0m);
+    }
+
+    [Fact]
     public async Task AHouseholdWithNoBudget_CarriesNothing()
     {
         await using var db = NewContext();

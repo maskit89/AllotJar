@@ -106,12 +106,11 @@ test('a jar-less blank month prompts for income, and a duplicate create fails fr
 }) => {
   const { email } = await register(page)
 
-  // BUDG-055 / DASH-006: the first-ever month offers blank + templates but NO Copy
-  // button (no strictly-earlier month exists) and no jar-append note (no jars).
+  // BUDG-055 / DASH-006: the first-ever month offers blank + templates, and no Start button
+  // that would continue an earlier month (none exists).
   await expect(page.getByRole('button', { name: 'Start a blank budget' })).toBeVisible()
   await expect(page.getByText('Or start from a template')).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Copy / })).toHaveCount(0)
-  await expect(page.getByText(/existing jars? (is|are) added/)).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Start (?!a blank)/ })).toHaveCount(0)
 
   // A second tab (same session via the shared refresh cookie) parks on the same
   // create card — it will lose the create race below (BUDG-048 / DASH-012).
@@ -210,12 +209,7 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
   // (Held in the Pot account, rule 73.)
   await createGoalJar(page, 'Holiday', '1200')
 
-  // BUDG-029 / JAR-063: the create card tells the user their jar will be appended
-  // (singular form for exactly one jar).
   await page.getByRole('link', { name: 'Dashboard' }).click()
-  await expect(
-    page.getByText(/Your 1 existing jar is added to any new budget automatically/),
-  ).toBeVisible()
 
   // BUDG-028 / BUDG-056 / DASH-020 (PR #172): blank create appends the jar's line at
   // its accrual requirement, so the month is born OVER-BUDGETED — income €0.00,
@@ -261,11 +255,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await createGoalJar(page, 'Holiday', '1200', { setAside: '100' })
   await createGoalJar(page, 'Old Boiler', '600') // 600 ÷ 12 = 50.00/mo — archived below
 
-  // BUDG-029: plural jar-append note for two jars.
   await page.getByRole('link', { name: 'Dashboard' }).click()
-  await expect(
-    page.getByText(/Your 2 existing jars are added to any new budget automatically/),
-  ).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
     page.getByRole('button', { name: 'Start a blank budget' }).click(),
   )
@@ -335,7 +325,7 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
   await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
-    page.getByRole('button', { name: `Copy ${current.label}` }).click(),
+    page.getByRole('button', { name: `Start ${MONTH_NAMES[next.month - 1]}` }).click(),
   )
 
   // BUDG-005: structure + planned amounts copied flat; actuals reset (no transactions).
@@ -442,11 +432,13 @@ test('month navigation moves every screen together; the jars shelf follows the m
   await expect(page.getByText(/balances as of today|saved as of/)).toHaveCount(0)
 
   // BUDG-038: ‹ moves to the previous month — no budget there for this fresh user,
-  // and no Copy button either (no month exists strictly before it).
+  // and nothing to continue (no month exists strictly before it): only a blank start, and no
+  // templates, which are for a household's first budget.
   await page.getByRole('button', { name: 'Previous month' }).click()
   await expect(page.getByRole('heading', { name: prev.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Copy / })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: /^Start (?!a blank)/ })).toHaveCount(0)
+  await expect(page.getByText('Or start from a template')).toHaveCount(0)
 
   // BUDG-042: the viewed month is app-wide MonthContext state — Transactions opens
   // on the same (previous) month, and Budget still shows it on the way back.
@@ -455,14 +447,13 @@ test('month navigation moves every screen together; the jars shelf follows the m
   await page.getByRole('link', { name: 'Dashboard' }).click()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
 
-  // BUDG-040: › twice reaches the (creatable) next month; the copy button names the
-  // real most-recent prior month — the current one.
+  // BUDG-040: › twice reaches the (creatable) next month, which continues the current one.
   await page.getByRole('button', { name: 'Next month' }).click()
   await page.getByRole('button', { name: 'Next month' }).click()
   await expect(page.getByRole('heading', { name: next.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${next.label} yet.`)).toBeVisible()
   await committed(page, 'POST', createMonthUrl, () =>
-    page.getByRole('button', { name: `Copy ${current.label}` }).click(),
+    page.getByRole('button', { name: `Start ${MONTH_NAMES[next.month - 1]}` }).click(),
   )
 
   // BUDG-016: the Emergency Fund pot is re-planned at its fixed 250.00 (rule 16) — the 300.00

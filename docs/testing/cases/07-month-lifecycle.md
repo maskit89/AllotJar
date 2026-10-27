@@ -1,6 +1,6 @@
 # Month lifecycle & rollover (create blank / copy / template, navigation, first-ever, duplicates)
 
-**ID prefix:** BUDG | **Scope:** Everything about a budget MONTH as an object rather than what is rendered inside it: creating the viewed month from the dashboard not-found state via **"Start a blank budget"**, **"Copy {Month Year}"**, or an **"Or start from a template"** card (`POST /api/budget {year, month, copyFromPrevious, templateKey}` → `CreateBudgetMonthCommandHandler`); the exact semantics a copy carries (planned amounts flat vs. jar lines re-seeded from the accrual calculator, `DueDay` carried while `IsPaid` resets, `ExcludeFromAllocation` carried, category `DisplayOrder`/`Kind`, `SavingsId` identity, `BaseCurrency` = the budget currency, archived-jar lines dropped, dangling `SavingsId` lines kept, actuals reset because they are always tx-derived); the "every active jar takes part" append step and the as-of (strictly-before) jar-seed balance used when back-filling an earlier month; template precedence and each built-in template's shape; the over-budgeted **empty** month a jar-owning household is born into (PR #172); month navigation via the TopBar `‹ {Month Year} ›` navigator (`MonthContext`, unbounded, clear-month-before-fetch, year-boundary roll, moves every month-scoped screen together); viewing/creating/editing past and future months; the first-ever month (no copy source); duplicate-month and concurrent-create friendly-400 recovery; and the absence of any month-delete affordance. | **Out of scope:** what the loaded month renders and how its groups/lines/bills/hero/jars-shelf/planned-editing behave → **06-dashboard-budget-view.md** (that file owns the four hero footnote states, the bills strip, the jars shelf, group/line CRUD, inline planned edits and dashboard role gating); jar accrual/recurrence maths, jar CRUD, the Jars page and the allocation engine that consumes `ExcludeFromAllocation` → **jars & allocation file** (09); the transactions/transfers that produce the actuals a copy resets → **transactions & transfers file** (08); the onboarding "Create your first month" checklist step, welcome dialog and tour → **05-onboarding.md**; deep role matrix across all pages and session/auth expiry → **03-session-auth-lifecycle.md** + households/roles file; sample-budget opt-in at sign-up (which pre-creates the first month) → **02-registration-login.md** / **05-onboarding.md**; GA event payloads (`budgetMonthCreated{source}`, `monthNavigated{direction}`) → analytics file; dark-mode/responsive/a11y sweeps → cross-cutting file. **Do not test for:** a delete-month button, route or `DELETE /api/budget/{year}/{month}` endpoint (none exists — only category/item delete); a min/max clamp on the TopBar month navigator (there is none — it reaches any year); server validation text surfacing in the dashboard (create failures are swallowed into the fixed string "Could not create that budget.").
+**ID prefix:** BUDG | **Scope:** Everything about a budget MONTH as an object rather than what is rendered inside it: creating the viewed month from the dashboard not-found state via **"Start {Month}"** (continues the most-recent earlier month; the only choice once one exists), or, with no earlier month, **"Start a blank budget"** or (first budget only) an **"Or start from a template"** card; the wrap-up of the month before shown on that card and the **"From {Month}"** carry-over at the top of Income (BUDG-063 to BUDG-068) (`POST /api/budget {year, month, copyFromPrevious, templateKey}` → `CreateBudgetMonthCommandHandler`); the exact semantics a copy carries (planned amounts flat vs. jar lines re-seeded from the accrual calculator, `DueDay` carried while `IsPaid` resets, `ExcludeFromAllocation` carried, category `DisplayOrder`/`Kind`, `SavingsId` identity, `BaseCurrency` = the budget currency, archived-jar lines dropped, dangling `SavingsId` lines kept, actuals reset because they are always tx-derived); the "every active jar takes part" append step and the as-of (strictly-before) jar-seed balance used when back-filling an earlier month; template precedence and each built-in template's shape; the over-budgeted **empty** month a jar-owning household is born into (PR #172); month navigation via the TopBar `‹ {Month Year} ›` navigator (`MonthContext`, unbounded, clear-month-before-fetch, year-boundary roll, moves every month-scoped screen together); viewing/creating/editing past and future months; the first-ever month (no copy source); duplicate-month and concurrent-create friendly-400 recovery; and the absence of any month-delete affordance. | **Out of scope:** what the loaded month renders and how its groups/lines/bills/hero/jars-shelf/planned-editing behave → **06-dashboard-budget-view.md** (that file owns the four hero footnote states, the bills strip, the jars shelf, group/line CRUD, inline planned edits and dashboard role gating); jar accrual/recurrence maths, jar CRUD, the Jars page and the allocation engine that consumes `ExcludeFromAllocation` → **jars & allocation file** (09); the transactions/transfers that produce the actuals a copy resets → **transactions & transfers file** (08); the onboarding "Create your first month" checklist step, welcome dialog and tour → **05-onboarding.md**; deep role matrix across all pages and session/auth expiry → **03-session-auth-lifecycle.md** + households/roles file; sample-budget opt-in at sign-up (which pre-creates the first month) → **02-registration-login.md** / **05-onboarding.md**; GA event payloads (`budgetMonthCreated{source}`, `monthNavigated{direction}`) → analytics file; dark-mode/responsive/a11y sweeps → cross-cutting file. **Do not test for:** a delete-month button, route or `DELETE /api/budget/{year}/{month}` endpoint (none exists — only category/item delete); a min/max clamp on the TopBar month navigator (there is none — it reaches any year); server validation text surfacing in the dashboard (create failures are swallowed into the fixed string "Could not create that budget.").
 
 **Test data setup:** Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com). **Assumed "today" = 2026-07-15**, so **July 2026 is the current month**, June 2026 is last month, August 2026 is next month. Locale/format default **en-GB comma-dot** (money renders `€1,234.56`), currency **EUR** (noun "euro"). Logins (passwords random `Aa1-<uuid>` — HIBP rejects fixed common ones): **budg-owner@example.test** (Owner of household "Rollover"); **budg-limited@example.test** (role Limited) and **budg-readonly@example.test** (role ReadOnly) as members of the same household. Canonical copy source **JUN26** (June 2026, owned by budg-owner) unless a case builds its own: Income group **"Income"** (line **Salary** planned 2,500.00); expense group **"Housing"** (Rent 1,000.00 `dueDay 1` **IsPaid=true**; Council Tax 150.00 `dueDay 28` unpaid); expense group **"Food"** (Groceries 400.00); an importer-created expense category **"Personal Savings"** with `ExcludeFromAllocation=true` (one line, planned 300.00); savings group **"Savings"** with fund line **Holiday** (backed by jar). Jars owned by the household: **Holiday** (Kind Goal, Accrual TargetByDate, target 1,200.00, due **1 July 2027**, opening 0, active — scheduled, so a month plans `(1,200.00 − balance entering it)` split in whole cents over its contribution months up to June 2027 (twelve from July 2026), remainder in the final month — rules 12, 13, 35, 36); **Car Fund** (a legacy jar with no deadline and no monthly amount → Unscheduled, rule 17; its line copies flat); **Old Boiler** (archived). "Jar-less household" cases use **budg-solo@example.test** with zero jars/months. A month with `TotalIncome = 0` shows the plan-your-income hero prompt and is NOT balanced (`IsBalanced = TotalIncome > 0 && RemainingToBudget == 0`, PR #172). Automation hint: `POST /api/budget` returns **200** (not 201) with the full recomputed `BudgetMonthDto`; there is no month-delete verb.
 
@@ -30,16 +30,17 @@
   - No "Savings" group is created (household owns no jars — the append step adds nothing).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — blank = empty income group only)
 
-### BUDG-003 - Blank create is available even when a copy source exists
-- **Priority:** P2
+### BUDG-003 - Once an earlier month exists, a new month only continues it
+- **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** budg-owner; JUN26 exists; viewing August 2026 (no budget).
+- **Origin:** Christopher, 27 October 2026 ("where did the jars go, where's the continuation?"): a blank or template start dropped the household's plan.
+- **Preconditions:** budg-owner; JUL26 exists; viewing August 2026 (no budget).
 - **Steps:**
-  1. On the not-found card observe the buttons, then click **"Start a blank budget"**.
+  1. On the not-found card observe the buttons.
 - **Expected:**
-  - The **"Copy July 2026"** button (copy always names the most-recent PRIOR month — July, for an August target) sits beside an always-offered **"Start a blank budget"** button.
-  - Clicking blank sends `copyFromPrevious:false` and creates a fresh month ignoring JUN26/JUL26 (only the jar-append step touches jars, not the prior month's plan).
-- **Automated:** No
+  - One button, **"Start August"**; no **"Start a blank budget"**, no template grid, no jar note.
+  - Clicking it sends `copyFromPrevious:true` (the server still accepts a blank or template POST; the screen no longer offers one).
+- **Automated:** Yes (client/src/pages/DashboardPage.test.tsx, client/src/pages/DashboardPage.carry.test.tsx)
 
 ### BUDG-004 - Blank create is disabled while a create is in flight (double-click guard)
 - **Priority:** P2
@@ -48,7 +49,7 @@
 - **Steps:**
   1. Click **"Start a blank budget"** and immediately click it again.
 - **Expected:**
-  - Both **"Start a blank budget"** and any **"Copy …"** / template buttons become `disabled` (opacity-50) for the duration of the POST (`creating` flag); only one `POST /api/budget` is sent; exactly one month is created.
+  - Both **"Start a blank budget"** and any **"Start {Month}"** / template buttons become `disabled` (opacity-50) for the duration of the POST (`creating` flag); only one `POST /api/budget` is sent; exactly one month is created.
 - **Automated:** No
 
 ## Creating a month — copy the previous month
@@ -58,7 +59,7 @@
 - **Type:** Happy
 - **Preconditions:** budg-owner; JUN26 is the fixture; viewing July 2026 with no budget; JUN26 has real spending (Groceries has an assigned transaction).
 - **Steps:**
-  1. On the July 2026 not-found card click **"Copy June 2026"**.
+  1. On the July 2026 not-found card click **"Start July"**.
 - **Expected:**
   - `POST /api/budget {year:2026, month:7, copyFromPrevious:true}`; 200.
   - New month has the same groups in the same order (Income → Housing → Food → Personal Savings → Savings) and the same line names.
@@ -66,26 +67,25 @@
   - Every line's actual is 0 (actuals are tx-derived; July has no transactions yet) — Groceries shows 400.00 planned / 0 spent even though June had spend.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — copy-from-previous copies structure+planned and resets actuals)
 
-### BUDG-006 - Copy button names the actual most-recent prior month, not literally last calendar month
+### BUDG-006 - Start continues the actual most-recent prior month, not literally last calendar month
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #168 (copy names the real source `prevBudget`)
 - **Preconditions:** budg-owner; only APR26 and JUN26 exist (May was skipped); viewing July 2026 (no budget).
 - **Steps:**
-  1. Observe the copy button label on the July not-found card.
+  1. Click **"Start July"** on the July not-found card.
 - **Expected:**
-  - Button reads **"Copy June 2026"** (the most-recent month strictly before July), never "Copy May 2026" or a hardcoded "last month".
-  - Clicking it copies JUN26's plan.
-- **Automated:** Partial (client/src/pages/DashboardPage.test.tsx — Copy-previous offered on an empty month; source-month label wording itself not asserted)
+  - July is built from JUN26's plan (the most-recent month strictly before July), never from a hardcoded "last month".
+- **Automated:** Partial (client/src/pages/DashboardPage.test.tsx — Start continues on an empty month; the source month is the handler's, tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs)
 
 ### BUDG-007 - Copy source is the most-recent month strictly BEFORE the target (back-fill picks an earlier source)
 - **Priority:** P1
 - **Type:** Edge
 - **Preconditions:** budg-owner; APR26 and JUN26 exist; viewing **May 2026** (a gap month, no budget).
 - **Steps:**
-  1. Observe and click the copy button on the May 2026 not-found card.
+  1. Click **"Start May"** on the May 2026 not-found card.
 - **Expected:**
-  - Button reads **"Copy April 2026"** (June is later than May, so it is not the source); copying builds May from APR26's plan.
+  - May is built from APR26's plan (June is later than May, so it is not the source).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — copies only the caller's own previous month; handler picks the most-recent strictly-earlier month)
 
 ### BUDG-008 - Copy carries the bill due day but resets Paid to unpaid
@@ -94,7 +94,7 @@
 - **Origin:** PR #167 / gotcha: DueDay carries on copy, IsPaid resets
 - **Preconditions:** budg-owner; JUN26 has Rent (dueDay 1, **IsPaid=true**) and Council Tax (dueDay 28, unpaid); viewing July 2026 (no budget).
 - **Steps:**
-  1. Click **"Copy June 2026"**.
+  1. Click **"Start July"**.
 - **Expected:**
   - July's Rent keeps `dueDay 1` and July's Council Tax keeps `dueDay 28` (both still tagged "Bill").
   - Both lines are **unpaid** in July — Rent's paid state did NOT copy (a new month starts unpaid); the bills strip reads "0/2 paid".
@@ -105,7 +105,7 @@
 - **Type:** Boundary
 - **Preconditions:** budg-owner; JUN26 has a bill line "Rent" with `dueDay 31`; copy JUN26 into **February 2027**? (build a source first). Simpler: JAN27 has a `dueDay 31` bill; viewing February 2027 (no budget).
 - **Steps:**
-  1. Click **"Copy January 2027"** to create February 2027.
+  1. Click **"Start February"** to create February 2027.
 - **Expected:**
   - The copied line stores `dueDay 31` verbatim (the stored value is not truncated to 28).
   - The February tag/tooltip DISPLAY clamps to day 28 (display concern owned by 06); the persisted `DueDay` is still 31 and re-copies as 31.
@@ -311,7 +311,7 @@
 - **Steps:**
   1. Load the not-found create card with templates unavailable.
 - **Expected:**
-  - The "Or start from a template" section is absent (templates state stays `[]`); Copy/blank buttons still render and work.
+  - The "Or start from a template" section is absent (templates state stays `[]`); the Start / blank buttons still render and work.
 - **Automated:** No
 
 ## Jar-driven creation & the over-budgeted empty month (#172)
@@ -328,15 +328,14 @@
   - Hero: Income `€0.00`, Allotted `€100.00`, Remaining `-€100.00`, rose footnote **"€100.00 over-budgeted — trim a line"** — NOT "Plan your income…", NOT the gold badge.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/JarBudgetLinkTests.cs — blank creates a Savings group for existing jars; Domain/RemainingToBudgetTests.cs + client budgetModel.test.ts — IsBalanced requires income, #172; the combined "blank+jars ⇒ over-budgeted" hero string is not asserted end-to-end)
 
-### BUDG-029 - The jar-append note appears on the not-found card for jar owners
-- **Priority:** P2
-- **Type:** Happy
+### BUDG-029 - No jar-append note on the not-found card
+- **Priority:** P3
+- **Type:** Regression
+- **Origin:** 27 October 2026: the note ("Your 2 existing jars are added to any new budget automatically…") explained templates against jars; a household with history no longer sees templates, and jars always carry on, so the card says nothing about them.
 - **Preconditions:** budg-owner owns 2 active jars; not-found writer state.
-- **Steps:**
-  1. Read the small print under the Copy/blank buttons.
 - **Expected:**
-  - "Your 2 existing jars are added to any new budget automatically, so it will have a few more lines than a template lists." (singular "jar is" for exactly 1 jar; absent when 0 jars).
-- **Automated:** No
+  - No jar note on the card, with or without an earlier month. Creating the month still appends each jar's line (BUDG-030).
+- **Automated:** Yes (client/e2e-journey/budget-lifecycle.spec.ts)
 
 ### BUDG-030 - Every create path appends a line for each active jar not already represented, alphabetically
 - **Priority:** P1
@@ -458,7 +457,7 @@
 - **Steps:**
   1. Use **›** to reach December 2026.
 - **Expected:**
-  - The not-found writer card renders: "No budget for December 2026 yet." with **"Copy {most-recent prior month}"** + **"Start a blank budget"** + template grid — future months are freely creatable.
+  - The not-found writer card renders: "No budget for December 2026 yet." with **"Start December"** only (JUL26 exists, so it continues) — future months are freely creatable; no wrap-up yet (November has not begun, BUDG-064).
 - **Automated:** Partial (client/src/pages/DashboardPage.test.tsx — empty future month offers create; specific month label not asserted)
 
 ### BUDG-041 - Switching months clears the previous month before fetching (no stale render)
@@ -524,7 +523,7 @@
 - **Steps:**
   1. Load the month-less month.
 - **Expected:**
-  - "No budget for {Month} {Year} yet." + "Ask an admin or the owner to set this month up." — no Copy/blank/template controls (create is Admin+).
+  - "No budget for {Month} {Year} yet." + "Ask an admin or the owner to set this month up." — no Start/blank/template controls (create is Admin+).
 - **Automated:** No
 
 ### BUDG-047 - A Limited/ReadOnly login cannot create a month via the API
@@ -613,14 +612,14 @@
   - The month still exists (Income group remains); Income 0, Allotted 0, Remaining `€0.00`; hero shows the neutral empty **"Plan your income, then give every euro a job"** — NOT the gold balanced badge (`IsBalanced` needs `TotalIncome > 0`).
 - **Automated:** Partial (client/src/budgetModel.test.ts / pages/DashboardPage.test.tsx — empty month is not balanced, #172)
 
-### BUDG-055 - The first-ever month offers only blank + templates (no Copy)
+### BUDG-055 - The first-ever month offers only blank + templates (nothing to continue)
 - **Priority:** P0
 - **Type:** Happy
 - **Preconditions:** budg-solo (fresh opt-out-of-samples account, no months, no jars); on `/` at July 2026.
 - **Steps:**
   1. Observe the not-found create card.
 - **Expected:**
-  - **"Start a blank budget"** and the template grid are shown; NO **"Copy …"** button (no strictly-earlier month exists); no jar-append note (no jars).
+  - **"Start a blank budget"** and the template grid are shown; NO **"Start {Month}"** button (no strictly-earlier month exists); no jar-append note (no jars).
   - Starting blank lands on a real empty July with the Income group only and the income-planning prompt.
 - **Automated:** Yes (client/e2e-journey/register.spec.ts — default registration lands on an empty budget, create-month hero offers "Start a blank budget" + "Or start from a template" with NO Copy button for a first-ever month)
 
@@ -641,7 +640,7 @@
 - **Origin:** W06 follow-up, HANDOVER question Q1 answered (a) on 27 September 2026
 - **Preconditions:** People page: Alex (Default income 3,000.00, first), Robin (2,000.00), Sam (0.00), plus an archived person with a default; no budget for the viewed month.
 - **Steps:**
-  1. Click **"Start a blank budget"** (or "Copy …" when no strictly-earlier month exists, which falls back to blank).
+  1. Click **"Start a blank budget"** (or "Start {Month}" when no strictly-earlier month exists, which falls back to blank).
   2. Open the People page for the same month.
 - **Expected:**
   - The Income group holds exactly two lines, in People-page order: **Alex 3,000.00** and **Robin 2,000.00**, each attributed to that person (the "Who earns" picker shows them once the household is shared). Sam (no default) and the archived person get no line; another household's people never do.
@@ -699,3 +698,57 @@
   1. Hover the Holiday row. 2. `PUT /budget/items/{id}/skip` for that line; the same for a Salary line; for an archived jar's line.
 - **Expected:** 1: the **Skipped** tag shows, but no ✕ (`Remove Holiday this month`), no `Delete Holiday` and no Plan it again — the month is over (P46). 2: 400 "August 2026 is over; its planned contributions are history and cannot be skipped."; "Salary is not a jar's contribution line …"; "… is archived and plans no contributions; there is nothing to skip."; another household's line → 403.
 - **Automated:** Yes (DashboardPage.skip.test.tsx — BUDG-062; JarLifecycleW04Tests — `Rule60_OnlyAJarsLine_InAMonthThatIsNotOver_ForAJarThatIsPlanning_CanBeSkipped`)
+
+## Continuing a month: wrap-up and carry-over (27 October 2026)
+
+What a month leaves over is actual money: income received (rule 41), less net spending (rules 37–39) other than what jars paid (saved for earlier), less money moved into jars (never the money set aside when a jar was made, SC-P2-1). Each month passes on what it carried in plus its own result, counted from the household's first budget (`MonthLeftover`, `GET /api/budget/{y}/{m}/wrap-up`). Nothing is stored: a back-dated correction (rule 49) moves it.
+
+### BUDG-063 - The not-found card shows how the month before went
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** budg-owner; JUN26 exists; June: 3,000.00 received, 2,380.00 spent, 500.00 moved into Holiday; viewing July 2026 (no budget).
+- **Expected:**
+  - Under **"Start July"**, a section **"June 2026"**: In €3,000.00 · Spent − €2,380.00 · Into jars − €500.00 · **Left over €120.00** (green), with an ⓘ saying July starts with it.
+  - Overspent instead (left over below zero): the last figure reads **Overspent** in red.
+  - A month before with a carry of its own shows **"From May"** as the first figure, so the row adds up.
+- **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx; tests/AllotJar.Application.Tests/Application/MonthLeftoverTests.cs)
+
+### BUDG-064 - No wrap-up for a month before that has not begun
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** budg-owner; today in July 2026; JUL26 exists; viewing September 2026 (no budget).
+- **Expected:** only **"Start September"**: August has not begun, so there is nothing to sum. While the month before is still running the heading reads **"July 2026 so far"**.
+- **Automated:** No
+
+### BUDG-065 - A started month shows "From {Month}" first under Income, counted in Remaining
+- **Priority:** P0
+- **Type:** Happy
+- **Preconditions:** budg-owner; JUN26 left 120.00 over; JUL26 exists (income 3,000.00, planned 2,900.00).
+- **Expected:**
+  - The Income group's first row is **"From June"** €120.00 (not editable, no menu), with an ⓘ.
+  - Remaining to budget reads €220.00 (3,000 + 120 − 2,900), and its bar fills against 3,120.00; the Income tile stays €3,000.00 with its own received figure (the carry is not income).
+  - With June overspent by 80.00 the row reads **− €80.00** in red and Remaining drops by 80.00.
+  - Reports are unchanged: the carry is not income (Planned income and Received exclude it, rule 41).
+- **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx)
+
+### BUDG-066 - The first budget carries nothing in
+- **Priority:** P1
+- **Type:** Boundary
+- **Preconditions:** budg-solo; only JUL26 exists.
+- **Expected:** no **"From …"** row; Remaining is income − planned; no wrap-up request is made.
+- **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx; MonthLeftoverTests)
+
+### BUDG-067 - A month that has not begun shows the carry as still to come
+- **Priority:** P2
+- **Type:** Edge
+- **Preconditions:** budg-owner; JUL26 and AUG26 exist; today in July.
+- **Expected:** August's first Income row reads **"From July"** with **—** and an ⓘ ("What July leaves over arrives here when August starts."); Remaining does not count it yet.
+- **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx)
+
+### BUDG-068 - Carried money given a job nets out; money left alone keeps carrying
+- **Priority:** P1
+- **Type:** Happy
+- **Preconditions:** budg-owner; first budget September; September leaves 300.00 (a 50.00 bill paid from a jar and 300.00 set aside at the jar's creation do not count against it); October overspends 120.00 (20.00 of it uncategorised).
+- **Expected:** November's **"From October"** reads €180.00; a month with no budget still moves money (December's flows count toward January); a month before the first budget passes nothing on.
+- **Automated:** Yes (tests/AllotJar.Application.Tests/Application/MonthLeftoverTests.cs)
+

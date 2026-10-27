@@ -21,17 +21,16 @@ public class GetMonthWrapUpQueryHandler : IRequestHandler<GetMonthWrapUpQuery, M
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        if (request.Month is < 1 or > 12 || request.Year is < 1 or > 9998)
+        if (request.Month is < 1 or > 12 || request.Year is < 1900 or > 9998)
         {
             throw new ValidationException(new Dictionary<string, string[]>
             {
-                ["Month"] = new[] { "Give a month between 1 and 12 of a year from 1 to 9998." },
+                ["Month"] = new[] { "Give a month between 1 and 12 of a year from 1900 to 9998." },
             });
         }
 
-        var carriedIn = await MonthLeftover.CarriedIntoAsync(_db, userId, request.Year, request.Month, cancellationToken);
-        var month = await MonthLeftover.BetweenAsync(
-            _db, userId, (request.Year, request.Month), (request.Year, request.Month), cancellationToken);
+        var (carriedIn, month, inChain) = await MonthLeftover.WithCarryAsync(
+            _db, userId, request.Year, request.Month, cancellationToken);
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
         return new MonthWrapUpDto
@@ -42,7 +41,8 @@ public class GetMonthWrapUpQueryHandler : IRequestHandler<GetMonthWrapUpQuery, M
             Received = month.Received,
             Spent = month.Spent,
             IntoJars = month.IntoJars,
-            LeftOver = carriedIn + month.LeftOver,
+            // A month before the first budget passes nothing on (it is outside the chain).
+            LeftOver = inChain ? carriedIn + month.LeftOver : 0m,
             IsOver = new DateOnly(request.Year, request.Month, 1).AddMonths(1) <= today,
             FxPendingCount = month.FxPendingCount,
         };

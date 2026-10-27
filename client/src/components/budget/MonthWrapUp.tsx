@@ -29,7 +29,7 @@ export function MonthWrapUp({ wrapUp, currency, next }: { wrapUp: MonthWrapUpDto
         {name} {wrapUp.year}
         {!wrapUp.isOver && ' so far'}
       </p>
-      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-left min-[560px]:grid-cols-[repeat(auto-fit,minmax(0,1fr))]">
+      <dl className="mt-3 grid grid-cols-2 gap-x-6 gap-y-3 text-center min-[560px]:grid-cols-[repeat(auto-fit,minmax(0,1fr))]">
         {figures.map((f) => (
           <div key={f.label} className="min-w-0">
             <dt className="text-xs font-medium text-slate-500">{f.label}</dt>
@@ -40,7 +40,7 @@ export function MonthWrapUp({ wrapUp, currency, next }: { wrapUp: MonthWrapUpDto
           </div>
         ))}
         <div className="min-w-0">
-          <dt className="flex items-center gap-1 text-xs font-medium text-slate-500">
+          <dt className="flex items-center justify-center gap-1 text-xs font-medium text-slate-500">
             {over ? 'Overspent' : 'Left over'}
             <InfoHint label={over ? 'About the overspend' : 'About the money left over'} align="end">
               {over
@@ -48,7 +48,7 @@ export function MonthWrapUp({ wrapUp, currency, next }: { wrapUp: MonthWrapUpDto
                 : `Not spent and not in a jar, so it's still in your accounts. ${next} starts with it.`}
             </InfoHint>
           </dt>
-          <dd className={`mt-0.5 text-sm font-bold tabular-nums ${over ? 'text-bad' : 'text-brand-700'}`}>
+          <dd className={`mt-0.5 text-sm font-bold tabular-nums ${over ? 'text-bad' : 'text-ok'}`}>
             {money(Math.abs(wrapUp.leftOver))}
           </dd>
         </div>

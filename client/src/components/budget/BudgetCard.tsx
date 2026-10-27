@@ -19,7 +19,7 @@ import { useAuth } from '../../auth/AuthContext'
 import { InfoHint } from '../InfoHint'
 import { Button } from '../ui'
 import { BudgetGroup } from './BudgetGroup'
-import { BudgetLine } from './BudgetLine'
+import { BudgetLine, CarryLine } from './BudgetLine'
 import { CARD_TITLE, DASH_CARD } from './card'
 
 export interface BudgetCardProps {
@@ -36,6 +36,11 @@ export interface BudgetCardProps {
   jarOrder: JarDto[]
   /** A past month: jar plans are history (rule 46), and nothing in it can be skipped (rule 60). */
   isPastMonth: boolean
+  /**
+   * What the month before left over, shown first under Income (null amount: the month has not
+   * started, so it has not arrived yet); absent for the first budget.
+   */
+  carry?: { from: string; month: string; minor: Minor | null }
   onCommitItem: (itemId: string, plannedMinor: Minor) => void
   onSetItemMember: (itemId: string, memberId: string | null) => void
   onSetBill: (itemId: string, dueDay: number | null) => void
@@ -172,7 +177,7 @@ export function BudgetCard(props: BudgetCardProps) {
       </div>
 
       {/* Income first: the pool every other group gives a job to. */}
-      {income.map((category) => (
+      {income.map((category, gi) => (
         <BudgetGroup
           key={category.id}
           kind="income"
@@ -180,6 +185,9 @@ export function BudgetCard(props: BudgetCardProps) {
           phone={phone}
           onAddItem={props.onAddItem}
         >
+          {gi === 0 && props.carry && (
+            <CarryLine {...props.carry} currency={currency} phone={phone} />
+          )}
           {category.items.map((item) => (
             <BudgetLine
               key={item.id}

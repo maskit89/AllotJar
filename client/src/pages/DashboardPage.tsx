@@ -20,7 +20,6 @@ import {
   categoryActual,
   fromDto,
   findItem,
-  isBalanced,
   isIncome,
   itemVersionIn,
   monthPlanned,
@@ -42,7 +41,7 @@ import {
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
-import { currencyNoun, currencySymbol, formatMoney, sumMinor, toAmount, type Minor } from '../lib/money'
+import { currencyNoun, currencySymbol, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
 import { Button } from '../components/ui'
 import { Skeleton } from '../components/ui/skeleton'
 import { InfoHint } from '../components/InfoHint'
@@ -263,14 +262,17 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     [months, year, monthNum],
   )
 
-  // How the calendar month before the viewed one went (in, spent, into jars, left over), for the
-  // card that starts the viewed month. Only once that month has begun: a month still ahead has
-  // nothing to tell. Only the latest read lands, as with the jars.
+  // How the calendar month before the viewed one went (in, spent, into jars, left over): the card
+  // that starts the viewed month shows it, and a month that exists carries what it left over
+  // (the "From <month>" line under Income, counted in Remaining to budget). Read once that month
+  // has begun (a month still ahead has nothing to tell yet) and when there is a budget before the
+  // viewed one (the first budget carries nothing in). Only the latest read lands, as with the jars.
   const [wrapUp, setWrapUp] = useState<MonthWrapUpDto | null>(null)
   const wrapUpRead = useRef(0)
   const before = monthNum === 1 ? { year: year - 1, month: 12 } : { year, month: monthNum - 1 }
   const beforeKey = `${before.year}-${String(before.month).padStart(2, '0')}`
-  const wantsWrapUp = notFound && canWrite && prevBudget !== null && beforeKey <= todayKey
+  const hasMonth = month !== null
+  const wantsWrapUp = prevBudget !== null && beforeKey <= todayKey && (hasMonth || (notFound && canWrite))
   useEffect(() => {
     const read = ++wrapUpRead.current
     setWrapUp(null)
@@ -278,10 +280,21 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     api
       .get<MonthWrapUpDto>(`/budget/${before.year}/${before.month}/wrap-up`)
       .then(({ data }) => {
-        if (read === wrapUpRead.current) setWrapUp(data)
+        // Guarded like the jars: an answer without the figures shows none.
+        if (read === wrapUpRead.current && typeof data?.leftOver === 'number') setWrapUp(data)
       })
       .catch(() => {})
   }, [wantsWrapUp, before.year, before.month])
+  // The carry the viewed month shows: what the month before left over once the viewed month has
+  // begun; before it begins nothing has arrived yet (null). Absent for a first budget.
+  const carry = prevBudget === null
+    ? undefined
+    : {
+        from: MONTH_NAMES[before.month - 1],
+        month: MONTH_NAMES[monthNum - 1],
+        minor: isFutureMonth ? null : wrapUp ? fromAmount(wrapUp.leftOver) : 0,
+      }
+  const carryMinor = carry?.minor ?? 0
 
   // Create the viewed month — copying the previous month's plan, or blank.
   const createMonth = useCallback(
@@ -757,7 +770,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // The checklist's steps and their done state, or null once all three are done.
   const checklist = useMemo(() => {
     const hasAccounts = accounts.length > 0
-    const hasMonth = month !== null
+    // Any budget at all: a later month with none yet is started from its own card, and the
+    // first-run checklist does not come back for it.
+    const hasMonth = month !== null || months.length > 0
     const hasJars = jars.length > 0
     if (hasAccounts && hasMonth && hasJars) return null
     const steps: { id: string; label: string; done: boolean; action: ReactNode }[] = [
@@ -818,7 +833,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       },
     ]
     return steps
-  }, [accounts.length, month, jars.length, openJarForm])
+  }, [accounts.length, month, months.length, jars.length, openJarForm])
 
   return (
     <AppShell active="budget" title="Dashboard" month>
@@ -938,13 +953,16 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
         {month && (() => {
           const incomeMinor = totalIncome(month)
+          // What the month before left over is money to give a job, as income is (the "From"
+          // row under Income), but it is not income: the Income tile leaves it out.
+          const toPlanMinor = incomeMinor + carryMinor
           const allottedMinor = monthPlanned(month)
-          const remainingMinor = remainingToBudget(month)
+          const remainingMinor = remainingToBudget(month) + carryMinor
           const money = (minor: Minor) => formatMoney(minor, month.currency)
-          // A month with no income and nothing planned has Remaining €0, but it
+          // A month with nothing to plan and nothing planned has Remaining €0, but it
           // isn't balanced — it's empty. Prompt for income instead of celebrating.
-          const empty = incomeMinor === 0 && allottedMinor === 0
-          const balanced = isBalanced(month)
+          const empty = toPlanMinor === 0 && allottedMinor === 0
+          const balanced = toPlanMinor > 0 && remainingMinor === 0
           const over = remainingMinor < 0
           const noun = currencyNoun(month.currency)
           const receivedMinor = sumMinor(month.categories.filter(isIncome).map(categoryActual))
@@ -976,10 +994,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 hero
                 data-tour="remaining-banner"
                 label="Remaining to budget"
-                hint={`Income not given a job yet. Allot it in the budget below until this reaches ${money(0)}.`}
+                hint={`Money not given a job yet: your income${carry ? ` and what ${carry.from} left over` : ''}. Allot it in the budget below until this reaches ${money(0)}.`}
                 value={money(remainingMinor)}
                 valueLabel={`Remaining to budget: ${money(remainingMinor)}`}
-                extra={<HeroBar pct={incomeMinor > 0 ? (allottedMinor / incomeMinor) * 100 : 0} />}
+                extra={<HeroBar pct={toPlanMinor > 0 ? (allottedMinor / toPlanMinor) * 100 : 0} />}
                 sub={
                   balanced ? (
                     <span className="inline-flex items-center gap-2 font-semibold text-white">
@@ -1098,6 +1116,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     jars={jarsLoaded && !jarsFailed ? jars : null}
                     jarOrder={jars}
                     isPastMonth={isPastMonth}
+                    carry={carry}
                     onCommitItem={commitItem}
                     onSetItemMember={setItemMember}
                     onSetBill={setBill}

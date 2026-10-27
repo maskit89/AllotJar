@@ -11,6 +11,9 @@ async function animationsSettled(target: Locator) {
   )
 }
 
+/** A 200 JSON answer for page.route. */
+const route200 = (body: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify(body) })
+
 // The WCAG 2.x success criteria we assert against (A + AA, through 2.2).
 const WCAG_TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa']
 
@@ -192,6 +195,31 @@ for (const theme of ['light', 'dark'] as const) {
       // An example opens the form filled in (jar setup plan, PR 3).
       await page.getByRole('button', { name: /^Summer holiday, / }).click()
       await page.getByRole('dialog').waitFor()
+      await expectNoViolations(page)
+    })
+
+    test('a month that continues the last one (Start card, wrap-up, carry-over row) has no WCAG A/AA violations', async ({ page }) => {
+      // The mocks' month is June 2026: a budget for May before it, and June not started yet.
+      await page.clock.setFixedTime(new Date('2026-06-10T10:00:00Z'))
+      await authedSetup(page, theme)
+      const months = (body: unknown) => route200(body)
+      await page.route('**/api/budget/months', (route) => route.fulfill(months([{ year: 2026, month: 5, key: '2026-05' }])))
+      await page.route('**/api/budget/2026/6', (route) => route.fulfill({ status: 404, contentType: 'application/json', body: '{}' }))
+      await page.goto('/')
+      await page.getByRole('button', { name: 'Start June' }).waitFor()
+      await page.getByText('Left over').waitFor()
+      await expectNoViolations(page)
+
+      // Once June exists, its Income starts with what May left over.
+      await page.unroute('**/api/budget/2026/6')
+      await page.route('**/api/budget/months', (route) =>
+        route.fulfill(months([{ year: 2026, month: 5, key: '2026-05' }, { year: 2026, month: 6, key: '2026-06' }])),
+      )
+      await page.reload()
+      await page.getByTestId('carry-line').waitFor()
+      await expectNoViolations(page)
+      await page.getByRole('button', { name: 'About the money from May' }).click()
+      await page.getByRole('tooltip').waitFor()
       await expectNoViolations(page)
     })
 
