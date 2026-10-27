@@ -274,7 +274,7 @@ describe('JarsPage — catalog supplemental (JAR)', () => {
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ kind: 1, targetAmount: 0, accrual: 2, monthlyContribution: 50, targetDate: null }))
 
     // By a date with nothing left to save (already set aside, under More options, covers the target).
-    await user.click(fixed)
+    await user.click(dialog.getByLabelText('Save by a date'))
     await user.type(dialog.getByLabelText('Target amount'), '300')
     fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
     await user.click(dialog.getByRole('button', { name: 'More options' }))

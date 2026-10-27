@@ -609,13 +609,13 @@ describe('JarsPage — catalog (JAR)', () => {
     expect(mockPost).not.toHaveBeenCalled()
 
     // A fixed monthly amount plans it: the estimate is worded as an estimate (rule 58).
-    await user.click(dialog.getByLabelText('Set aside a fixed amount each month')) // tick the switch
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month')) // choose a fixed amount
     await user.type(dialog.getByLabelText('Monthly amount'), '50')
     expect(await dialog.findByText('€50.00 a month · about 4 months to go (estimate)', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ jarId: 'f1', accrual: 2, monthlyContribution: 50, targetDate: null }))
 
-    // …and so does a date (untick the switch to save by one again).
-    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    // …and so does a date (choose to save by one again).
+    await user.click(dialog.getByLabelText('Save by a date'))
     fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
     expect(await dialog.findByText('€60.00 a month · Sep 2026 – Nov 2026', {}, { timeout: 5000 })).toBeInTheDocument()
   })
