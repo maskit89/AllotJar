@@ -22,7 +22,8 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.Sql("ALTER DATABASE CURRENT SET AUTO_CLOSE ON;", suppressTransaction: true);
+            // Left off: AUTO_CLOSE on is never wanted (it was part of the 25 Oct outage), and
+            // production had it turned off by hand before this migration existed.
         }
     }
 }

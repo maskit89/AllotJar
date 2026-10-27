@@ -167,6 +167,10 @@ public static class BudgetActuals
             return new Dictionary<(int Year, int Month), int>();
         }
         var (from, through) = Span(asked);
+        if (from > through)
+        {
+            return new Dictionary<(int Year, int Month), int>();
+        }
         var counts = await db.Transactions
             .Where(HouseholdMoney.Counts(db))
             .Where(t => t.OwnerId == ownerId && t.FxPending && t.Date >= from && t.Date <= through)
@@ -177,19 +181,21 @@ public static class BudgetActuals
     }
 
     /// <summary>
-    /// The dates from the first of these months to the last day of the last, widened to the
-    /// calendar's ends for a year no date can have (a report asked for year 0): a span at least
-    /// as wide, read again month by month.
+    /// The dates from the first of these months to the last day of the last. A year no date can
+    /// have (a report asked for year 0) is left out, as it holds no rows; when no month is left the
+    /// span is empty (From after Through), so a caller can skip its query.
     /// </summary>
     public static (DateOnly From, DateOnly Through) Span(IReadOnlyCollection<(int Year, int Month)> months)
     {
-        var first = months.Min();
-        var last = months.Max();
-        var from = first.Year is >= 1 and <= 9999 ? new DateOnly(first.Year, first.Month, 1) : DateOnly.MinValue;
-        var through = last.Year is >= 1 and <= 9999
-            ? new DateOnly(last.Year, last.Month, DateTime.DaysInMonth(last.Year, last.Month))
-            : DateOnly.MaxValue;
-        return (from, through);
+        var dated = months.Where(m => m.Year is >= 1 and <= 9999).ToList();
+        if (dated.Count == 0)
+        {
+            return (DateOnly.MaxValue, DateOnly.MinValue);
+        }
+        var first = dated.Min();
+        var last = dated.Max();
+        return (new DateOnly(first.Year, first.Month, 1),
+            new DateOnly(last.Year, last.Month, DateTime.DaysInMonth(last.Year, last.Month)));
     }
 
     /// <summary>
