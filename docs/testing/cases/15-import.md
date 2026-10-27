@@ -997,3 +997,12 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Steps:** Upload each as a Bank CSV and open **Columns**.
 - **Expected:** Headers match on whole words, best name first ("in" never matches "Description"; "Balance" and "Value date" are never the amount). A semicolon file with decimal commas is read as semicolon-separated. A file with only a value date uses it as the date. Without a header, the pair of number columns is read as debit (left) and credit (right), not the balance. Maltese headers (Data, Deskrizzjoni, Debitu, Kreditu, Bilanċ) are recognised.
 - **Automated:** Yes (GenericCsvColumnDetectionTests.cs)
+
+### IMP-103 - DR/CR markers, a direction column, and lines above the table
+- **Priority:** P1
+- **Type:** Functional
+- **Origin:** #404 review round 1 (P1-1, P2-3, P2-4)
+- **Preconditions:** CSVs with (a) `23.40 DR` / `2100.00 CR` in one Amount column; (b) `Amount` plus a `Dr/Cr` (or `Debit/Credit`, or `Transaction Type` of DEBIT/CREDIT) column; (c) Debit/Credit columns where Credit is empty for the first 31 rows, or empty throughout (a card statement); (d) Excel-padded preamble lines such as `Period,01/09/2026,30/09/2026,,,` above the header.
+- **Steps:** Upload each as a Bank CSV; for (d) open **Columns** › **More options**.
+- **Expected:** (a) DR rows are money out and CR rows money in. (b) **Direction column** under More options is detected and sets each row's direction. (c) The pair is kept and every purchase is money out. (d) The table starts at the real header (**Skip lines** shows how many lines are skipped and can be changed). A first transaction printed without its trailing empty fields is not skipped. Text with digits ("POS 4921 LIDL") is never taken for an amount.
+- **Automated:** Yes (GenericCsvColumnDetectionTests.cs, ImportPage.test.tsx)

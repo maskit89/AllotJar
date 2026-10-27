@@ -41,6 +41,18 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     [GeneratedRegex(@"[^\p{L}\p{N}]+", RegexOptions.CultureInvariant)]
     private static partial Regex NonWord();
 
+    // An amount and nothing else: digits with separators, and around them an optional DR/CR,
+    // bracket, sign, currency symbol or common currency code (a list, so "ATM 50" is not read as
+    // 50 in a currency "ATM"), then an optional trailing sign, bracket and DR/CR or D/C.
+    [GeneratedRegex(
+        @"^(?:(?i:DR|CR)\s+)?\(?\s*[+\-\u2212]?\s*(?:[€$£¥]\s*|(?:EUR|USD|GBP|CHF|SEK|NOK|DKK|PLN|CZK|HUF|RON|BGN|ISK|AUD|CAD|NZD|JPY|CNY|TRY)\s?)?[+\-\u2212]?\s*\d[\d.,'\u00A0 ]*(?:\s?[€$£¥]|\s?(?:EUR|USD|GBP|CHF|SEK|NOK|DKK|PLN|CZK|HUF|RON|BGN|ISK|AUD|CAD|NZD|JPY|CNY|TRY))?\s*[+\-\u2212]?\s*\)?\s*(?i:DR|CR|D|C)?\.?$",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex StrictAmount();
+
+    // A DR/CR marker before or after an amount ("DR 23.40", "23.40 DR", "50.00DR", "23.40 D").
+    [GeneratedRegex(@"^(?<m>DR|CR)\s+|(?<=[\d\s)])(?<m>DR|CR|D|C)\.?$", RegexOptions.CultureInvariant | RegexOptions.IgnoreCase)]
+    private static partial Regex DirectionMarker();
+
     public CsvLayout Detect(string content)
     {
         var lines = NonEmptyLines(content);
@@ -52,16 +64,13 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         var delimiter = DetectDelimiter(lines);
         var rows = lines.Select(l => SplitLine(l, delimiter)).ToList();
 
-        // Banks often print a few lines first (account name, period, opening balance). The table
-        // starts at the first row with a date that is as wide as the transaction rows; the row just
-        // above it is the header when it carries no date of its own.
-        var dataStart = FindDataStart(rows);
-        var hasHeader = dataStart > 0
-            && !RowHasDate(rows[dataStart - 1])
-            && rows[dataStart - 1].Count(c => c.Trim().Length > 0) >= 2;
+        // Banks often print a few lines first (account name, period, opening balance): find where
+        // the table starts and whether a header row heads it.
+        var (dataStart, hasHeader) = LocateTable(rows);
         var skipRows = hasHeader ? dataStart - 1 : dataStart;
 
-        var dataRows = rows.Skip(dataStart).Take(30).ToList();
+        var table = rows.Skip(dataStart).ToList();
+        var sample = table.Take(30).ToList();
         var columnCount = rows.Skip(skipRows).Max(r => r.Count);
         var headers = hasHeader ? rows[skipRows] : new List<string>();
         var columns = Enumerable.Range(0, columnCount)
@@ -70,9 +79,9 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                 : $"Column {i + 1}")
             .ToList();
 
-        var mapping = GuessMapping(delimiter, hasHeader, columns, dataRows, columnCount) with { SkipRows = skipRows };
-        var sample = dataRows.Take(5).Select(r => (IReadOnlyList<string>)r).ToList();
-        return new CsvLayout(columns, sample, mapping);
+        var mapping = GuessMapping(delimiter, hasHeader, columns, sample, table, columnCount) with { SkipRows = skipRows };
+        var preview = sample.Take(5).Select(r => (IReadOnlyList<string>)r).ToList();
+        return new CsvLayout(columns, preview, mapping);
     }
 
     public ParsedStatement Parse(string content, CsvMapping mapping)
@@ -149,13 +158,13 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     // --- Detection helpers ---------------------------------------------------
 
     private static CsvMapping GuessMapping(
-        char delimiter, bool hasHeader, List<string> columns, List<List<string>> dataRows, int columnCount)
+        char delimiter, bool hasHeader, List<string> columns, List<List<string>> sample, List<List<string>> table, int columnCount)
     {
-        double DateScore(int col) => Fraction(dataRows, col, c => TryParseDate(c, null, out _));
-        double AmountScore(int col) => Fraction(dataRows, col, c => TryParseSignedAmount(c, CsvDecimalStyle.Auto, out _));
-        double CurrencyScore(int col) => Fraction(dataRows, col, c => CurrencyCode().IsMatch(c.Trim()));
-        double TextLen(int col) => dataRows.Count == 0 ? 0
-            : dataRows.Average(r => col < r.Count ? r[col].Trim().Length : 0);
+        double DateScore(int col) => Fraction(sample, col, c => TryParseDate(c, null, out _));
+        double AmountScore(int col) => Fraction(sample, col, IsNumberCell);
+        double CurrencyScore(int col) => Fraction(sample, col, c => CurrencyCode().IsMatch(c.Trim()));
+        double TextLen(int col) => sample.Count == 0 ? 0
+            : sample.Average(r => col < r.Count ? r[col].Trim().Length : 0);
 
         var cols = Enumerable.Range(0, columnCount).ToList();
         var used = new HashSet<int>();
@@ -168,27 +177,46 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             ?? cols.OrderByDescending(DateScore).First();
         used.Add(dateColumn);
 
-        // Separate money-out and money-in columns, by their headers or, without a header, two
-        // number columns where each row fills exactly one.
+        // A column named for money out or money in is never read as a signed amount: its numbers
+        // carry no sign, so every row would become money in.
+        var sideNamed = !hasHeader ? new HashSet<int>() : cols
+            .Where(c => BestHeader(columns, Roles.Debit, []) == c || BestHeader(columns, Roles.Credit, []) == c)
+            .ToHashSet();
+
+        // Separate money-out and money-in columns named by their headers. Every filled cell must be
+        // a number, read over the whole file: a card statement's Credit column may be empty.
         int? debitColumn = ByHeader(Roles.Debit);
         int? creditColumn = debitColumn is int d ? BestHeader(columns, Roles.Credit, [.. used, d]) : null;
-        if (!hasHeader || debitColumn is null || creditColumn is null
-            || !HoldsAmounts(dataRows, debitColumn.Value) || !HoldsAmounts(dataRows, creditColumn.Value))
+        if (debitColumn is not int dh || creditColumn is not int ch
+            || !OnlyAmounts(table, dh) || !OnlyAmounts(table, ch)
+            || (!AnyFilled(table, dh) && !AnyFilled(table, ch)))
         {
             debitColumn = creditColumn = null;
         }
 
-        int? amountColumn = ByHeader(Roles.Amount);
-        if (amountColumn is int a && debitColumn is null && AmountScore(a) < 0.5)
+        // A column of DR/CR (or Debit/Credit) markers gives the direction of an unsigned amount.
+        int? directionColumn = debitColumn is null
+            ? cols.Where(c => !used.Contains(c)).Cast<int?>().FirstOrDefault(c => IsDirectionColumn(table, c!.Value))
+            : null;
+        if (directionColumn is int dir)
+        {
+            used.Add(dir);
+        }
+
+        int? amountColumn = debitColumn is null ? ByHeader(Roles.Amount) : null;
+        if (amountColumn is int a && AmountScore(a) < 0.5)
         {
             amountColumn = null; // "Amount" heads a column of something else; read the content
         }
         if (debitColumn is null && amountColumn is null)
         {
-            var numeric = cols.Where(c => !used.Contains(c) && !IsBalance(columns, hasHeader, c)).ToList();
-            // A pair first: a running balance beside them is a full number column too.
+            var numeric = cols
+                .Where(c => !used.Contains(c) && !IsBalance(columns, hasHeader, c) && !sideNamed.Contains(c))
+                .ToList();
             var best = numeric.OrderByDescending(AmountScore).FirstOrDefault(-1);
-            if (FindSplitPair(dataRows, numeric) is (int o, int i))
+            // A pair first (without a direction column): a running balance beside it is a full
+            // number column too.
+            if (directionColumn is null && FindSplitPair(table, numeric, cols.Where(c => !used.Contains(c)).ToList()) is (int o, int i))
             {
                 (debitColumn, creditColumn) = (o, i);
             }
@@ -198,7 +226,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             }
             else
             {
-                amountColumn = best >= 0 ? best : (dateColumn == 0 ? 1 : 0);
+                amountColumn = best >= 0 ? best : cols.FirstOrDefault(c => !used.Contains(c), dateColumn == 0 ? 1 : 0);
             }
         }
         if (debitColumn is int dc && creditColumn is int cc2)
@@ -206,6 +234,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             used.Add(dc);
             used.Add(cc2);
             amountColumn = null;
+            directionColumn = null;
         }
         if (amountColumn is int ac)
         {
@@ -247,7 +276,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             DecimalStyle: CsvDecimalStyle.Auto,
             DefaultCurrency: null,
             DebitColumn: debitColumn,
-            CreditColumn: creditColumn);
+            CreditColumn: creditColumn,
+            DirectionColumn: directionColumn);
     }
 
     /// <summary>
@@ -272,20 +302,20 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         public static readonly HeaderRole Debit = new(
             ["debit", "debits", "debit amount", "withdrawal", "withdrawals", "money out", "paid out", "out", "dr",
              "payments", "payment", "outgoing", "outflow", "spent", "charges", "debitu"],
-            [.. NotMoney, "credit", "kreditu"]);
+            [.. NotMoney, "credit", "kreditu", "cr"]);
 
         public static readonly HeaderRole Credit = new(
             ["credit", "credits", "credit amount", "deposit", "deposits", "money in", "paid in", "in", "cr",
              "receipts", "incoming", "inflow", "received", "lodgements", "lodgement", "kreditu"],
-            [.. NotMoney, "debit", "debitu"]);
+            [.. NotMoney, "debit", "debitu", "dr"]);
 
         public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount"]);
 
         public static readonly HeaderRole Description = new(
-            ["description", "transaction description", "details", "transaction details", "narrative", "narration",
-             "payee", "merchant", "particulars", "beneficiary", "counterparty", "memo", "remarks", "deskrizzjoni",
-             "dettalji", "name", "reference"],
-            ["date", "balance", "amount"]);
+            ["description", "transaction description", "details", "transaction details", "payment details", "narrative",
+             "narration", "payee", "merchant", "particulars", "beneficiary", "counterparty", "memo", "remarks",
+             "deskrizzjoni", "dettalji", "name", "reference"],
+            ["date", "balance", "amount", "account"]);
     }
 
     /// <summary>
@@ -303,22 +333,30 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             {
                 continue;
             }
-            var header = $" {HeaderWords(columns[i])} ";
-            if (header.Trim().Length == 0 || role.Excluded.Any(x => header.Contains($" {x} ", StringComparison.Ordinal)))
+            var score = HeaderScore(columns[i], role);
+            if (score > bestScore)
             {
-                continue;
+                (best, bestScore) = (i, score);
             }
-            for (var n = 0; n < role.Names.Length; n++)
-            {
-                var name = role.Names[n];
-                var score = header.Trim() == name ? 2000 - n
-                    : header.Contains($" {name} ", StringComparison.Ordinal) ? 1000 - n
-                    : 0;
-                if (score > bestScore)
-                {
-                    (best, bestScore) = (i, score);
-                }
-            }
+        }
+        return best;
+    }
+
+    private static int HeaderScore(string column, HeaderRole role)
+    {
+        var header = $" {HeaderWords(column)} ";
+        if (header.Trim().Length == 0 || role.Excluded.Any(x => header.Contains($" {x} ", StringComparison.Ordinal)))
+        {
+            return 0;
+        }
+        var best = 0;
+        for (var n = 0; n < role.Names.Length; n++)
+        {
+            var name = role.Names[n];
+            var score = header.Trim() == name ? 2000 - n
+                : header.Contains($" {name} ", StringComparison.Ordinal) ? 1000 - n
+                : 0;
+            best = Math.Max(best, score);
         }
         return best;
     }
@@ -330,57 +368,157 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     private static bool IsBalance(List<string> columns, bool hasHeader, int col) =>
         hasHeader && col < columns.Count && $" {HeaderWords(columns[col])} ".Contains(" balance ", StringComparison.Ordinal);
 
-    /// <summary>Every filled cell of the column is a number, and at least one is filled.</summary>
-    private static bool HoldsAmounts(List<List<string>> rows, int col)
+    /// <summary>
+    /// Whether a cell reads as an amount for detection: digits with separators, and nothing else
+    /// but a sign, brackets, a currency symbol or code and a DR/CR marker. Stricter than
+    /// <see cref="TryParseSignedAmount"/>, which reads a mapped column and drops any other text,
+    /// so "POS 4921 LIDL" is never taken for 4921. A date is not an amount.
+    /// </summary>
+    private static bool IsNumberCell(string cell) =>
+        StrictAmount().IsMatch(cell.Trim()) && !TryParseDate(cell, null, out _);
+
+    /// <summary>An empty cell, or a dash or "n/a" a bank prints for nothing.</summary>
+    private static bool IsBlank(string cell) =>
+        cell.Trim() is "" or "-" or "–" or "—" or "−" or "n/a" or "N/A" or "na" or "NA";
+
+    private static bool AnyFilled(List<List<string>> rows, int col) =>
+        rows.Any(r => col < r.Count && !IsBlank(r[col]));
+
+    /// <summary>Every filled cell of the column is an amount (an empty column qualifies).</summary>
+    private static bool OnlyAmounts(List<List<string>> rows, int col) =>
+        rows.All(r => col >= r.Count || IsBlank(r[col]) || IsNumberCell(r[col]));
+
+    private static bool HasNegative(List<List<string>> rows, int col) =>
+        rows.Any(r => col < r.Count && !IsBlank(r[col])
+            && TryParseSignedAmount(r[col], CsvDecimalStyle.Auto, out var v) && v < 0m);
+
+    private static readonly HashSet<string> DirectionWords = new(StringComparer.OrdinalIgnoreCase)
     {
-        var filled = rows.Where(r => col < r.Count && r[col].Trim().Length > 0).ToList();
+        "dr", "cr", "d", "c", "db", "dt", "ct", "debit", "credit", "debitu", "kreditu",
+    };
+
+    /// <summary>A column that holds only DR/CR (or Debit/Credit) markers, filled on most rows.</summary>
+    private static bool IsDirectionColumn(List<List<string>> rows, int col)
+    {
+        var filled = rows.Where(r => col < r.Count && !IsBlank(r[col])).Select(r => r[col].Trim().TrimEnd('.')).ToList();
         return filled.Count > 0
-            && filled.Count(r => TryParseSignedAmount(r[col], CsvDecimalStyle.Auto, out _)) >= filled.Count * 0.9;
+            && filled.Count >= rows.Count * 0.8
+            && filled.All(DirectionWords.Contains)
+            && filled.Select(DirectionSign).Distinct().Count() > 1;
     }
+
+    /// <summary>-1 for a money-out marker, +1 for money in, 0 for anything else.</summary>
+    private static int DirectionSign(string cell) => cell.Trim().TrimEnd('.').ToLowerInvariant() switch
+    {
+        "dr" or "d" or "db" or "dt" or "debit" or "debitu" => -1,
+        "cr" or "c" or "ct" or "credit" or "kreditu" => 1,
+        _ => 0,
+    };
 
     /// <summary>
     /// Two number columns, side by side, where nearly every row fills exactly one: a money-out and
-    /// a money-in column. Banks put money out first, so the left one is read as money out; the
-    /// user can swap them on the column screen.
+    /// a money-in column. Neither may hold a negative number (that is a signed amount) and each
+    /// must be filled on a real share of rows (a fee or cheque-number column is not). Banks put
+    /// money out first; a running balance in <paramref name="others"/> decides when it disagrees.
     /// </summary>
-    private static (int Out, int In)? FindSplitPair(List<List<string>> rows, List<int> candidates)
+    private static (int Out, int In)? FindSplitPair(List<List<string>> rows, List<int> candidates, List<int> others)
     {
         if (rows.Count == 0)
         {
             return null;
         }
         static bool Filled(List<string> r, int c) =>
-            c < r.Count && TryParseSignedAmount(r[c], CsvDecimalStyle.Auto, out var v) && v != 0m;
+            c < r.Count && !IsBlank(r[c]) && TryParseSignedAmount(r[c], CsvDecimalStyle.Auto, out var v) && v != 0m;
+        var share = Math.Max(1, (int)Math.Ceiling(rows.Count * 0.1));
         foreach (var left in candidates)
         {
             var right = left + 1;
-            if (!candidates.Contains(right) || !HoldsAmounts(rows, left) || !HoldsAmounts(rows, right))
+            if (!candidates.Contains(right)
+                || !OnlyAmounts(rows, left) || !OnlyAmounts(rows, right)
+                || HasNegative(rows, left) || HasNegative(rows, right))
+            {
+                continue;
+            }
+            if (rows.Count(r => Filled(r, left)) < share || rows.Count(r => Filled(r, right)) < share)
             {
                 continue;
             }
             var exactlyOne = rows.Count(r => Filled(r, left) ^ Filled(r, right));
-            var both = rows.Any(r => Filled(r, left)) && rows.Any(r => Filled(r, right));
-            if (both && exactlyOne >= rows.Count * 0.8)
+            if (exactlyOne < rows.Count * 0.8)
             {
-                return (left, right);
+                continue;
             }
+            return BalanceSaysMoneyInIsLeft(rows, left, right, others.Where(c => c != left && c != right))
+                ? (right, left)
+                : (left, right);
         }
         return null;
     }
 
     /// <summary>
-    /// The row's signed amount: from the one amount column, or money in less money out when the
-    /// mapping splits them (a sign the bank printed in either column is ignored). False for a row
-    /// with no amount, which is not a transaction.
+    /// Whether a running-balance column says "left is money out" is the wrong way round. Each
+    /// reading of the file (oldest or newest row first, left as money out or as money in) is
+    /// counted by how many steps the balance moves by exactly that row's money in less money out;
+    /// only a reading that explains most steps decides.
+    /// </summary>
+    private static bool BalanceSaysMoneyInIsLeft(List<List<string>> rows, int left, int right, IEnumerable<int> others)
+    {
+        decimal Value(List<string> r, int c) =>
+            c < r.Count && TryParseSignedAmount(r[c], CsvDecimalStyle.Auto, out var v) ? Math.Abs(v) : 0m;
+        foreach (var bal in others)
+        {
+            if (!OnlyAmounts(rows, bal) || rows.Count(r => bal < r.Count && !IsBlank(r[bal])) < rows.Count * 0.9)
+            {
+                continue;
+            }
+            int steps = 0, oldestAsIs = 0, oldestSwapped = 0, newestAsIs = 0, newestSwapped = 0;
+            for (var i = 1; i < rows.Count; i++)
+            {
+                if (bal >= rows[i].Count || bal >= rows[i - 1].Count
+                    || !TryParseSignedAmount(rows[i][bal], CsvDecimalStyle.Auto, out var now)
+                    || !TryParseSignedAmount(rows[i - 1][bal], CsvDecimalStyle.Auto, out var before))
+                {
+                    continue;
+                }
+                steps++;
+                // Oldest first, the step belongs to this row; newest first, to the row above.
+                var netHere = Value(rows[i], right) - Value(rows[i], left);
+                var netAbove = Value(rows[i - 1], right) - Value(rows[i - 1], left);
+                if (now - before == netHere) oldestAsIs++;
+                if (now - before == -netHere) oldestSwapped++;
+                if (before - now == netAbove) newestAsIs++;
+                if (before - now == -netAbove) newestSwapped++;
+            }
+            var best = new[] { oldestAsIs, oldestSwapped, newestAsIs, newestSwapped }.Max();
+            if (steps > 0 && best >= steps * 0.6)
+            {
+                return best != oldestAsIs && best != newestAsIs;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// The row's signed amount: from the one amount column (its sign set by the direction column
+    /// when there is one), or money in less money out when the mapping splits them (a sign the
+    /// bank printed in either column is ignored). False for a row with no amount.
     /// </summary>
     private static bool TryReadAmount(List<string> row, CsvMapping mapping, out decimal signed)
     {
         signed = 0m;
         if (!mapping.SplitAmounts)
         {
-            return TryCell(row, mapping.AmountColumn, out var cell)
-                && TryParseSignedAmount(cell, mapping.DecimalStyle, out signed)
-                && signed != 0m;
+            if (!TryCell(row, mapping.AmountColumn, out var cell)
+                || !TryParseSignedAmount(cell, mapping.DecimalStyle, out signed)
+                || signed == 0m)
+            {
+                return false;
+            }
+            if (mapping.DirectionColumn is int dc && TryCell(row, dc, out var marker) && DirectionSign(marker) is var sign && sign != 0)
+            {
+                signed = sign * Math.Abs(signed);
+            }
+            return true;
         }
         var moneyOut = TryCell(row, mapping.DebitColumn!.Value, out var outCell)
             && TryParseSignedAmount(outCell, mapping.DecimalStyle, out var o) ? Math.Abs(o) : 0m;
@@ -391,19 +529,40 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     }
 
     /// <summary>
-    /// The first row of the transaction table: the first row with a date that has as many cells as
-    /// most dated rows do, so a "From,01/09/2026" line above the table is not taken for it.
+    /// Where the transaction table starts, and whether a header row sits right above it. A row
+    /// naming a date column and an amount, debit or credit column is the header. Without one, the
+    /// table starts at the first row with a date in the column where most rows have theirs, so a
+    /// "Period,01/09/2026,30/09/2026" line above the table is not taken for it, and a first row
+    /// the bank printed without its trailing empty fields is not skipped.
     /// </summary>
-    private static int FindDataStart(List<List<string>> rows)
+    private static (int DataStart, bool HasHeader) LocateTable(List<List<string>> rows)
     {
-        var dated = rows.Take(200).Where(RowHasDate).ToList();
-        if (dated.Count == 0)
+        for (var i = 0; i < Math.Min(rows.Count - 1, 50); i++)
         {
-            return 0;
+            var row = rows[i];
+            if (!RowHasDate(row)
+                && row.Any(c => HeaderScore(c, Roles.Date) > 0 || HeaderScore(c, Roles.ValueDate) > 0)
+                && row.Any(c => HeaderScore(c, Roles.Amount) > 0 || HeaderScore(c, Roles.Debit) > 0 || HeaderScore(c, Roles.Credit) > 0))
+            {
+                return (i + 1, true);
+            }
         }
-        var width = dated.GroupBy(r => r.Count).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First().Key;
-        var index = rows.FindIndex(r => r.Count >= width && RowHasDate(r));
-        return index < 0 ? 0 : index;
+
+        var dateColumns = rows.Take(200)
+            .Select(r => r.FindIndex(c => TryParseDate(c, null, out _)))
+            .Where(c => c >= 0)
+            .ToList();
+        if (dateColumns.Count == 0)
+        {
+            return (0, false);
+        }
+        var dateColumn = dateColumns.GroupBy(c => c).OrderByDescending(g => g.Count()).ThenBy(g => g.Key).First().Key;
+        var start = rows.FindIndex(r => r.Count > dateColumn && r.FindIndex(c => TryParseDate(c, null, out _)) == dateColumn);
+        start = Math.Max(0, start);
+        var hasHeader = start > 0
+            && !RowHasDate(rows[start - 1])
+            && rows[start - 1].Count(c => c.Trim().Length > 0) >= 2;
+        return (start, hasHeader);
     }
 
     private static double Fraction(List<List<string>> rows, int col, Func<string, bool> predicate)
@@ -530,8 +689,16 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     private static bool TryParseSignedAmount(string raw, CsvDecimalStyle style, out decimal amount)
     {
         amount = 0m;
-        var s = raw.Trim();
+        var s = raw.Trim().Replace('\u2212', '-'); // a typographic minus
         if (s.Length == 0) return false;
+
+        // "23.40 DR" is money out and "2,100.00 CR" money in, whatever sign is printed.
+        var marker = DirectionMarker().Match(s);
+        var markerSign = marker.Success ? DirectionSign(marker.Groups["m"].Value) : 0;
+        if (marker.Success)
+        {
+            s = s.Remove(marker.Index, marker.Length).Trim();
+        }
 
         // Accounting-style negatives: "(35.00)" means -35.00.
         var parenNegative = s.StartsWith('(') && s.EndsWith(')');
@@ -571,7 +738,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             return false;
         }
 
-        amount = parenNegative || signNegative ? -value : value;
+        amount = markerSign != 0 ? markerSign * value
+            : parenNegative || signNegative ? -value : value;
         return true;
     }
 

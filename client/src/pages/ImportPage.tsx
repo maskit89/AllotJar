@@ -2132,7 +2132,7 @@ export function ImportPage() {
                     if (e.target.value === 'one') return { ...m, debitColumn: null, creditColumn: null }
                     // Start from the amount column and the one after it; the user corrects either.
                     const credit = m.amountColumn + 1 < layout.columns.length ? m.amountColumn + 1 : Math.max(0, m.amountColumn - 1)
-                    return { ...m, debitColumn: m.amountColumn, creditColumn: credit }
+                    return { ...m, debitColumn: m.amountColumn, creditColumn: credit, directionColumn: null }
                   })
                 }
               >
@@ -2169,7 +2169,7 @@ export function ImportPage() {
               </SelectField>
             )}
           </div>
-          {/* The four that are almost never changed, behind one quiet row (closed). */}
+          {/* The ones that are almost never changed, behind one quiet row (closed). */}
           <details className="group/more mt-4 border-t border-line max-[699.98px]:mt-3.5">
             <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-lg text-sm font-semibold text-slate-500 transition hover:text-slate-900 [&::-webkit-details-marker]:hidden">
               More options
@@ -2203,6 +2203,31 @@ export function ImportPage() {
                   <option value=";">Semicolon ;</option>
                   <option value={'\t'}>Tab</option>
                   <option value="|">Pipe |</option>
+                </select>
+              </SelectField>
+              {!split && (
+                <SelectField label="Direction column">
+                  <select
+                    aria-label="Direction column"
+                    value={mapping.directionColumn ?? ''}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, directionColumn: e.target.value === '' ? null : Number(e.target.value) } : m))}
+                  >
+                    <option value="">None (signed amounts)</option>
+                    {columnOptions}
+                  </select>
+                </SelectField>
+              )}
+              <SelectField label="Skip lines">
+                <select
+                  aria-label="Skip lines"
+                  value={mapping.skipRows ?? 0}
+                  onChange={(e) => setMapping((m) => (m ? { ...m, skipRows: Number(e.target.value) } : m))}
+                >
+                  {Array.from({ length: Math.max(21, (mapping.skipRows ?? 0) + 1) }, (_, n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
                 </select>
               </SelectField>
               <label className="dlg-check flex h-10 cursor-pointer items-center gap-2.5 self-end text-sm font-medium text-slate-900 max-[699.98px]:h-11">

@@ -475,6 +475,8 @@ export interface CsvMapping {
   creditColumn?: number | null
   /** Lines the bank prints above the header (or the first row). */
   skipRows?: number
+  /** With one amount column: a column of DR/CR (or Debit/Credit) markers that sets each row's direction. */
+  directionColumn?: number | null
 }
 
 /** The layout the server detected from an uploaded CSV, for the mapping UI. */

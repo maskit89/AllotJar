@@ -21,7 +21,8 @@ public enum CsvDecimalStyle
 /// (<see cref="AmountColumn"/>: negative = money out, positive = money in) or, when both
 /// <see cref="DebitColumn"/> and <see cref="CreditColumn"/> are set, from a money-out and a
 /// money-in column (each holding the amount without a sign), and <see cref="AmountColumn"/> is
-/// then not read. <see cref="SkipRows"/> is the number of lines above the header (or the first
+/// then not read. <see cref="DirectionColumn"/>, with one amount column, holds a DR/CR (or
+/// Debit/Credit) marker per row that sets the amount's direction. <see cref="SkipRows"/> is the number of lines above the header (or the first
 /// row, without a header) that the bank prints first, such as an account name or a period.
 /// </summary>
 public record CsvMapping(
@@ -36,7 +37,8 @@ public record CsvMapping(
     string? DefaultCurrency,
     int? DebitColumn = null,
     int? CreditColumn = null,
-    int SkipRows = 0)
+    int SkipRows = 0,
+    int? DirectionColumn = null)
 {
     /// <summary>Whether amounts come from separate money-out and money-in columns.</summary>
     [JsonIgnore]

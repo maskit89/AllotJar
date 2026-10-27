@@ -114,6 +114,9 @@ describe('ImportPage', () => {
     expect((screen.getByLabelText('Debit column') as HTMLSelectElement).value).toBe('2')
     expect((screen.getByLabelText('Credit column') as HTMLSelectElement).value).toBe('3')
     await user.selectOptions(screen.getByLabelText('Credit column'), '1')
+    // A direction column only goes with one amount column; lines before the table can be skipped.
+    expect(screen.queryByLabelText('Direction column')).not.toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Skip lines'), '2')
 
     mockPreview.mockClear()
     await user.click(screen.getByRole('button', { name: 'Apply changes & re-scan' }))
@@ -121,6 +124,24 @@ describe('ImportPage', () => {
     const [, , opts] = mockPreview.mock.calls[0]
     expect(opts.mapping.debitColumn).toBe(2)
     expect(opts.mapping.creditColumn).toBe(1)
+    expect(opts.mapping.skipRows).toBe(2)
+  })
+
+  it('generic CSV: a direction column can be chosen for one amount column', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    mockPreview.mockResolvedValue(csvPreview())
+    renderPage()
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    expect((screen.getByLabelText('Direction column') as HTMLSelectElement).value).toBe('')
+    await user.selectOptions(screen.getByLabelText('Direction column'), '3')
+    mockPreview.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-scan' }))
+    await waitFor(() => expect(mockPreview).toHaveBeenCalled())
+    expect(mockPreview.mock.calls[0][2].mapping.directionColumn).toBe(3)
   })
 
   it('generic CSV: rows without a currency are read in the chosen import account’s currency', { timeout: 15000 }, async () => {

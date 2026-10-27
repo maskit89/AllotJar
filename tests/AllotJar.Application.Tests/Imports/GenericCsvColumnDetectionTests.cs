@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using AllotJar.Application.Imports.Models;
 using AllotJar.Infrastructure.Statements;
@@ -183,5 +184,176 @@ public class GenericCsvColumnDetectionTests
         var json = JsonSerializer.Serialize(split, web);
         Assert.DoesNotContain("splitAmounts", json);
         Assert.Equal(split, JsonSerializer.Deserialize<CsvMapping>(json, web));
+    }
+
+    // --- Review round 1 of #404 -----------------------------------------------------------------
+
+    private (CsvMapping Mapping, IReadOnlyList<ParsedStatementEntry> Entries) Read(string csv)
+    {
+        var m = _importer.Detect(csv).Suggested with { DefaultCurrency = "EUR" };
+        return (m, _importer.Parse(csv, m).Entries);
+    }
+
+    [Theory]
+    [InlineData("SHOP")]
+    [InlineData("POS 4921 LIDL QORMI")]
+    public void A_debit_credit_file_with_no_credit_for_weeks_keeps_its_pair(string payee)
+    {
+        var sb = new StringBuilder("Date,Description,Debit,Credit,Balance\n");
+        for (var i = 1; i <= 31; i++) sb.Append($"{i:00}/08/2026,{payee},10.00,,{5000 - 10 * i}.00\n");
+        sb.Append("01/09/2026,SALARY,,2000.00,6690.00\n");
+        var (m, entries) = Read(sb.ToString());
+
+        Assert.Equal((2, 3), (m.DebitColumn, m.CreditColumn));
+        Assert.Equal(32, entries.Count);
+        Assert.All(entries.Take(31), e => Assert.Equal((10.00m, false), (e.Amount, e.IsCredit)));
+        Assert.Equal((2000.00m, true), (entries[31].Amount, entries[31].IsCredit));
+    }
+
+    [Fact]
+    public void A_card_statement_with_an_empty_credit_column_imports_purchases_as_money_out()
+    {
+        var (m, entries) = Read("Date,Description,Debit,Credit\n01/09/2026,AMAZON,25.00,\n02/09/2026,LIDL,40.00,\n03/09/2026,SHELL,60.00,\n");
+
+        Assert.Equal((2, 3), (m.DebitColumn, m.CreditColumn));
+        Assert.All(entries, e => Assert.False(e.IsCredit));
+    }
+
+    [Fact]
+    public void A_column_named_debit_is_never_read_as_a_signed_amount()
+    {
+        // Only a Debit header and text in the next column: no pair, and Debit is not the amount.
+        var m = _importer.Detect("Date,Description,Debit,Note\n01/09/2026,LIDL,23.40,x\n02/09/2026,ATM,50.00,y\n").Suggested;
+        Assert.NotEqual(2, m.AmountColumn);
+    }
+
+    [Fact]
+    public void Dashes_in_debit_and_credit_are_empty_cells()
+    {
+        var (m, entries) = Read("Date,Description,Debit,Credit,Balance\n01/09/2026,LIDL,23.40,-,976.60\n02/09/2026,SALARY,-,2100.00,3076.60\n03/09/2026,ATM,50.00,-,3026.60\n");
+
+        Assert.Equal((2, 3), (m.DebitColumn, m.CreditColumn));
+        Assert.Equal(new[] { false, true, false }, entries.Select(e => e.IsCredit));
+    }
+
+    [Fact]
+    public void Text_with_digits_is_not_an_amount_and_a_cheque_number_column_is_not_a_pair()
+    {
+        var sb = new StringBuilder();
+        for (var i = 1; i <= 10; i++) sb.Append($"{i:00}/09/2026,PAYEE {i},{(i == 5 ? "100234" : "")},-{i}.50,{1000 - i}.00\n");
+        sb.Append("11/09/2026,SALARY,,2000.00,3000.00\n");
+        var (m, entries) = Read(sb.ToString());
+
+        Assert.False(m.SplitAmounts);
+        Assert.Equal(3, m.AmountColumn);
+        Assert.Equal(1, m.DescriptionColumn);
+        Assert.Equal((5.50m, false), (entries[4].Amount, entries[4].IsCredit));
+        Assert.Equal((2000.00m, true), (entries[10].Amount, entries[10].IsCredit));
+    }
+
+    [Fact]
+    public void A_signed_amount_beside_a_sparse_fee_column_stays_one_signed_column()
+    {
+        var sb = new StringBuilder();
+        for (var i = 1; i <= 10; i++) sb.Append($"{i:00}/09/2026,PAYEE {i},{(i == 4 ? "" : "-")}{i}.50,{(i == 3 ? "0.50" : "")},EUR\n");
+        var (m, entries) = Read(sb.ToString());
+
+        Assert.False(m.SplitAmounts);
+        Assert.Equal(2, m.AmountColumn);
+        Assert.True(entries[3].IsCredit);
+        Assert.Equal(3.50m, entries[2].Amount);
+    }
+
+    [Theory]
+    // Credit printed before debit: the balance shows which is which, oldest or newest first.
+    [InlineData("01/09/2026,LIDL,,23.40,976.60\n02/09/2026,SALARY,2100.00,,3076.60\n03/09/2026,ATM,,50.00,3026.60\n")]
+    [InlineData("03/09/2026,ATM,,50.00,3026.60\n02/09/2026,SALARY,2100.00,,3076.60\n01/09/2026,LIDL,,23.40,976.60\n")]
+    public void Without_a_header_the_running_balance_decides_which_column_is_money_out(string csv)
+    {
+        var (m, entries) = Read(csv);
+
+        Assert.Equal((3, 2), (m.DebitColumn, m.CreditColumn));
+        Assert.True(entries.Single(e => e.Payee == "SALARY").IsCredit);
+        Assert.False(entries.Single(e => e.Payee == "LIDL").IsCredit);
+    }
+
+    [Fact]
+    public void A_first_row_printed_without_its_trailing_empty_fields_is_not_skipped()
+    {
+        var (m, entries) = Read("Date,Description,Debit,Credit\n01/09/2026,LIDL,23.40\n02/09/2026,ATM,50.00\n03/09/2026,SALARY,,2100.00\n");
+
+        Assert.Equal((0, true), (m.SkipRows, m.HasHeader));
+        Assert.Equal(3, entries.Count);
+        Assert.Equal("LIDL", entries[0].Payee);
+    }
+
+    [Fact]
+    public void A_narrow_first_row_keeps_the_header_and_a_typographic_minus_is_money_out()
+    {
+        var (m, entries) = Read("Date,Description,Amount,Note\n01/09/2026,LIDL,−23.40\n02/09/2026,SALARY,\"€2,100.00\",x\n03/09/2026,ATM,(50.00),y\n");
+
+        Assert.Equal((0, true), (m.SkipRows, m.HasHeader));
+        Assert.Equal((23.40m, false), (entries[0].Amount, entries[0].IsCredit));
+        Assert.True(entries[1].IsCredit);
+        Assert.False(entries[2].IsCredit);
+    }
+
+    [Fact]
+    public void An_excel_padded_preamble_line_with_dates_is_not_the_table()
+    {
+        var (m, entries) = Read("Account,40012345678,,,,\nPeriod,01/09/2026,30/09/2026,,,\nDate,Value Date,Description,Debit,Credit,Balance\n01/09/2026,02/09/2026,LIDL,23.40,,976.60\n02/09/2026,02/09/2026,SALARY,,2100.00,3076.60\n");
+
+        Assert.Equal((2, true), (m.SkipRows, m.HasHeader));
+        Assert.Equal((0, 3, 4), (m.DateColumn, m.DebitColumn, m.CreditColumn));
+        Assert.Equal(new[] { (23.40m, false), (2100.00m, true) }, entries.Select(e => (e.Amount, e.IsCredit)));
+    }
+
+    [Fact]
+    public void Dr_and_cr_markers_on_amounts_set_the_direction()
+    {
+        var (_, entries) = Read("Date,Description,Amount\n01/09/2026,LIDL,23.40 DR\n02/09/2026,SALARY,2100.00 CR\n03/09/2026,ATM,50.00DR\n04/09/2026,FEE,DR 1.00\n");
+
+        Assert.Equal(new[] { false, true, false, false }, entries.Select(e => e.IsCredit));
+        Assert.Equal(23.40m, entries[0].Amount);
+    }
+
+    [Theory]
+    [InlineData("Date,Description,Amount,Dr/Cr\n01/09/2026,LIDL,23.40,DR\n02/09/2026,SALARY,2100.00,CR\n03/09/2026,ATM,50.00,DR\n")]
+    [InlineData("Date,Description,Amount,Debit/Credit\n01/09/2026,LIDL,23.40,Debit\n02/09/2026,SALARY,2100.00,Credit\n03/09/2026,ATM,50.00,Debit\n")]
+    [InlineData("Date,Description,Transaction Type,Amount\n01/09/2026,LIDL,DEBIT,23.40\n02/09/2026,SALARY,CREDIT,2100.00\n03/09/2026,ATM,DEBIT,50.00\n")]
+    public void An_amount_with_a_debit_credit_marker_column_takes_its_direction(string csv)
+    {
+        var (m, entries) = Read(csv);
+
+        Assert.NotNull(m.DirectionColumn);
+        Assert.False(m.SplitAmounts);
+        Assert.Equal(new[] { false, true, false }, entries.Select(e => e.IsCredit));
+    }
+
+    [Fact]
+    public void Headers_found_by_name_in_common_layouts()
+    {
+        Assert.Equal((3, 4), Pair("Date,Type,Description,Paid out,Paid in,Balance\n01/09/2026,POS,LIDL,23.40,,976.60\n02/09/2026,BGC,SALARY,,2100.00,3076.60\n"));
+        Assert.Equal((2, 3), Pair("Date,Payment Details,Withdrawals,Deposits,Balance\n01/09/2026,LIDL,23.40,,976.60\n02/09/2026,SALARY,,2100.00,3076.60\n"));
+        var m = _importer.Detect("Date,Details,Amt (EUR),Running Balance\n01/09/2026,LIDL,-23.40,976.60\n02/09/2026,SALARY,2100.00,3076.60\n").Suggested;
+        Assert.Equal((2, 1), (m.AmountColumn, m.DescriptionColumn));
+
+        (int?, int?) Pair(string csv)
+        {
+            var s = _importer.Detect(csv).Suggested;
+            return (s.DebitColumn, s.CreditColumn);
+        }
+    }
+
+    [Fact]
+    public void A_balance_that_does_not_add_up_leaves_money_out_on_the_left()
+    {
+        var sb = new StringBuilder();
+        for (var i = 1; i <= 9; i++) sb.Append($"{i:00}/09/2026,\"POS {1000 + i} SHOP\",{i}.00,,{900 - i}.00\n");
+        sb.Append("10/09/2026,\"SALARY 2026\",,2000.00,2855.00\n");
+        var (m, entries) = Read(sb.ToString());
+
+        Assert.Equal((2, 3), (m.DebitColumn, m.CreditColumn));
+        Assert.Equal(9, entries.Count(e => !e.IsCredit));
     }
 }
