@@ -81,7 +81,7 @@ public class ExpiredRecordsPurgeTests
         services.AddScoped<ExpiredRecordsPurge>();
         var logger = new ListLogger();
         var service = new ExpiredRecordsPurgeService(
-            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, logger);
+            services.BuildServiceProvider().GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, logger, new DatabaseStartupGate());
 
         await service.Invoking(s => s.RunOnceAsync(CancellationToken.None)).Should().NotThrowAsync();
 
@@ -104,7 +104,7 @@ public class ExpiredRecordsPurgeTests
         }
         var logger = new ListLogger();
 
-        await new ExpiredRecordsPurgeService(provider.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, logger)
+        await new ExpiredRecordsPurgeService(provider.GetRequiredService<IServiceScopeFactory>(), TimeProvider.System, logger, new DatabaseStartupGate())
             .RunOnceAsync(CancellationToken.None);
 
         logger.Levels.Should().Equal(LogLevel.Information);
