@@ -30,21 +30,23 @@ for (const theme of ['light', 'dark'] as const) {
   })
 }
 
-// The landing in the sign-in pages' look (restyle PR 15): the room with the wordmark, a quiet
-// "Sign in" and the theme button; the line; the card with the page's one primary; the links to
-// today's targets.
+// The landing in the sign-in pages' look (restyle PR 15, decluttered): the room with the wordmark, a
+// quiet "Sign in" and the theme button; the line; the short card with the page's one primary; the
+// links to today's targets.
 test.describe('public landing page', () => {
-  test('one primary button on the first screen, with Sign in beside it as a link', async ({ page }) => {
+  test('one primary button on the first screen, and one Sign in link in the header', async ({ page }) => {
     await signedOut(page, 'light')
     await page.goto('/')
     const primary = page.getByRole('link', { name: 'Create your free account' })
-    await expect(primary).toHaveCount(2)
-    await expect(primary.first()).toHaveAttribute('href', '/login?register=1')
-    await expect(primary.last()).toHaveAttribute('href', '/login?register=1')
+    await expect(primary).toHaveCount(1)
+    await expect(primary).toHaveAttribute('href', '/login?register=1')
     const signIn = page.getByRole('link', { name: 'Sign in' })
-    await expect(signIn).toHaveCount(2)
-    await expect(signIn.first()).toHaveAttribute('href', '/login')
-    await expect(signIn.last()).toHaveAttribute('href', '/login')
+    await expect(signIn).toHaveCount(1)
+    await expect(signIn).toHaveAttribute('href', '/login')
+    await expect(page.getByRole('banner').getByRole('link', { name: 'Sign in' })).toBeVisible()
+    // The card is short: its primary sits above the shelf's plank.
+    const box = await primary.boundingBox()
+    expect(box!.y + box!.height).toBeLessThan(345)
     // The first screen (1280x720, Desktop Chrome) holds exactly one filled green button: the hero's.
     const inView = await page.locator('.bg-brand-600').evaluateAll((els) =>
       els.filter((el) => {
@@ -53,7 +55,7 @@ test.describe('public landing page', () => {
       }).length,
     )
     expect(inView).toBe(1)
-    // The two "Sign in" are links, not buttons.
+    // "Sign in" is a link, not a button.
     expect(await page.getByRole('button', { name: 'Sign in' }).count()).toBe(0)
     // Privacy and Terms in the footer.
     await expect(page.getByRole('navigation', { name: 'Footer' }).getByRole('link', { name: 'Privacy' })).toHaveAttribute('href', '/privacy')
@@ -80,11 +82,11 @@ test.describe('public landing page', () => {
   test('the CTAs open the login page on the right tab', async ({ page }) => {
     await signedOut(page, 'light')
     await page.goto('/')
-    await page.getByRole('link', { name: 'Create your free account' }).first().click()
+    await page.getByRole('link', { name: 'Create your free account' }).click()
     await expect(page).toHaveURL(/\/login\?register=1$/)
     await expect(page.getByLabel('First name')).toBeVisible()
     await page.goto('/')
-    await page.getByRole('link', { name: 'Sign in' }).last().click()
+    await page.getByRole('link', { name: 'Sign in' }).click()
     await expect(page).toHaveURL(/\/login$/)
     await expect(page.getByLabel('Password')).toBeVisible()
     await expect(page.getByLabel('First name')).toHaveCount(0)
@@ -95,7 +97,7 @@ test.describe('public landing page', () => {
     await page.goto('/')
     // A marker on the window survives an in-app page switch and is lost on a reload.
     await page.evaluate(() => ((window as unknown as { stayed?: boolean }).stayed = true))
-    await page.getByRole('link', { name: 'Sign in' }).last().click()
+    await page.getByRole('link', { name: 'Sign in' }).click()
     await expect(page).toHaveURL(/\/login$/)
     await expect(page.getByLabel('Password')).toBeVisible()
     expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true)
