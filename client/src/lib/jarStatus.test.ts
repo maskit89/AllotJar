@@ -278,6 +278,16 @@ describe('the jar cards (Dashboard jars card, Jars page)', () => {
     expect(sortJars(jars, 'name')[0].index).toBe(1)
   })
 
+  it('sorts a month-only date as due by the month\'s end, and names with numbers in number order', () => {
+    const jars = [
+      jar({ id: 'month', name: 'Jar 10', deadline: '2026-11-01', monthOnly: true }),
+      jar({ id: 'day', name: 'Jar 9', deadline: '2026-11-15' }),
+      jar({ id: 'dec', name: 'jar 2', deadline: '2026-12-01' }),
+    ]
+    expect(sortJars(jars, 'due').map(({ jar: j }) => j.id)).toEqual(['day', 'month', 'dec'])
+    expect(sortJars(jars, 'name').map(({ jar: j }) => j.id)).toEqual(['dec', 'day', 'month'])
+  })
+
   it('chips a card only when the jar has something to say, never an Unavailable chip beside "Not available"', () => {
     expect(jarCardChip(jar({ status: 'OnTrack' }))).toBeNull()
     expect(jarCardChip(jar({ status: 'Behind' }))).toEqual(jarStatusChip('Behind'))
