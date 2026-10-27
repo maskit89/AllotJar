@@ -1744,6 +1744,7 @@ html {
 .land-lead {
   font-size: 17px;
   line-height: 1.45;
+  text-wrap: balance;
   color: var(--color-foreground);
 }
 .land-pill {

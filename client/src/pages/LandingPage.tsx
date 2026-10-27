@@ -123,9 +123,7 @@ export function LandingPage() {
         <main id="main-content" tabIndex={-1} className="auth-main focus:outline-none">
           <div className="auth-card">
             <p className="land-lead">Zero-based budgeting for your household.</p>
-            <div className="land-actions">
-              <CreateAccount />
-            </div>
+            <CreateAccount />
             <p className="land-note">Free to start · No card required</p>
           </div>
           <Features />
