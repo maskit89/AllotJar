@@ -59,18 +59,20 @@ public class GetBudgetTrendsQueryHandler : IRequestHandler<GetBudgetTrendsQuery,
             .ToListAsync(cancellationToken);
         var byMonth = months.ToDictionary(m => (m.Year, m.Month));
 
-        var points = new List<BudgetTrendPointDto>();
-        foreach (var (year, month) in calendar)
-        {
-            byMonth.TryGetValue((year, month), out var budget);
-            // One derivation for every report (rules 37–39, 41): spending includes uncategorised
-            // rows and is net of refunds; received income leaves out transfers and refunds.
-            var figures = await ReportFigures.ForMonthAsync(_db, userId, year, month, budget, cancellationToken);
+        // One derivation for every report (rules 37–39, 41): spending includes uncategorised
+        // rows and is net of refunds; received income leaves out transfers and refunds. The
+        // window's months are read together.
+        var monthFigures = await ReportFigures.ForMonthsAsync(_db, userId,
+            calendar.Select(c => (c.Year, c.Month, byMonth.GetValueOrDefault((c.Year, c.Month)))).ToList(),
+            cancellationToken);
 
+        var points = new List<BudgetTrendPointDto>();
+        foreach (var figures in monthFigures)
+        {
             points.Add(new BudgetTrendPointDto
             {
-                Year = year,
-                Month = month,
+                Year = figures.Year,
+                Month = figures.Month,
                 Key = figures.Key,
                 HasBudget = figures.HasBudget,
                 Income = figures.IncomeBudgeted,

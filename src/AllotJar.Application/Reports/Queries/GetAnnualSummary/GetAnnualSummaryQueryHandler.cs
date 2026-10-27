@@ -43,13 +43,16 @@ public class GetAnnualSummaryQueryHandler : IRequestHandler<GetAnnualSummaryQuer
         int? firstWithData = null;
         var lastWithFigure = 0;
 
+        // One derivation for every report (rules 37–39, 41). A month with no budget still
+        // reports what its transactions say. The twelve are read together.
+        var year = await ReportFigures.ForMonthsAsync(_db, userId,
+            Enumerable.Range(1, 12).Select(m => (request.Year, m, byMonth.GetValueOrDefault(m))).ToList(),
+            cancellationToken);
+
         var result = new AnnualSummaryDto { Year = request.Year };
         for (var month = 1; month <= 12; month++)
         {
-            byMonth.TryGetValue(month, out var budget);
-            // One derivation for every report (rules 37–39, 41). A month with no budget still
-            // reports what its transactions say.
-            var figures = await ReportFigures.ForMonthAsync(_db, userId, request.Year, month, budget, cancellationToken);
+            var figures = year[month - 1];
             if (figures.HasBudget)
             {
                 budgetedMonths++;

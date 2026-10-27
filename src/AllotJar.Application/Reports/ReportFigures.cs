@@ -27,7 +27,88 @@ public static class ReportFigures
         int year,
         int month,
         BudgetMonth? budget,
+        CancellationToken cancellationToken) =>
+        (await ForMonthsAsync(db, userId, new[] { (year, month, budget) }, cancellationToken))[0];
+
+    /// <summary>
+    /// The figures of several months (a year, the trends' window), each exactly as
+    /// <see cref="ForMonthAsync"/> gives it, read in a fixed number of queries instead of a few per
+    /// month: the rows are read once for the span and shared out by their own date.
+    /// </summary>
+    public static async Task<List<MonthReportDto>> ForMonthsAsync(
+        IApplicationDbContext db,
+        string userId,
+        IReadOnlyList<(int Year, int Month, BudgetMonth? Budget)> months,
         CancellationToken cancellationToken)
+    {
+        if (months.Count == 0)
+        {
+            return new List<MonthReportDto>();
+        }
+
+        // No report shows a jar line's balance, so the jar ledger is not read (RP-P3-3).
+        var budgets = months.Where(m => m.Budget is not null).Select(m => m.Budget!).ToList();
+        await BudgetActuals.ApplyAsync(db, userId, budgets, cancellationToken, savingsBalances: false);
+        var unbudgeted = months.Where(m => m.Budget is null).Select(m => (m.Year, m.Month)).ToList();
+        var waiting = await BudgetActuals.FxPendingCountsAsync(db, userId, unbudgeted, cancellationToken);
+
+        var (spanStart, spanEnd) = BudgetActuals.Span(months.Select(m => (m.Year, m.Month)).ToList());
+
+        // Whole rows of the months that no line carries (a split row's slices carry its
+        // attribution, so it is not "loose" itself), by their own date.
+        var loose = (await db.Transactions
+            .AsNoTracking()
+            .Where(t => t.OwnerId == userId
+                        && !t.FxPending
+                        && t.Type != TransactionType.Transfer
+                        // A transfer's shared side kept after its other account was erased is
+                        // still a transfer to the household (P59 "Keep shared").
+                        && !t.CounterpartyErased
+                        && t.Date >= spanStart
+                        && t.Date <= spanEnd
+                        && t.BudgetItemId == null
+                        && !t.Splits.Any()
+                        // P56: a private account's money off the budget is nobody's household total.
+                        && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId))
+            .Select(t => new LooseRow(t.Date, t.Type, t.RefundOfTransactionId != null, t.BudgetAmount ?? t.Amount))
+            .ToListAsync(cancellationToken))
+            .ToLookup(t => (t.Date.Year, t.Date.Month));
+
+        // Slices whose line was removed (the FK sets them null) are uncategorised too.
+        var looseSlices = (await (
+            from s in db.TransactionSplits
+            join t in db.Transactions on s.TransactionId equals t.Id
+            where t.OwnerId == userId
+                  && !t.FxPending
+                  && t.Type != TransactionType.Transfer
+                  && !t.CounterpartyErased
+                  && s.BudgetItemId == null
+                  && t.Date >= spanStart
+                  && t.Date <= spanEnd
+                  && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId)
+            select new LooseSlice(s.TransactionId, t.Date, t.Type, s.BudgetAmount ?? s.Amount))
+            .ToListAsync(cancellationToken))
+            .ToLookup(s => (s.Date.Year, s.Date.Month));
+
+        return months
+            .Select(m => Figures(m.Year, m.Month, m.Budget,
+                m.Budget?.FxPendingCount ?? waiting.GetValueOrDefault((m.Year, m.Month)),
+                loose[(m.Year, m.Month)].ToList(), looseSlices[(m.Year, m.Month)].ToList()))
+            .ToList();
+    }
+
+    private sealed record LooseRow(DateOnly Date, TransactionType Type, bool IsRefund, decimal Base);
+
+    private sealed record LooseSlice(Guid TransactionId, DateOnly Date, TransactionType Type, decimal Base);
+
+    /// <param name="budget">The month's budget with its actuals applied, or null when the month has none.</param>
+    private static MonthReportDto Figures(
+        int year,
+        int month,
+        BudgetMonth? budget,
+        int fxPendingCount,
+        List<LooseRow> loose,
+        List<LooseSlice> looseSlices)
     {
         var dto = new MonthReportDto
         {
@@ -36,15 +117,14 @@ public static class ReportFigures
             Key = $"{year:D4}-{month:D2}",
             HasBudget = budget is not null,
             BaseCurrency = budget?.BaseCurrency.Value,
+            FxPendingCount = fxPendingCount,
         };
 
         var incomeOnLines = 0m;
         if (budget is not null)
         {
-            await BudgetActuals.ApplyAsync(db, userId, budget, cancellationToken);
             dto.IncomeBudgeted = budget.TotalIncome;
             dto.Planned = budget.TotalPlanned;
-            dto.FxPendingCount = budget.FxPendingCount;
             incomeOnLines = budget.Categories
                 .Where(c => c.Kind == CategoryKind.Income)
                 .Sum(c => c.TotalActual);
@@ -66,47 +146,6 @@ public static class ReportFigures
                 });
             }
         }
-        else
-        {
-            dto.FxPendingCount = await db.Transactions
-                .Where(HouseholdMoney.Counts(db))
-                .CountAsync(t => t.OwnerId == userId && t.FxPending && t.Date.Year == year && t.Date.Month == month,
-                    cancellationToken);
-        }
-
-        // Whole rows of the month that no line carries (a split row's slices carry its
-        // attribution, so it is not "loose" itself), by their own date.
-        var loose = await db.Transactions
-            .AsNoTracking()
-            .Where(t => t.OwnerId == userId
-                        && !t.FxPending
-                        && t.Type != TransactionType.Transfer
-                        // A transfer's shared side kept after its other account was erased is
-                        // still a transfer to the household (P59 "Keep shared").
-                        && !t.CounterpartyErased
-                        && t.Date.Year == year
-                        && t.Date.Month == month
-                        && t.BudgetItemId == null
-                        && !t.Splits.Any()
-                        // P56: a private account's money off the budget is nobody's household total.
-                        && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId))
-            .Select(t => new { t.Type, IsRefund = t.RefundOfTransactionId != null, Base = t.BudgetAmount ?? t.Amount })
-            .ToListAsync(cancellationToken);
-
-        // Slices whose line was removed (the FK sets them null) are uncategorised too.
-        var looseSlices = await (
-            from s in db.TransactionSplits
-            join t in db.Transactions on s.TransactionId equals t.Id
-            where t.OwnerId == userId
-                  && !t.FxPending
-                  && t.Type != TransactionType.Transfer
-                  && !t.CounterpartyErased
-                  && s.BudgetItemId == null
-                  && t.Date.Year == year
-                  && t.Date.Month == month
-                  && !db.AccountPrivacies.Any(p => p.AccountId == t.AccountId)
-            select new { s.TransactionId, t.Type, Base = s.BudgetAmount ?? s.Amount })
-            .ToListAsync(cancellationToken);
 
         var incomeLoose = loose.Where(t => t.Type == TransactionType.Income && !t.IsRefund).Sum(t => t.Base)
                           + looseSlices.Where(s => s.Type == TransactionType.Income).Sum(s => s.Base);
