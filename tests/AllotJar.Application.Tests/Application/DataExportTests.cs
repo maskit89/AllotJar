@@ -31,7 +31,6 @@ public class DataExportTests
     private const string Household = "chris-login";
     private const string SamLogin = "sam-login";
     private static readonly DateOnly June10 = new(2026, 6, 10);
-    private const string SamsIban = "MT84MALT011000012345MTLCAST001S";
 
     private sealed class Viewer(string userId, Guid? memberId) : ICurrentUser
     {
@@ -139,7 +138,7 @@ public class DataExportTests
         {
             mine = (await new CreateAccountCommandHandler(db, Sam).Handle(
                 new CreateAccountCommand("Sam's secret savings", AccountType.Current, "EUR", 5000m, LedgerFixtures.DefaultOpening,
-                    Iban: SamsIban, HolderIds: new[] { _sam }),
+                    HolderIds: new[] { _sam }),
                 CancellationToken.None)).Id;
             var sam = new CreateTransactionCommandHandler(db, Sam);
             await sam.Handle(new CreateTransactionCommand(June10, "Pharmacy", 40m, TransactionType.Expense, BudgetItemId: null, AccountId: mine), CancellationToken.None);
@@ -193,7 +192,6 @@ public class DataExportTests
         foreach (var (name, text) in files)
         {
             text.Should().NotContain("Sam's secret savings", name)
-                .And.NotContain(SamsIban, name)
                 .And.NotContain(mine.ToString(), name)
                 .And.NotContain("Pharmacy", name)
                 .And.NotMatchRegex(SamsOpeningBalance, name);
@@ -201,20 +199,19 @@ public class DataExportTests
     }
 
     [Fact]
-    public async Task The_holders_own_download_has_their_private_account_its_bank_details_and_notes()
+    public async Task The_holders_own_download_has_their_private_account_and_its_notes()
     {
         await SeedAsync();
 
         var export = await ExportAsync(Sam);
 
         export.Accounts.Select(a => a.Name).Should().BeEquivalentTo("Joint", "Sam's secret savings");
-        export.Accounts.Single(a => a.Name == "Sam's secret savings").Iban.Should().Be(SamsIban);
         var pharmacy = export.Transactions.Single(t => t.Payee == "Pharmacy");
         pharmacy.Notes.Should().Be("note Pharmacy");
         pharmacy.StatementMatch.Should().Be("2026-06-10|40|D");
 
         var files = Unzip(DataExportArchive.Build(export));
-        files["accounts.csv"].Should().Contain(SamsIban).And.MatchRegex(SamsOpeningBalance, "the pattern must find the balance where it is written");
+        files["accounts.csv"].Should().Contain("Sam's secret savings").And.MatchRegex(SamsOpeningBalance, "the pattern must find the balance where it is written");
         files["allotjar-data.json"].Should().MatchRegex(SamsOpeningBalance);
         files["transactions.csv"].Should().Contain("2026-06-10|40|D");
     }

@@ -25,14 +25,11 @@ public class CardNumberCheckSqlTests
     public async Task Check_ReportsRowsHoldingACardNumber_ByIdOnly_AndChangesNothing()
     {
         var owner = $"user-{Guid.NewGuid():N}";
-        Guid accountId, encryptedAccountId, cardRowId, referenceRowId;
+        Guid accountId, cardRowId, referenceRowId;
         await using (var db = _fixture.CreateContext())
         {
             var account = new Account { OwnerId = owner, Name = "Current", Currency = CurrencyCode.Eur };
-            // Saved through EF, so stored encrypted (compliance fix 10): only the decrypted value shows the card.
-            var encryptedAccount = new Account { OwnerId = owner, Name = "Savings", Currency = CurrencyCode.Eur, AccountNumber = Card };
-            db.Accounts.AddRange(account, encryptedAccount);
-            encryptedAccountId = encryptedAccount.Id;
+            db.Accounts.Add(account);
             Transaction Row(string payee) => new()
             {
                 OwnerId = owner, Account = account, Type = TransactionType.Expense, Amount = 1m,
@@ -48,7 +45,7 @@ public class CardNumberCheckSqlTests
             await db.Database.ExecuteSqlAsync(
                 $"UPDATE Transactions SET Payee = {"AMAZON " + Card} WHERE Id = {cardRowId}");
             await db.Database.ExecuteSqlAsync(
-                $"UPDATE Accounts SET AccountNumber = {Card} WHERE Id = {accountId}");
+                $"UPDATE Accounts SET Name = {"Visa " + Card} WHERE Id = {accountId}");
         }
 
         await using (var db = _fixture.CreateContext())
@@ -56,7 +53,7 @@ public class CardNumberCheckSqlTests
             var found = await CardNumberCheck.FindAsync(db);
 
             found["Transactions"].Should().Contain(cardRowId).And.NotContain(referenceRowId);
-            found["Accounts"].Should().Contain(accountId).And.Contain(encryptedAccountId);
+            found["Accounts"].Should().Contain(accountId);
             (await db.Transactions.AsNoTracking().SingleAsync(t => t.Id == cardRowId)).Payee
                 .Should().Be("AMAZON " + Card, "the check reports and never rewrites");
         }

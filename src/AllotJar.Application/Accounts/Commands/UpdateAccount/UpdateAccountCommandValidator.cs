@@ -26,7 +26,5 @@ public class UpdateAccountCommandValidator : AbstractValidator<UpdateAccountComm
 
         RuleFor(x => x.OpeningDate)
             .NotNull().WithMessage("Enter the date the opening balance applies from.");
-
-        BankIdentifiers.Apply(this, x => x.Iban, x => x.Bic, x => x.SortCode, x => x.AccountNumber);
     }
 }

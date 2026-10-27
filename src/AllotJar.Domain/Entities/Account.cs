@@ -45,15 +45,6 @@ public class Account : BaseEntity, IVersioned
     public int DisplayOrder { get; set; }
 
     /// <summary>
-    /// Optional bank identifiers (rule 76). Never required — an account may be a physical place
-    /// such as a piggy bank — and only format-checked when supplied.
-    /// </summary>
-    public string? Iban { get; set; }
-    public string? Bic { get; set; }
-    public string? SortCode { get; set; }
-    public string? AccountNumber { get; set; }
-
-    /// <summary>
     /// The people who hold the account (rule 30): one is a personal account, several a joint one,
     /// none the household's own. One balance and one history whoever holds it.
     /// </summary>

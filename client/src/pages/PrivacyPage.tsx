@@ -41,7 +41,7 @@ const TRANSFER_SAFEGUARD = 'the EU-US Data Privacy Framework, under which each o
 
 export function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" lastUpdated="25 October 2026">
+    <LegalLayout title="Privacy Policy" lastUpdated="27 October 2026">
       <p>
         This policy explains what personal data AllotJar holds, why, who else handles it, how long
         we keep it and what rights you have. AllotJar is a budgeting app at{' '}
@@ -65,10 +65,9 @@ export function PrivacyPage() {
           name and email Google shares with us.
         </li>
         <li>
-          <strong>Your budget</strong>: the accounts, jars, budgets and transactions you enter. An
-          account can hold bank details you add, such as an IBAN, BIC, sort code or account number.
-          A transaction holds its date, amount, payee, notes and, when imported, the bank’s reference
-          for it.
+          <strong>Your budget</strong>: the accounts, jars, budgets and transactions you enter. We
+          don’t ask for or keep bank details such as an IBAN or account number. A transaction holds
+          its date, amount, payee, notes and, when imported, the bank’s reference for it.
         </li>
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create

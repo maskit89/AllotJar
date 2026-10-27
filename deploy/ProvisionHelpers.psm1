@@ -305,10 +305,6 @@ function Get-RestoreFileMoves {
     (where the reset token, signed with staging's DataProtection keys, is not valid). This
     is exactly what happened on 12 October 2026. Production may omit it (the default is its
     own origin) but must not name staging.
-
-    BankDetailsEncryption:Key must be there too, as 32 bytes in base64: the API refuses to
-    start outside Development without it (bank details are encrypted at rest with it), so a
-    deploy without it would take the stack down instead of stopping here.
 #>
 function Get-StackSettingsProblems {
     param(
@@ -351,17 +347,6 @@ function Get-StackSettingsProblems {
             $problems += "Email:AppBaseUrl '$url' is not an absolute http(s) URL."
         } elseif ($expected -notcontains $origin) {
             $problems += "Email:AppBaseUrl is $url, so every emailed link (password reset, invite) would open $origin; the $AspNetEnvironment stack's origin is $($ExpectedAppBaseUrl -join ' or ')."
-        }
-    }
-
-    $bank = [regex]::Match($text, '"BankDetailsEncryption"\s*:\s*\{[^{}]*?"Key"\s*:\s*"([^"]*)"')
-    if (-not $bank.Success) {
-        $problems += 'BankDetailsEncryption:Key is missing, so the API would refuse to start (it encrypts bank details with this key). Add the site''s own key to the settings file; see docs/deployment/README.md.'
-    } else {
-        $keyBytes = $null
-        try { $keyBytes = [Convert]::FromBase64String($bank.Groups[1].Value.Trim()) } catch { }
-        if ($null -eq $keyBytes -or $keyBytes.Length -ne 32) {
-            $problems += 'BankDetailsEncryption:Key is not 32 bytes in base64 (44 characters), so the API would refuse to start.'
         }
     }
     return ,$problems
