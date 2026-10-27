@@ -81,5 +81,5 @@ export function csvPreview(): ImportPreviewResult {
 
 /** The commit's answer: two debits imported, nothing skipped. */
 export function committed(over: Partial<ImportStatementResult> = {}): ImportStatementResult {
-  return { totalEntries: 2, imported: 2, skippedDuplicates: 0, credits: 0, debits: 2, iban: null, autoCategorized: 0, transfers: 0, ...over }
+  return { totalEntries: 2, imported: 2, skippedDuplicates: 0, credits: 0, debits: 2, autoCategorized: 0, transfers: 0, ...over }
 }

@@ -50,32 +50,6 @@ function parseOpeningBalance(input: string): number | null {
   return minor === null ? null : toAmount(minor)
 }
 
-/** The optional bank identifiers (rule 76): trimmed, empty → null on the wire. */
-interface Identifiers {
-  iban: string
-  bic: string
-  sortCode: string
-  accountNumber: string
-}
-
-const BLANK_IDS: Identifiers = { iban: '', bic: '', sortCode: '', accountNumber: '' }
-
-function identifiersFrom(a: AccountDto): Identifiers {
-  return { iban: a.iban ?? '', bic: a.bic ?? '', sortCode: a.sortCode ?? '', accountNumber: a.accountNumber ?? '' }
-}
-
-function identifiersPayload(ids: Identifiers) {
-  const clean = (v: string) => (v.trim() === '' ? null : v.trim())
-  return { iban: clean(ids.iban), bic: clean(ids.bic), sortCode: clean(ids.sortCode), accountNumber: clean(ids.accountNumber) }
-}
-
-const ID_FIELDS: Array<{ key: keyof Identifiers; label: string; placeholder: string }> = [
-  { key: 'iban', label: 'IBAN', placeholder: 'e.g. MT84 MALT 0110 0001 2345 MTLC AST0 01S' },
-  { key: 'bic', label: 'BIC', placeholder: 'e.g. VALLMTMT' },
-  { key: 'sortCode', label: 'Sort code', placeholder: 'e.g. 40-47-84' },
-  { key: 'accountNumber', label: 'Account number', placeholder: 'e.g. 12345678' },
-]
-
 /**
  * An (i) on a card: above the stretched link, and above the next card's ⋯ while it is open (its
  * popover can reach it). Its text wraps, whatever the line it sits in.
@@ -133,7 +107,6 @@ export function AccountsPage() {
   const [opening, setOpening] = useState('')
   // The opening balance is the money held at the START of this date (rule 40); required.
   const [openingDate, setOpeningDate] = useState(todayIso)
-  const [ids, setIds] = useState<Identifiers>(BLANK_IDS)
   const [holderIds, setHolderIds] = useState<string[]>([])
   // Rule 31: an account you add for yourself alone starts private unless you untick this.
   const [keepPrivate, setKeepPrivate] = useState(true)
@@ -145,7 +118,6 @@ export function AccountsPage() {
   const [eType, setEType] = useState<number>(AccountType.Current)
   const [eOpening, setEOpening] = useState('')
   const [eOpeningDate, setEOpeningDate] = useState('')
-  const [eIds, setEIds] = useState<Identifiers>(BLANK_IDS)
   const [eHolderIds, setEHolderIds] = useState<string[]>([])
   // The version the edit was loaded from, sent back with the save (D11).
   const [eVersion, setEVersion] = useState<string | null>(null)
@@ -256,7 +228,6 @@ export function AccountsPage() {
         currency: budgetCurrency,
         openingBalance,
         openingDate,
-        ...identifiersPayload(ids),
         holderIds,
         ...(ownPersonal ? { isPrivate: keepPrivate } : {}),
       })
@@ -266,7 +237,6 @@ export function AccountsPage() {
       setName('')
       setOpening('')
       setOpeningDate(todayIso())
-      setIds(BLANK_IDS)
       setHolderIds([])
       setKeepPrivate(true)
       setShowAdd(false)
@@ -275,7 +245,7 @@ export function AccountsPage() {
     } finally {
       setAdding(false)
     }
-  }, [name, type, opening, openingDate, budgetCurrency, ids, holderIds, keepPrivate, ownPersonal])
+  }, [name, type, opening, openingDate, budgetCurrency, holderIds, keepPrivate, ownPersonal])
 
   const startEdit = useCallback((a: AccountDto) => {
     setEditingId(a.id)
@@ -283,7 +253,6 @@ export function AccountsPage() {
     setEType(a.type)
     setEOpening(toEditString(fromAmount(a.openingBalance)))
     setEOpeningDate(a.openingDate ?? '')
-    setEIds(identifiersFrom(a))
     setEHolderIds((a.holders ?? []).map((h) => h.memberId))
     setEVersion(a.version ?? null)
   }, [])
@@ -323,7 +292,6 @@ export function AccountsPage() {
           type: eType,
           openingBalance,
           openingDate: eOpeningDate,
-          ...identifiersPayload(eIds),
           // Sent only once the people are known, so an unloaded list never clears the holders.
           ...(members.length > 0 ? { holderIds: eHolderIds } : {}),
           version: eVersion,
@@ -349,7 +317,7 @@ export function AccountsPage() {
         setSavingId(null)
       }
     },
-    [eName, eType, eOpening, eOpeningDate, eIds, eHolderIds, eVersion, members.length, accounts, startEdit],
+    [eName, eType, eOpening, eOpeningDate, eHolderIds, eVersion, members.length, accounts, startEdit],
   )
 
   // Rules 31/33: the holder's own choice of who sees their personal account.
@@ -616,25 +584,6 @@ export function AccountsPage() {
             />
           </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <span aria-hidden className={CAPTION}>
-            Bank details
-          </span>
-          <div className="grid grid-cols-2 gap-x-3 gap-y-2">
-            {ID_FIELDS.map((f) => (
-              <Input
-                key={f.key}
-                type="text"
-                value={eIds[f.key]}
-                placeholder={f.label}
-                aria-label={`${f.label} for ${a.name}`}
-                autoComplete="off"
-                onChange={(e) => setEIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                className={FIELD}
-              />
-            ))}
-          </div>
-        </div>
         <HolderPicker members={members} value={eHolderIds} onChange={setEHolderIds} accountName={a.name} />
         {(multiCurrency || a.currency !== budgetCurrency) && (
           <p className="text-xs text-slate-500">
@@ -846,25 +795,6 @@ export function AccountsPage() {
                 The balance at the start of this day. Earlier transactions stay as history and don’t change it.
               </span>
             </label>
-            <fieldset className="grid grid-cols-2 gap-3">
-              <legend className="mb-1 text-xs font-medium text-slate-500">
-                Bank details <span className="font-normal text-slate-400">(optional — a piggy bank has none)</span>
-              </legend>
-              {ID_FIELDS.map((f) => (
-                <label key={f.key} className="flex flex-col gap-1 text-xs font-medium text-slate-500">
-                  {f.label}
-                  <Input
-                    type="text"
-                    value={ids[f.key]}
-                    placeholder={f.placeholder}
-                    aria-label={f.label}
-                    autoComplete="off"
-                    onChange={(e) => setIds((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                    className="w-full"
-                  />
-                </label>
-              ))}
-            </fieldset>
             <div className="flex justify-end gap-2 pt-1">
               <Button variant="ghost" onClick={() => setShowAdd(false)}>
                 Cancel

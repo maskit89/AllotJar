@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useState, type ReactNode } from 'react'
 import { useLocation, useNavigationType, useParams } from 'react-router-dom'
 import { ArrowDownLeft, ArrowLeftRight, ArrowUpRight, ShoppingBag, Split, Undo2, Wallet } from 'lucide-react'
 import { AppShell } from '../components/AppShell'
@@ -197,17 +197,6 @@ export function AccountDetailPage() {
   }, [rows, shown])
 
   const currency = account?.currency ?? 'EUR'
-  // Optional bank identifiers (rule 76): shown only when recorded, as stored.
-  const identifiers: Array<[string, string]> = account
-    ? (
-        [
-          ['IBAN', account.iban],
-          ['BIC', account.bic],
-          ['Sort code', account.sortCode],
-          ['Account number', account.accountNumber],
-        ] as Array<[string, string | null | undefined]>
-      ).filter((row): row is [string, string] => typeof row[1] === 'string' && row[1].trim() !== '')
-    : []
   // Null = unavailable (no opening date, rule 67): shown as such, never as zero.
   const balanceMinor = account && account.currentBalance !== null ? fromAmount(account.currentBalance) : null
   // What the account's jars hold of it, or null when it holds none (or the figures didn't load).
@@ -589,11 +578,6 @@ export function AccountDetailPage() {
                     {formatMoney(fromAmount(account.openingBalance), currency)}
                     {account.openingDate && <span className="text-xs font-medium text-slate-400">On {formatDate(account.openingDate)}</span>}
                   </DetailRow>
-                  {identifiers.map(([label, value]) => (
-                    <DetailRow key={label} label={label}>
-                      {label === 'IBAN' ? <Iban value={value} /> : value}
-                    </DetailRow>
-                  ))}
                 </dl>
               </section>
             </div>
@@ -606,8 +590,8 @@ export function AccountDetailPage() {
 
 /**
  * One line of Account details: the label at the left, the value (and its small line) at the right.
- * The value is 14px, as in the mock-up; one too long for the line (an IBAN in a narrow column)
- * wraps at its own spaces into balanced lines.
+ * The value is 14px, as in the mock-up; one too long for the line wraps at its own spaces into
+ * balanced lines.
  */
 function DetailRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -617,25 +601,5 @@ function DetailRow({ label, children }: { label: string; children: ReactNode }) 
         {children}
       </dd>
     </div>
-  )
-}
-
-/**
- * An IBAN in groups of four, as banks print it (#344 P3-5): display only. The groups are spaced
- * by a margin, not by spaces, and a line may break only between them, so selecting or copying the
- * IBAN gives the stored value. One stored with its own spaces shows as stored.
- */
-function Iban({ value }: { value: string }) {
-  if (/\s/.test(value)) return <>{value}</>
-  const groups = value.match(/.{1,4}/g) ?? [value]
-  return (
-    <span data-iban="" className="[overflow-wrap:normal] break-normal">
-      {groups.map((g, i) => (
-        <Fragment key={i}>
-          {i > 0 && <wbr />}
-          <span className={i > 0 ? 'ml-[0.32em]' : undefined}>{g}</span>
-        </Fragment>
-      ))}
-    </span>
   )
 }

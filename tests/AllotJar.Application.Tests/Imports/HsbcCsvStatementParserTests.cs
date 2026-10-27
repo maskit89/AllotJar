@@ -17,7 +17,6 @@ public class HsbcCsvStatementParserTests
     {
         var statement = Parser.Parse(HsbcCsvSamples.Mixed);
 
-        statement.Iban.Should().BeNull();
         statement.Entries.Should().HaveCount(6); // 8 lines minus the blank and the header
     }
 

@@ -70,11 +70,11 @@ public static class DataExportArchive
         yield return ("passkeys.csv", passkeys);
 
         var accounts = new Csv("id", "name", "type", "currency", "opening_balance", "opening_date", "balance", "balance_as_of",
-            "in_transit_out", "in_transit_in", "iban", "bic", "sort_code", "account_number", "holders", "private");
+            "in_transit_out", "in_transit_in", "holders", "private");
         foreach (var a in e.Accounts)
         {
             accounts.Row(a.Id, a.Name, a.Type, a.Currency, a.OpeningBalance, a.OpeningDate, a.CurrentBalance, a.BalanceAsOf,
-                a.InTransitOut, a.InTransitIn, a.Iban, a.Bic, a.SortCode, a.AccountNumber,
+                a.InTransitOut, a.InTransitIn,
                 string.Join("; ", a.Holders.Select(h => h.Name)), a.IsPrivate);
         }
         yield return ("accounts.csv", accounts);
@@ -195,7 +195,7 @@ public static class DataExportArchive
         profile.csv                 your sign-in details and preferences
         sign-ins.csv                the devices you are signed in on, and when each was last used
         passkeys.csv                your passkeys: the device each was added on, and when
-        accounts.csv                accounts, bank details and balances
+        accounts.csv                accounts and balances
         people.csv                  the people in the household
         household-access.csv        who can sign in to the household
         transactions.csv            every transaction, with notes and the statement date, amount and

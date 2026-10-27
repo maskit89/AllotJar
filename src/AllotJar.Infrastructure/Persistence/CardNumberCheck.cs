@@ -2,7 +2,6 @@ using System.Linq.Expressions;
 using System.Reflection;
 using Microsoft.EntityFrameworkCore;
 using AllotJar.Domain.Common;
-using AllotJar.Domain.Entities;
 using AllotJar.Domain.Services;
 
 namespace AllotJar.Infrastructure.Persistence;
@@ -22,9 +21,6 @@ public static class CardNumberCheck
     /// <summary>13 digits, anything between them: the cheapest test that can rule a text out.</summary>
     private static readonly string ThirteenDigits = "%" + string.Concat(Enumerable.Repeat("[0-9]%", 13));
 
-    /// <summary>Fields that are not free text but are checked too: a card typed as an account number.</summary>
-    private static readonly (Type Type, string Property)[] AlsoChecked = [(typeof(Account), nameof(Account.AccountNumber))];
-
     private static readonly MethodInfo FindInSetMethod =
         typeof(CardNumberCheck).GetMethod(nameof(FindInSetAsync), BindingFlags.NonPublic | BindingFlags.Static)!;
 
@@ -39,7 +35,6 @@ public static class CardNumberCheck
             var properties = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
                 .Where(p => p.PropertyType == typeof(string) && p.IsDefined(typeof(MaskCardNumbersAttribute), true))
                 .Select(p => p.Name)
-                .Concat(AlsoChecked.Where(a => a.Type == type).Select(a => a.Property))
                 .ToArray();
             if (properties.Length == 0)
             {
@@ -58,11 +53,7 @@ public static class CardNumberCheck
         where T : BaseEntity
     {
         IQueryable<T> rows = db.Set<T>().IgnoreQueryFilters().AsNoTracking();
-        // An encrypted column (Account's bank details, compliance fix 10) holds ciphertext in SQL, so
-        // LIKE cannot see its digits: such a table is read whole and checked after decryption.
-        var entityType = db.Model.FindEntityType(typeof(T))!;
-        var encrypted = properties.Any(p => entityType.FindProperty(p)?.GetValueConverter() is not null);
-        if (db.Database.IsSqlServer() && !encrypted)
+        if (db.Database.IsSqlServer())
         {
             rows = rows.Where(MayHoldCardNumber<T>(properties));
         }

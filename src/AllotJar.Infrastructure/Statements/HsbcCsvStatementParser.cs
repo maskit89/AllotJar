@@ -164,8 +164,7 @@ public partial class HsbcCsvStatementParser : IStatementParser
                 "No transactions were found — is this an HSBC transaction-history CSV (Date, Details, Amount)?");
         }
 
-        // HSBC's CSV carries no account/IBAN.
-        return new ParsedStatement(Iban: null, Entries: entries);
+        return new ParsedStatement(Entries: entries);
     }
 
     /// <summary>
