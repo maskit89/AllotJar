@@ -429,7 +429,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     // Exact body ⇒ proves the request carries no `currency` key.
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/accounts/rd1', { name: 'Emergency', type: 0, openingBalance: 750, openingDate: '2026-01-01', iban: null, bic: null, sortCode: null, accountNumber: null, version: null }),
+      expect(mockPut).toHaveBeenCalledWith('/accounts/rd1', { name: 'Emergency', type: 0, openingBalance: 750, openingDate: '2026-01-01', version: null }),
     )
     expect(await screen.findByText('Emergency', {}, { timeout: 5000 })).toBeInTheDocument()
   })
@@ -451,7 +451,7 @@ describe('AccountsPage — catalog (ACCT)', () => {
 
     await user.click(screen.getByLabelText('Save UK Pot'))
     await waitFor(() =>
-      expect(mockPut).toHaveBeenCalledWith('/accounts/uk1', { name: 'UK Pot', type: 1, openingBalance: 200, openingDate: '2026-01-01', iban: null, bic: null, sortCode: null, accountNumber: null, version: null }),
+      expect(mockPut).toHaveBeenCalledWith('/accounts/uk1', { name: 'UK Pot', type: 1, openingBalance: 200, openingDate: '2026-01-01', version: null }),
     )
   })
 

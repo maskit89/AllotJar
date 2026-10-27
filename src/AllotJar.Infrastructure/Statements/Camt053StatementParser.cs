@@ -64,8 +64,6 @@ public class Camt053StatementParser : IStatementParser
             ?? throw new StatementParseException(
                 "No <Stmt> element found — is this a CAMT.053 statement?");
 
-        var iban = Value(Descendant(stmt, "IBAN"));
-
         // One malformed entry must not abort an otherwise-valid statement (the CSV parsers skip
         // bad rows the same way), so parse per entry and drop the ones we can't trust.
         var entries = new List<ParsedStatementEntry>();
@@ -118,7 +116,7 @@ public class Camt053StatementParser : IStatementParser
             throw new StatementParseException("No usable transactions were found in this statement.");
         }
 
-        return new ParsedStatement(iban, entries);
+        return new ParsedStatement(entries);
     }
 
     /// <summary>

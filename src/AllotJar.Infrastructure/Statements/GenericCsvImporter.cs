@@ -138,7 +138,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
         // Echo the format that was actually applied, so the UI can show it and pin it for
         // re-scans/re-imports — auto-detection is file-relative and must not stay invisible.
-        return new ParsedStatement(Iban: null, Entries: entries, ResolvedDateFormat: dateFormat);
+        return new ParsedStatement(Entries: entries, ResolvedDateFormat: dateFormat);
     }
 
     // --- Detection helpers ---------------------------------------------------

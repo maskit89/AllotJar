@@ -124,7 +124,7 @@ These decisions were confirmed in conversation after the calculation review. The
 
 75. **Credit cards are not accounts.** The credit-card account type is withdrawn from account creation on the fresh database; should any such account exist it follows rules 74 and 70 like every other account.
 
-76. **Bank identifiers are optional account details.** An account may record an IBAN, BIC/SWIFT, sort code and account number; none is required, because an account may also be a physical place such as a piggy bank. Supplied values are format-checked only.
+76. **No bank identifiers are kept** (changed 27 Oct 2026). AllotJar does not ask for or store an IBAN, BIC/SWIFT, sort code or account number on any account; the account's name is how the user tells accounts apart. (Before: they were optional, format-checked account details.)
 
 77. **A jar's "saved so far" is an initial allocation, not an opening balance.** It divides money already in the designated account (rule 9): a dated allocation from the account's unallocated funds, defaulting to today, backdatable to no earlier than the account's opening date, and validated against the unallocated balance as of that date. The legacy jar opening-balance field is retired; on the fresh database nothing is backfilled (rule 65).
 

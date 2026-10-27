@@ -76,11 +76,6 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         account.OpeningBalance = request.OpeningBalance;
         account.OpeningDate = openingDate;
 
-        account.Iban = BankIdentifiers.NormalizeIban(request.Iban);
-        account.Bic = BankIdentifiers.NormalizeBic(request.Bic);
-        account.SortCode = BankIdentifiers.NormalizeSortCode(request.SortCode);
-        account.AccountNumber = BankIdentifiers.NormalizeAccountNumber(request.AccountNumber);
-
         if (request.HolderIds is { } holderIds)
         {
             await ReplaceHoldersAsync(account, holderIds, userId, cancellationToken);

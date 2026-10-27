@@ -61,7 +61,7 @@ public class AccountsController : ControllerBase
         var result = await _mediator.Send(
             new CreateAccountCommand(
                 request.Name, request.Type, request.Currency, request.OpeningBalance, request.OpeningDate,
-                request.Iban, request.Bic, request.SortCode, request.AccountNumber, request.HolderIds, request.IsPrivate),
+                request.HolderIds, request.IsPrivate),
             ct);
         return CreatedAtAction(nameof(List), new { }, result);
     }
@@ -76,7 +76,7 @@ public class AccountsController : ControllerBase
     {
         var result = await _mediator.Send(
             new UpdateAccountCommand(id, request.Name, request.Type, request.OpeningBalance, request.OpeningDate,
-                request.Iban, request.Bic, request.SortCode, request.AccountNumber, request.HolderIds, request.Version), ct);
+                request.HolderIds, request.Version), ct);
         return Ok(result);
     }
 
@@ -164,13 +164,11 @@ public record EraseUnreachableAccountRequest(string? ConfirmName);
 /// <summary>Request body for creating an account. The opening balance applies from the start of <c>OpeningDate</c>.</summary>
 public record CreateAccountRequest(
     string Name, AccountType Type, string Currency, decimal OpeningBalance, DateOnly? OpeningDate = null,
-    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null,
     IReadOnlyList<Guid>? HolderIds = null, bool? IsPrivate = null);
 
 /// <summary>Request body for editing an account (the id comes from the route; currency is immutable).</summary>
 public record UpdateAccountRequest(
     string Name, AccountType Type, decimal OpeningBalance, DateOnly? OpeningDate = null,
-    string? Iban = null, string? Bic = null, string? SortCode = null, string? AccountNumber = null,
     IReadOnlyList<Guid>? HolderIds = null,
     // The version the edit form loaded (D11); null only from a client older than this deploy.
     string? Version = null);

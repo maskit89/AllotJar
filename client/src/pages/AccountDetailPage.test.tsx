@@ -63,33 +63,9 @@ describe('AccountDetailPage', () => {
     expect(screen.getByRole('link', { name: 'Back to Accounts' })).toHaveAttribute('href', '/accounts')
   })
 
-  // Rule 76: the optional bank identifiers show on the detail page only when recorded. The Account
-  // details card itself always shows (it holds the type and the opening balance too).
-  it('shows recorded bank identifiers, and none when none are recorded', { timeout: 15000 }, async () => {
-    mockGet.mockImplementation((url: string) => {
-      if (url === '/accounts')
-        return Promise.resolve({ data: [{ ...account(), iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: null, accountNumber: '' }] })
-      return Promise.resolve({ data: [] })
-    })
-
-    const { unmount } = renderPage()
-
-    expect(await screen.findByRole('heading', { name: 'Account details' }, { timeout: 5000 })).toBeInTheDocument()
-    expect(screen.getByText('IBAN')).toBeInTheDocument()
-    // In groups of four, as banks print it (#344 P3-5), spaced by a margin, so the text (what a copy
-    // gives) is the stored value.
-    const iban = screen.getByText('IBAN').nextElementSibling as HTMLElement
-    expect(iban.textContent).toBe('MT84MALT011000012345MTLCAST001S')
-    expect(Array.from(iban.querySelectorAll('[data-iban] > span'), (g) => g.textContent)).toEqual([
-      'MT84', 'MALT', '0110', '0001', '2345', 'MTLC', 'AST0', '01S',
-    ])
-    expect(screen.getByText('BIC')).toBeInTheDocument()
-    expect(screen.getByText('VALLMTMT')).toBeInTheDocument()
-    // Null / blank identifiers are simply not listed.
-    expect(screen.queryByText('Sort code')).not.toBeInTheDocument()
-    expect(screen.queryByText('Account number')).not.toBeInTheDocument()
-    unmount()
-
+  // AllotJar keeps no bank details (27 Oct 2026). The Account details card still shows the type
+  // and the opening balance.
+  it('lists no bank details on the Account details card', { timeout: 15000 }, async () => {
     mockGet.mockImplementation((url: string) =>
       url === '/accounts' ? Promise.resolve({ data: [account()] }) : Promise.resolve({ data: [] }),
     )

@@ -2,7 +2,7 @@ import { LegalLayout } from './LegalLayout'
 
 /**
  * Public privacy policy (/privacy), rewritten 20 Oct 2026 (compliance fix 6) to describe what the
- * app actually does: statement imports and bank details, Google sign-in, the email provider,
+ * app actually does: statement imports, Google sign-in, the email provider,
  * encrypted off-site backups and when they expire, self-hosted fonts, where the server is and the
  * transfer safeguard, real retention periods, "Download my data" and "Delete account".
  *
@@ -41,7 +41,7 @@ const TRANSFER_SAFEGUARD = 'the EU-US Data Privacy Framework, under which each o
 
 export function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" lastUpdated="25 October 2026">
+    <LegalLayout title="Privacy Policy" lastUpdated="27 October 2026">
       <p>
         This policy explains what personal data AllotJar holds, why, who else handles it, how long
         we keep it and what rights you have. AllotJar is a budgeting app at{' '}
@@ -65,10 +65,9 @@ export function PrivacyPage() {
           name and email Google shares with us.
         </li>
         <li>
-          <strong>Your budget</strong>: the accounts, jars, budgets and transactions you enter. An
-          account can hold bank details you add, such as an IBAN, BIC, sort code or account number.
-          A transaction holds its date, amount, payee, notes and, when imported, the bank’s reference
-          for it.
+          <strong>Your budget</strong>: the accounts, jars, budgets and transactions you enter. We
+          don’t ask for or keep bank details such as an IBAN or account number. A transaction holds
+          its date, amount, payee, notes and, when imported, the bank’s reference for it.
         </li>
         <li>
           <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
@@ -233,8 +232,7 @@ export function PrivacyPage() {
       <h2>How we protect it</h2>
       <p>
         Everything travels encrypted (TLS). Passwords and sign-in tokens are stored only as hashes,
-        bank details on your accounts are encrypted in our database, backups are encrypted before
-        they leave our server, and sign-in is protected by rate limits,
+        backups are encrypted before they leave our server, and sign-in is protected by rate limits,
         a lockout after repeated wrong passwords and a check against known breached passwords. You
         can add a passkey so signing in also needs your device. No
         system is perfectly secure; if a breach puts your data at risk, we will tell you and the

@@ -31,7 +31,5 @@ public class CreateAccountCommandValidator : AbstractValidator<CreateAccountComm
         // balance can be calculated, and inferring one is exactly what rule 40 forbids.
         RuleFor(x => x.OpeningDate)
             .NotNull().WithMessage("Enter the date the opening balance applies from.");
-
-        BankIdentifiers.Apply(this, x => x.Iban, x => x.Bic, x => x.SortCode, x => x.AccountNumber);
     }
 }

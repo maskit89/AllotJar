@@ -54,12 +54,6 @@ public class AccountDto
 
     public int DisplayOrder { get; set; }
 
-    /// <summary>Optional bank identifiers (rule 76); null when not recorded.</summary>
-    public string? Iban { get; set; }
-    public string? Bic { get; set; }
-    public string? SortCode { get; set; }
-    public string? AccountNumber { get; set; }
-
     /// <summary>
     /// Who holds the account (rule 30): one person is a personal account, several a joint one,
     /// none the household's own.
@@ -106,9 +100,5 @@ public static class AccountMapping
         PendingReceiptTotal = ledger.PendingReceiptTotal,
         RequiresReview = ledger.RequiresReview,
         DisplayOrder = a.DisplayOrder,
-        Iban = a.Iban,
-        Bic = a.Bic,
-        SortCode = a.SortCode,
-        AccountNumber = a.AccountNumber,
     };
 }

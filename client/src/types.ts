@@ -342,11 +342,6 @@ export interface AccountDto {
   /** True when the posted balance is flagged for review: it does not yet reflect a pending receipt. */
   requiresReview?: boolean
   displayOrder: number
-  /** Optional bank identifiers (rule 76); null/absent when not recorded. */
-  iban?: string | null
-  bic?: string | null
-  sortCode?: string | null
-  accountNumber?: string | null
   /**
    * W13 (rule 30): who holds the account — one person is a personal account, several a joint
    * one, none the household's own. Optional so existing fixtures stay valid; absent reads as none.
@@ -568,7 +563,6 @@ export interface ImportStatementResult {
   skippedDuplicates: number
   credits: number
   debits: number
-  iban: string | null
   autoCategorized: number
   /** Transfer rows recorded or confirmed. */
   transfers: number
