@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { byAttention, cadenceLabel, JAR_CHIP_TONE, jarCardChip, jarDate, jarDueLabel, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
+import { byAttention, cadenceLabel, sortJars, JAR_CHIP_TONE, jarCardChip, jarDate, jarDueLabel, jarHorizonLabel, jarLastCycleLabel, jarMonthLabel, jarStatusChip } from './jarStatus'
 import type { JarDto } from '../types'
 
 function jar(over: Partial<JarDto> = {}): JarDto {
@@ -258,6 +258,34 @@ describe('the jar cards (Dashboard jars card, Jars page)', () => {
     // Each keeps its index in the API's list (its colour follows it).
     expect(order[0].index).toBe(9)
     expect(order[order.length - 1].index).toBe(0)
+  })
+
+  it('sorts by the order picked, completed goals last and jars with nothing to compare after the rest', () => {
+    const jars = [
+      jar({ id: 'b', name: 'beach', deadline: '2027-07-01', currentBalance: 100, targetAmount: 1000 }),
+      jar({ id: 'a', name: 'Atlas', deadline: null, currentBalance: 300, targetAmount: 0 }),
+      jar({ id: 'done', name: 'Aaa done', deadline: '2026-01-01', currentBalance: 900, targetAmount: 900, completedOn: '2026-09-01', status: 'Completed' }),
+      jar({ id: 'c', name: 'Car', deadline: '2026-12-01', currentBalance: null, targetAmount: 600, status: 'Unavailable' }),
+      jar({ id: 'd', name: 'Dentist', deadline: '2026-11-15', currentBalance: 150, targetAmount: 200 }),
+    ]
+    const ids = (s: Parameters<typeof sortJars>[1]) => sortJars(jars, s).map(({ jar: j }) => j.id)
+    expect(ids('due')).toEqual(['d', 'c', 'b', 'a', 'done'])
+    expect(ids('name')).toEqual(['a', 'b', 'c', 'd', 'done'])
+    expect(ids('saved')).toEqual(['a', 'd', 'b', 'c', 'done'])
+    expect(ids('funded')).toEqual(['d', 'b', 'a', 'c', 'done'])
+    expect(ids('attention')).toEqual(byAttention(jars).map(({ jar: j }) => j.id))
+    // Each keeps its place in the API's list, so its colour follows it.
+    expect(sortJars(jars, 'name')[0].index).toBe(1)
+  })
+
+  it('sorts a month-only date as due by the month\'s end, and names with numbers in number order', () => {
+    const jars = [
+      jar({ id: 'month', name: 'Jar 10', deadline: '2026-11-01', monthOnly: true }),
+      jar({ id: 'day', name: 'Jar 9', deadline: '2026-11-15' }),
+      jar({ id: 'dec', name: 'jar 2', deadline: '2026-12-01' }),
+    ]
+    expect(sortJars(jars, 'due').map(({ jar: j }) => j.id)).toEqual(['day', 'month', 'dec'])
+    expect(sortJars(jars, 'name').map(({ jar: j }) => j.id)).toEqual(['dec', 'day', 'month'])
   })
 
   it('chips a card only when the jar has something to say, never an Unavailable chip beside "Not available"', () => {
