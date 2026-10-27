@@ -185,18 +185,23 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
         // Separate money-out and money-in columns named by their headers. Every filled cell must be
         // a number, read over the whole file: a card statement's Credit column may be empty.
+        // Only the dated rows are transactions: a footer or a stray "PENDING" must not decide.
+        var dated = table.Where(r => TryCell(r, dateColumn, out var c) && TryParseDate(c, null, out _)).ToList();
         int? debitColumn = ByHeader(Roles.Debit);
         int? creditColumn = debitColumn is int d ? BestHeader(columns, Roles.Credit, [.. used, d]) : null;
         if (debitColumn is not int dh || creditColumn is not int ch
-            || !OnlyAmounts(table, dh) || !OnlyAmounts(table, ch)
-            || (!AnyFilled(table, dh) && !AnyFilled(table, ch)))
+            || !MostlyAmounts(dated, dh) || !MostlyAmounts(dated, ch)
+            || (!AnyFilled(dated, dh) && !AnyFilled(dated, ch)))
         {
             debitColumn = creditColumn = null;
         }
 
         // A column of DR/CR (or Debit/Credit) markers gives the direction of an unsigned amount.
+        // With a header it must be named for it, so a status column coded C/D is not taken.
         int? directionColumn = debitColumn is null
-            ? cols.Where(c => !used.Contains(c)).Cast<int?>().FirstOrDefault(c => IsDirectionColumn(table, c!.Value))
+            ? cols.Where(c => !used.Contains(c) && (!hasHeader || HeaderScore(columns[c], Roles.Direction) > 0))
+                .Cast<int?>()
+                .FirstOrDefault(c => IsDirectionColumn(table, c!.Value))
             : null;
         if (directionColumn is int dir)
         {
@@ -211,7 +216,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         if (debitColumn is null && amountColumn is null)
         {
             var numeric = cols
-                .Where(c => !used.Contains(c) && !IsBalance(columns, hasHeader, c) && !sideNamed.Contains(c))
+                .Where(c => !used.Contains(c) && !NamedNotMoney(columns, hasHeader, c) && !sideNamed.Contains(c))
                 .ToList();
             var best = numeric.OrderByDescending(AmountScore).FirstOrDefault(-1);
             // A pair first (without a direction column): a running balance beside it is a full
@@ -288,7 +293,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
     private static class Roles
     {
-        private static readonly string[] NotMoney = ["balance", "bilanċ", "bilanc", "date", "data", "card", "account", "rate", "reference", "ref", "number", "no"];
+        public static readonly string[] NotMoney = ["balance", "bilanċ", "bilanc", "date", "data", "card", "account", "rate", "reference", "ref", "number", "no"];
 
         public static readonly HeaderRole Date = new(
             ["transaction date", "booking date", "posting date", "posted date", "trans date", "txn date", "date", "data", "posted", "booked", "booking"],
@@ -308,6 +313,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             ["credit", "credits", "credit amount", "deposit", "deposits", "money in", "paid in", "in", "cr",
              "receipts", "incoming", "inflow", "received", "lodgements", "lodgement", "kreditu"],
             [.. NotMoney, "debit", "debitu", "dr"]);
+
+        public static readonly HeaderRole Direction = new(
+            ["dr cr", "cr dr", "debit credit", "credit debit", "d c", "c d", "direction", "sign", "indicator",
+             "transaction type", "type", "dc"],
+            []);
 
         public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount"]);
 
@@ -365,8 +375,22 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     private static string HeaderWords(string header) =>
         WhitespaceRun().Replace(NonWord().Replace(header.ToLowerInvariant(), " "), " ").Trim();
 
-    private static bool IsBalance(List<string> columns, bool hasHeader, int col) =>
-        hasHeader && col < columns.Count && $" {HeaderWords(columns[col])} ".Contains(" balance ", StringComparison.Ordinal);
+    /// <summary>A column whose header says it is not money moving (a balance, a reference, a number).</summary>
+    private static bool NamedNotMoney(List<string> columns, bool hasHeader, int col) =>
+        hasHeader && col < columns.Count
+        && Roles.NotMoney.Any(x => $" {HeaderWords(columns[col])} ".Contains($" {x} ", StringComparison.Ordinal));
+
+    /// <summary>
+    /// Nearly every filled cell of the column is an amount (an empty column qualifies): one
+    /// "PENDING" in a Debit column, or one in twenty, must not drop the pair its header names.
+    /// </summary>
+    private static bool MostlyAmounts(List<List<string>> rows, int col)
+    {
+        var filled = rows.Where(r => col < r.Count && !IsBlank(r[col])).ToList();
+        var numbers = filled.Count(r => IsNumberCell(r[col]));
+        var others = filled.Count - numbers;
+        return filled.Count == 0 || (others <= Math.Max(1, filled.Count * 0.05) && numbers > others);
+    }
 
     /// <summary>
     /// Whether a cell reads as an amount for detection: digits with separators, and nothing else
@@ -537,15 +561,38 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     /// </summary>
     private static (int DataStart, bool HasHeader) LocateTable(List<List<string>> rows)
     {
+        // A summary block above the table ("Statement Date,…,Total Amount" and its values) names
+        // the same kinds of columns, so of the rows that do, the header is the one heading the
+        // longest run of rows dated in the column it names as the date (the first, on a tie).
+        var header = -1;
+        var longest = 0;
         for (var i = 0; i < Math.Min(rows.Count - 1, 50); i++)
         {
             var row = rows[i];
-            if (!RowHasDate(row)
-                && row.Any(c => HeaderScore(c, Roles.Date) > 0 || HeaderScore(c, Roles.ValueDate) > 0)
-                && row.Any(c => HeaderScore(c, Roles.Amount) > 0 || HeaderScore(c, Roles.Debit) > 0 || HeaderScore(c, Roles.Credit) > 0))
+            if (RowHasDate(row)
+                || !row.Any(c => HeaderScore(c, Roles.Amount) > 0 || HeaderScore(c, Roles.Debit) > 0 || HeaderScore(c, Roles.Credit) > 0))
             {
-                return (i + 1, true);
+                continue;
             }
+            var named = BestHeader(row, Roles.Date, []) ?? BestHeader(row, Roles.ValueDate, []);
+            if (named is not int dc)
+            {
+                continue;
+            }
+            var run = 0;
+            while (i + 1 + run < rows.Count
+                && TryCell(rows[i + 1 + run], dc, out var cell) && TryParseDate(cell, null, out _))
+            {
+                run++;
+            }
+            if (run > longest)
+            {
+                (header, longest) = (i, run);
+            }
+        }
+        if (header >= 0)
+        {
+            return (header + 1, true);
         }
 
         var dateColumns = rows.Take(200)

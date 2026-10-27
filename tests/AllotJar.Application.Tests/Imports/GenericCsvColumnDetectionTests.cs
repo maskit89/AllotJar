@@ -356,4 +356,56 @@ public class GenericCsvColumnDetectionTests
         Assert.Equal((2, 3), (m.DebitColumn, m.CreditColumn));
         Assert.Equal(9, entries.Count(e => !e.IsCredit));
     }
+
+    // --- Review round 2 of #404 -----------------------------------------------------------------
+
+    [Fact]
+    public void A_summary_block_above_the_table_is_not_its_header()
+    {
+        var (m, entries) = Read(
+            "Statement Date,Payment Due Date,Minimum Payment,Total Amount\n" +
+            "Statement,30 Sep,25.00,523.40\n" +
+            "Date,Description,Amount,Balance\n" +
+            "01/09/2026,AMAZON,-25.00,25.00\n02/09/2026,LIDL,-40.00,65.00\n03/09/2026,REFUND,5.00,60.00\n");
+
+        Assert.Equal((2, true, 2), (m.SkipRows, m.HasHeader, m.AmountColumn));
+        Assert.Equal(new[] { false, false, true }, entries.Select(e => e.IsCredit));
+    }
+
+    [Fact]
+    public void A_summary_block_with_a_date_in_it_is_not_the_table()
+    {
+        var (m, entries) = Read(
+            "Card,Statement date,Total amount\n" +
+            "****1234,30/09/2026,523.40\n" +
+            "Date,Description,Debit,Credit\n" +
+            "01/09/2026,AMAZON,25.00,\n02/09/2026,LIDL,40.00,\n03/09/2026,REFUND,,5.00\n");
+
+        Assert.Equal((2, 2, 3), (m.SkipRows, m.DebitColumn, m.CreditColumn));
+        Assert.Equal(new[] { (25.00m, false), (40.00m, false), (5.00m, true) }, entries.Select(e => (e.Amount, e.IsCredit)));
+    }
+
+    [Fact]
+    public void One_text_cell_in_debit_keeps_the_pair_and_a_reference_column_is_never_the_amount()
+    {
+        var (m, entries) = Read(
+            "Date,Ref,Description,Debit,Credit,Balance\n" +
+            "01/09/2026,100231,LIDL,23.40,,976.60\n02/09/2026,100232,SALARY,,2100.00,3076.60\n" +
+            "03/09/2026,100233,CARD HOLD,PENDING,,3076.60\n04/09/2026,100234,ATM,50.00,,3026.60\n");
+
+        Assert.Equal((3, 4), (m.DebitColumn, m.CreditColumn));
+        Assert.Equal(new[] { (23.40m, false), (2100.00m, true), (50.00m, false) }, entries.Select(e => (e.Amount, e.IsCredit)));
+
+        // With no Debit/Credit headers at all, Ref is still not taken for the amount.
+        var plain = _importer.Detect("Date,Ref,Description,Value\n01/09/2026,100231,LIDL,-23.40\n02/09/2026,100232,SALARY,2100.00\n").Suggested;
+        Assert.Equal(3, plain.AmountColumn);
+    }
+
+    [Fact]
+    public void With_a_header_a_direction_column_must_be_named_for_it()
+    {
+        // A status column coded C/D (Cleared/Declined) is not a direction.
+        var m = _importer.Detect("Date,Description,Amount,Status\n01/09/2026,LIDL,-23.40,C\n02/09/2026,SALARY,2100.00,D\n03/09/2026,ATM,-50.00,C\n").Suggested;
+        Assert.Null(m.DirectionColumn);
+    }
 }
