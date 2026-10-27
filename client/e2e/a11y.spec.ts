@@ -243,10 +243,10 @@ for (const theme of ['light', 'dark'] as const) {
       await expectNoViolations(page)
 
       // Just the month: the date swaps for a list of months (the Date / Month choice).
-      await dialog.getByRole('radio', { name: 'Month' }).check()
+      await dialog.getByRole('radio', { name: 'Month', exact: true }).check()
       await dialog.getByLabel('Next due (month)').selectOption('2027-03-01')
       await expectNoViolations(page)
-      await dialog.getByRole('radio', { name: 'Date' }).check()
+      await dialog.getByRole('radio', { name: 'Date', exact: true }).check()
 
       // Back to one that doesn't repeat: a target with a mid-month "Needed by" date renders the
       // server's schedule preview (the mocked POST /jars/schedule) and, under "More options",
@@ -259,7 +259,7 @@ for (const theme of ['light', 'dark'] as const) {
       await dialog.getByLabel('Include the deadline month').waitFor()
       await expectNoViolations(page)
 
-      // The fixed-monthly switch swaps the date (and Repeats) for a Monthly amount.
+      // Choosing a fixed amount swaps the date (and Repeats) for a Monthly amount, filled from the plan.
       await dialog.getByLabel('Set aside a fixed amount each month').check()
       await dialog.getByLabel('Monthly amount').waitFor()
       await expectNoViolations(page)

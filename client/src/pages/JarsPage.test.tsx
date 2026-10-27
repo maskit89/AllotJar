@@ -264,8 +264,8 @@ describe('JarsPage', () => {
     expect(dialog.queryByLabelText('Next due date')).not.toBeInTheDocument()
     expect(dialog.getByLabelText('Monthly amount')).toBeInTheDocument()
 
-    // …and unticking it brings both back with the cadence chosen, not reset to "Doesn’t repeat".
-    await user.click(fixed)
+    // …and choosing a date again brings both back with the cadence chosen, not reset to "Doesn’t repeat".
+    await user.click(dialog.getByLabelText('Save by a date'))
     const repeats = dialog.getByLabelText('Repeats') as HTMLSelectElement
     expect(repeats.value).toBe('6')
     expect(repeats.selectedOptions[0].textContent).toBe('Every 6 months')
@@ -309,6 +309,79 @@ describe('JarsPage', () => {
       recurMonths: 12,
       initialAllocation: 0,
     })
+  })
+
+  it('switching to a fixed amount carries the planned monthly amount over, and back keeps the date', { timeout: 15000 }, async () => {
+    fundsData = []
+    mockPost.mockImplementation((url: string) =>
+      url === '/jars/schedule' ? Promise.resolve({ data: schedule() }) : Promise.resolve({ data: {} }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Sofa')
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+
+    // The plan's 100.00 a month fills "Each month"; the name and target stay as typed.
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('100')
+    expect(dialog.getByLabelText('Jar name')).toHaveValue('Sofa')
+    expect(dialog.getByLabelText('Target amount')).toHaveValue('300')
+
+    // Back to a date: the date is still there.
+    await user.click(dialog.getByLabelText('Save by a date'))
+    expect(dialog.getByLabelText('Needed by')).toHaveValue('2026-12-01')
+  })
+
+  it('carries the plan rounded up to the cent, afresh on each switch, and keeps an amount typed by hand (rule 35)', { timeout: 20000 }, async () => {
+    fundsData = []
+    // Rule 35: 100 over three months floors to 33.33 and leaves the cent in the last month.
+    mockPost.mockImplementation((url: string, body: { accrual: number; targetAmount: number }) => {
+      if (url !== '/jars/schedule') return Promise.resolve({ data: {} })
+      if (body.accrual !== 1) return Promise.resolve({ data: schedule({ accrual: 2, estimatedMonths: 3 }) })
+      const months =
+        body.targetAmount === 100
+          ? [scheduleMonth(2026, 9, 33.33), scheduleMonth(2026, 10, 33.33), scheduleMonth(2026, 11, 33.34)]
+          : [scheduleMonth(2026, 9, 200), scheduleMonth(2026, 10, 200), scheduleMonth(2026, 11, 200)]
+      return Promise.resolve({ data: schedule({ months, total: body.targetAmount, remaining: body.targetAmount }) })
+    })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Target amount'), '100')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('€100.00 in total'), { timeout: 5000 })
+
+    // 33.34 a month finishes in the same three months; 33.33 would need a fourth for a cent.
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('33.34')
+    await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/jars/schedule', expect.objectContaining({ accrual: 2, monthlyContribution: 33.34 })), { timeout: 5000 })
+
+    // A new target by a date, then fixed again: the carried amount follows the new plan.
+    await user.click(dialog.getByLabelText('Save by a date'))
+    await user.clear(dialog.getByLabelText('Target amount'))
+    await user.type(dialog.getByLabelText('Target amount'), '600')
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('€200.00 a month'), { timeout: 5000 })
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('200')
+
+    // An amount typed by hand stays through the same round trip.
+    await user.clear(dialog.getByLabelText('Monthly amount'))
+    await user.type(dialog.getByLabelText('Monthly amount'), '150')
+    await user.click(dialog.getByLabelText('Save by a date'))
+    await user.clear(dialog.getByLabelText('Target amount'))
+    await user.type(dialog.getByLabelText('Target amount'), '100')
+    await waitFor(() => expect(dialog.getByTestId('jar-schedule-preview')).toHaveTextContent('€100.00 in total'), { timeout: 5000 })
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('150')
   })
 
   // O3b (answered 1 October 2026): the edit preview says which later months keep the amount the

@@ -28,6 +28,8 @@ const REPEAT_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 
 /** How long the form waits after a keystroke before asking the server for the schedule. */
 const PREVIEW_DEBOUNCE_MS = 250
+/** One cent in minor units: a carried monthly amount is rounded up to it. */
+const CENT = fromAmount(0.01)
 
 /** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
 function parseAmount(input: string): number | null {
@@ -281,6 +283,27 @@ export function JarFormModal({
   // it is dropped the moment the definition can't be planned at all.
   const schedule = requestKey && preview ? preview.schedule : null
 
+  // Switching to a fixed amount carries the plan just worked out from the target and date into
+  // "Each month", so the switch doesn't look like it lost what was typed; the date and Repeats
+  // stay in the form for switching back. Rule 35 floors each month and puts the remainder in the
+  // last, so the carried amount is the average rounded up to the cent: the same months, never
+  // one more for a cent. Only the preview of what the form says now is carried (not one still
+  // being re-asked), and not the months typed by hand on a Savings line (O3b). An amount carried
+  // earlier and left as it was is carried afresh; one the user typed stays.
+  const carried = useRef<string | null>(null)
+  const setFixedMonthly = (fixedMonthly: boolean) => {
+    const current = preview && preview.key === requestKey ? preview.schedule : null
+    const months = current && current.accrual === AccrualMethod.TargetByDate ? current.months.filter((m) => !m.skipped && !m.byHand && m.planned > 0) : []
+    const sum = months.reduce((total, m) => total + fromAmount(m.planned), 0)
+    const monthly = months.length > 0 ? toEditString(Math.ceil(sum / months.length / CENT) * CENT) : null
+    setForm((prev) => {
+      const untouched = prev.monthly.trim() === '' || prev.monthly === carried.current
+      if (!fixedMonthly || !untouched || monthly === null) return { ...prev, fixedMonthly }
+      carried.current = monthly
+      return { ...prev, fixedMonthly, monthly }
+    })
+  }
+
   const submit = useCallback(async (shareAccount = false) => {
     if (form.name.trim() === '') {
       setError('Give the jar a name.')
@@ -483,6 +506,14 @@ export function JarFormModal({
             className="w-full"
           />
         </label>
+        <div className="flex flex-wrap items-center gap-x-1 gap-y-1">
+          <SaveBy fixedMonthly={form.fixedMonthly} onChange={setFixedMonthly} />
+          <InfoHint label="What a fixed amount means" align="center">
+            No date in mind? Set aside the same amount every month, for a pot you keep topping up (an emergency fund). The
+            target is optional.
+          </InfoHint>
+          {stopsRepeating && <span className="basis-full text-xs font-medium text-amber-700 dark:text-amber-300">It will stop repeating.</span>}
+        </div>
         <div className="grid grid-cols-2 gap-3">
           {/* At the bottom of its row: the date beside it may have a taller label on a phone. */}
           <label className="flex flex-col gap-1 self-end text-xs font-medium text-slate-500">
@@ -578,23 +609,6 @@ export function JarFormModal({
               <span className="text-[11px] font-normal text-slate-500">Private: saving asks you to share it.</span>
             )}
           </label>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-1 text-xs font-medium text-slate-500">
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.fixedMonthly}
-              aria-label="Set aside a fixed amount each month"
-              onChange={(e) => set('fixedMonthly', e.target.checked)}
-              className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
-            />
-            Fixed amount each month
-          </label>
-          <InfoHint label="What a fixed amount means" align="center">
-            No date in mind? Set aside the same amount every month, for a pot you keep topping up (an emergency fund). The
-            target is optional.
-          </InfoHint>
-          {stopsRepeating && <span className="basis-full pl-6 text-amber-700 dark:text-amber-300">It will stop repeating.</span>}
         </div>
         {completed && <p className="text-xs text-slate-500">Completed: nothing more is planned.</p>}
         {schedule && <SchedulePreview schedule={schedule} currency={currency} />}
@@ -722,6 +736,36 @@ export function JarFormModal({
         </div>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * How the jar saves, asked before the amounts: toward a date, or a fixed amount each month (a
+ * FixedMonthly Goal, rule 17). Two choices in one row, so the fields below fit the answer.
+ */
+function SaveBy({ fixedMonthly, onChange }: { fixedMonthly: boolean; onChange: (fixedMonthly: boolean) => void }) {
+  return (
+    <span role="radiogroup" aria-label="How it saves" className="inline-flex rounded-full bg-slate-100 p-0.5">
+      {[
+        { value: false, label: 'By a date', aria: 'Save by a date' },
+        { value: true, label: 'Fixed amount each month', aria: 'Set aside a fixed amount each month' },
+      ].map((o) => (
+        <label key={o.label} className="relative">
+          {/* The real radio covers its pill, invisibly: a tap or a click lands on it. */}
+          <input
+            type="radio"
+            name="jar-save-by"
+            checked={fixedMonthly === o.value}
+            aria-label={o.aria}
+            onChange={() => onChange(o.value)}
+            className="peer absolute inset-0 m-0 h-full w-full cursor-pointer opacity-0"
+          />
+          <span className="block rounded-full px-3 py-1 text-xs font-semibold text-slate-600 transition peer-checked:bg-surface peer-checked:text-slate-900 peer-checked:shadow-sm peer-focus-visible:ring-2 peer-focus-visible:ring-brand-500/40">
+            {o.label}
+          </span>
+        </label>
+      ))}
+    </span>
   )
 }
 
