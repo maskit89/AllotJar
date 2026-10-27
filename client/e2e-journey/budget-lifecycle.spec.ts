@@ -28,6 +28,9 @@ const MONTH_NAMES = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 
+/** The one button that continues the month before ("Start March"), never a blank or template start. */
+const CONTINUE_BUTTON = new RegExp(`^Start (${MONTH_NAMES.join('|')})$`)
+
 /** The month `offset` months away from the real current month (the app's clock). */
 function monthAt(offset: number): { year: number; month: number; label: string } {
   const now = new Date()
@@ -110,7 +113,7 @@ test('a jar-less blank month prompts for income, and a duplicate create fails fr
   // that would continue an earlier month (none exists).
   await expect(page.getByRole('button', { name: 'Start a blank budget' })).toBeVisible()
   await expect(page.getByText('Or start from a template')).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Start (?!a blank)/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: CONTINUE_BUTTON })).toHaveCount(0)
 
   // A second tab (same session via the shared refresh cookie) parks on the same
   // create card — it will lose the create race below (BUDG-048 / DASH-012).
@@ -435,7 +438,7 @@ test('month navigation moves every screen together; the jars shelf follows the m
   await page.getByRole('button', { name: 'Previous month' }).click()
   await expect(page.getByRole('heading', { name: prev.label, exact: true })).toBeVisible()
   await expect(page.getByText(`No budget for ${prev.label} yet.`)).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Start (?!a blank)/ })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: CONTINUE_BUTTON })).toHaveCount(0)
   await expect(page.getByText('Or start from a template')).toHaveCount(0)
 
   // BUDG-042: the viewed month is app-wide MonthContext state — Transactions opens
