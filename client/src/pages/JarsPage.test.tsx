@@ -773,4 +773,31 @@ describe('JarsPage', () => {
 
     expect(await screen.findByText(/No jars yet/, {}, { timeout: 5000 })).toBeInTheDocument()
   })
+  it('sorts the jars by the order picked and remembers it on this device', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    fundsData = [jar(), jar({ id: 'f2', name: 'Roof', status: 'Behind', currentBalance: 50 })]
+    const order = () => screen.getAllByRole('progressbar').map((p) => p.getAttribute('aria-label'))
+
+    const { unmount } = renderPage()
+    await screen.findByText('Roof', {}, { timeout: 5000 })
+    // Attention first by default: the jar that is behind leads.
+    expect(order()).toEqual(['Roof funding progress', 'Home insurance funding progress'])
+
+    await user.click(screen.getByRole('button', { name: 'Sort jars: Needs attention' }))
+    await user.click(await screen.findByRole('menuitemradio', { name: 'Most saved' }))
+    expect(order()).toEqual(['Home insurance funding progress', 'Roof funding progress'])
+    expect(localStorage.getItem('zbb.jarSort')).toBe('saved')
+
+    unmount()
+    renderPage()
+    expect(await screen.findByRole('button', { name: 'Sort jars: Most saved' }, { timeout: 5000 })).toBeInTheDocument()
+    expect(order()).toEqual(['Home insurance funding progress', 'Roof funding progress'])
+  })
+
+  it('offers no sorting with a single jar', { timeout: 15000 }, async () => {
+    fundsData = [jar()]
+    renderPage()
+    await screen.findByText('Home insurance', {}, { timeout: 5000 })
+    expect(screen.queryByRole('button', { name: /^Sort jars/ })).not.toBeInTheDocument()
+  })
 })
