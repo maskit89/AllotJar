@@ -219,7 +219,6 @@ public class LargeHouseholdTimingTests
             await Time($"Savings opening balance to {opening}", HttpMethod.Put, $"/api/accounts/{ids.Savings}", new
             {
                 name = "Savings", type = 1, openingBalance = opening, openingDate = start,
-                iban = "DE89370400440532013000", bic = "MALTMTMT",
             }, runs: 1);
         }
 
@@ -252,7 +251,6 @@ public class LargeHouseholdTimingTests
                 await Time($"Checking opening balance to {opening}", HttpMethod.Put, $"/api/accounts/{ids.Checking}", new
                 {
                     name = "Checking", type = 0, openingBalance = opening, openingDate = start,
-                    iban = "MT84MALT011000012345MTLCAST001S", bic = "MALTMTMT",
                 }, runs: 1);
             }
         }
@@ -314,15 +312,14 @@ public class LargeHouseholdTimingTests
             return text.Length == 0 ? null : JsonDocument.Parse(text);
         }
 
-        // Bank details as most accounts carry them: they are stored encrypted, so every read decrypts them.
-        async Task<Guid> CreateAccount(string name, int type, decimal opening, string? iban = null) =>
+        async Task<Guid> CreateAccount(string name, int type, decimal opening) =>
             (await Send("account", HttpMethod.Post, "/api/accounts",
-                new { name, type, currency = "EUR", openingBalance = opening, openingDate = start, iban, bic = iban is null ? null : "MALTMTMT" })
+                new { name, type, currency = "EUR", openingBalance = opening, openingDate = start })
                 ?? throw new InvalidOperationException(string.Join("\n", failureSamples)))
             .RootElement.GetProperty("id").GetGuid();
 
-        var checking = await CreateAccount("Checking", 0, 2500m, "MT84MALT011000012345MTLCAST001S");
-        var savings = await CreateAccount("Savings", 1, 4000m, "DE89370400440532013000");
+        var checking = await CreateAccount("Checking", 0, 2500m);
+        var savings = await CreateAccount("Savings", 1, 4000m);
         var cash = await CreateAccount("Cash", 2, 50m);
 
         // Month by month: the budget, then the month's money.

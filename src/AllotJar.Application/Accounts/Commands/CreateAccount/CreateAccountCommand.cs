@@ -18,9 +18,5 @@ public record CreateAccountCommand(
     string Currency,
     decimal OpeningBalance,
     DateOnly? OpeningDate,
-    string? Iban = null,
-    string? Bic = null,
-    string? SortCode = null,
-    string? AccountNumber = null,
     IReadOnlyList<Guid>? HolderIds = null,
     bool? IsPrivate = null) : IRequest<AccountDto>;

@@ -299,7 +299,7 @@ describe('ImportPage', () => {
     ]
     mockPreview.mockResolvedValue(preview)
     mockCommit.mockResolvedValue({
-      totalEntries: 2, imported: 1, skippedDuplicates: 0, credits: 0, debits: 1, iban: null,
+      totalEntries: 2, imported: 1, skippedDuplicates: 0, credits: 0, debits: 1,
       autoCategorized: 0, transfers: 1, matchedTransfers: 1, pendingReviewTransfers: 0,
     })
     const user = userEvent.setup()
@@ -350,7 +350,7 @@ describe('ImportPage', () => {
     }
     mockPreview.mockResolvedValue(withCandidate('bi-may-fees', '2026-05-01'))
     mockCommit.mockResolvedValue({
-      totalEntries: 2, imported: 1, skippedDuplicates: 0, credits: 0, debits: 1, iban: null,
+      totalEntries: 2, imported: 1, skippedDuplicates: 0, credits: 0, debits: 1,
       autoCategorized: 0, transfers: 1, matchedTransfers: 1, pendingReviewTransfers: 0,
     })
     const user = userEvent.setup()

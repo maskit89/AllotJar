@@ -8,11 +8,10 @@ public class Camt053StatementParserTests
     private readonly Camt053StatementParser _parser = new();
 
     [Fact]
-    public void Parse_ReadsAccountAndAllEntries()
+    public void Parse_ReadsAllEntries()
     {
         var statement = _parser.Parse(Camt053Samples.ThreeEntries);
 
-        Assert.Equal("DE89370400440532013000", statement.Iban);
         Assert.Equal(3, statement.Entries.Count);
     }
 

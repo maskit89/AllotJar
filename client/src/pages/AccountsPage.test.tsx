@@ -265,46 +265,29 @@ describe('AccountsPage', () => {
 
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance, openingDate: '2026-01-01',
-      iban: null, bic: null, sortCode: null, accountNumber: null, version: null,
+      version: null,
     }))
   })
 
-  // Rule 76: optional bank identifiers ride along on create and edit, blank → null.
-  it('sends the optional bank identifiers on add and edit, and edits prefill them', { timeout: 15000 }, async () => {
-    const withIds = { ...accounts()[0], iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: '40-47-84', accountNumber: '12345678' }
-    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [withIds] : [] }))
+  // AllotJar keeps no bank details (27 Oct 2026): neither form asks for them and no save sends them.
+  it('asks for no bank details on add or edit', { timeout: 15000 }, async () => {
+    mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? accounts() : [] }))
     mockPost.mockResolvedValue({ data: { id: 'a9', name: 'Piggy', type: 2, currency: 'EUR', openingBalance: 0, currentBalance: 0, displayOrder: 1 } })
-    mockPut.mockResolvedValue({ data: withIds })
     const user = userEvent.setup()
 
     renderPage()
 
     await user.click(await screen.findByRole('button', { name: 'Add account' }, { timeout: 5000 }))
     const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    for (const label of ['IBAN', 'BIC', 'Sort code', 'Account number']) expect(dialog.queryByLabelText(label)).not.toBeInTheDocument()
     await user.type(dialog.getByLabelText('Account name'), 'Piggy')
-    await user.type(dialog.getByLabelText('IBAN'), 'DE89 3704 0044 0532 0130 00')
-    await user.type(dialog.getByLabelText('BIC'), 'COBADEFF')
-    // Sort code / account number left blank → null on the wire.
     await user.click(dialog.getByRole('button', { name: 'Add account' }))
-    await waitFor(() =>
-      expect(mockPost).toHaveBeenCalledWith('/accounts', expect.objectContaining({
-        name: 'Piggy', iban: 'DE89 3704 0044 0532 0130 00', bic: 'COBADEFF', sortCode: null, accountNumber: null,
-      })),
-    )
+    await waitFor(() => expect(mockPost).toHaveBeenCalled())
+    expect(mockPost.mock.calls[0][1]).not.toHaveProperty('iban')
 
     await accountAction(user, 'Everyday', 'Edit Everyday')
-    expect(screen.getByLabelText('IBAN for Everyday')).toHaveValue('MT84MALT011000012345MTLCAST001S')
-    expect(screen.getByLabelText('BIC for Everyday')).toHaveValue('VALLMTMT')
-    expect(screen.getByLabelText('Sort code for Everyday')).toHaveValue('40-47-84')
-    expect(screen.getByLabelText('Account number for Everyday')).toHaveValue('12345678')
-    await user.clear(screen.getByLabelText('Account number for Everyday'))
-    await user.type(screen.getByLabelText('Account number for Everyday'), '87654321')
-    await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
-    await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
-      name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-01-01',
-      iban: 'MT84MALT011000012345MTLCAST001S', bic: 'VALLMTMT', sortCode: '40-47-84', accountNumber: '87654321',
-      version: null,
-    }))
+    expect(screen.queryByLabelText('IBAN for Everyday')).not.toBeInTheDocument()
+    expect(screen.queryByText('Bank details')).not.toBeInTheDocument()
   })
 
   // Rule 74: no account opens below zero — refused before any request, and a server 400 is shown as-is.
@@ -357,7 +340,7 @@ describe('AccountsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Save Everyday' }))
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/accounts/a1', {
       name: 'Everyday', type: 0, openingBalance: 100, openingDate: '2026-03-01',
-      iban: null, bic: null, sortCode: null, accountNumber: null, version: null,
+      version: null,
     }))
     expect((await screen.findAllByText(/250\.00/, {}, { timeout: 5000 })).length).toBeGreaterThan(0)
   })
