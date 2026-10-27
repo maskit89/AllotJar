@@ -618,6 +618,14 @@ public partial class AuthController : ControllerBase
         {
             await answer.CommitAsync(ct);
         }
+
+        // A sign-out of this sign-in at the same moment wins over the refresh: the new token is
+        // revoked and the browser is signed out, as it asked to be.
+        if (!await ConfirmedAsync(rotation.NewRawToken!, ct))
+        {
+            ClearRefreshCookie();
+            return Unauthorized();
+        }
         SetRefreshCookie(rotation.NewRawToken!, rotation.ExpiresUtc);
         return Ok(response);
     }
@@ -1227,7 +1235,32 @@ public partial class AuthController : ControllerBase
         {
             return;
         }
+        if (!await ConfirmedAsync(rotated.NewRawToken!, ct))
+        {
+            // The old cookie is spent: replaying it later would meet the theft response.
+            ClearRefreshCookie();
+            return;
+        }
         SetRefreshCookie(rotated.NewRawToken!, rotated.ExpiresUtc);
+    }
+
+    /// <summary>
+    /// <see cref="IRefreshTokenService.ConfirmAsync"/>, with a failure counted as a refusal. It runs
+    /// after the rotation is committed, so the cookie the browser holds is already spent: an error
+    /// answered as a 500 would leave it there, and its replay after the grace window would meet the
+    /// theft response and sign out every device (#302 review P2-1). Refused, only this one signs out.
+    /// </summary>
+    private async Task<bool> ConfirmedAsync(string newRawToken, CancellationToken ct)
+    {
+        try
+        {
+            return await _refreshTokens.ConfirmAsync(newRawToken, ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(ex, "Could not check a refreshed sign-in against sign-outs; signing this device out");
+            return false;
+        }
     }
 
     /// <summary>The device this request comes from, as the list of signed-in devices names it.</summary>

@@ -1,6 +1,11 @@
 using System.Net;
 using System.Net.Http.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using AllotJar.Application.Common.Interfaces;
+using AllotJar.Infrastructure.Identity;
+using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.IntegrationTests.Http;
 
@@ -156,5 +161,48 @@ public class SignedInDevicesHttpTests
             (await laptop.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
             (await phone.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         }
+    }
+    /// <summary>The real service, except that the check after a refresh's commit fails (a SQL timeout).</summary>
+    private sealed class FailingConfirm(IRefreshTokenService inner) : IRefreshTokenService
+    {
+        public Task<string> IssueAsync(string userId, string? device = null, CancellationToken ct = default) => inner.IssueAsync(userId, device, ct);
+        public Task<RefreshRotationResult> RotateAsync(string rawToken, string? device = null, CancellationToken ct = default) => inner.RotateAsync(rawToken, device, ct);
+        public Task<bool> ConfirmAsync(string newRawToken, CancellationToken ct = default) => throw new TimeoutException("The check timed out.");
+        public Task<string?> RevokeAsync(string rawToken, CancellationToken ct = default) => inner.RevokeAsync(rawToken, ct);
+        public Task RevokeAllForUserAsync(string userId, CancellationToken ct = default) => inner.RevokeAllForUserAsync(userId, ct);
+        public Task<IReadOnlyList<ActiveSession>> ListActiveAsync(string userId, string? currentRawToken, CancellationToken ct = default) => inner.ListActiveAsync(userId, currentRawToken, ct);
+        public Task<bool> RevokeSessionAsync(string userId, Guid sessionId, CancellationToken ct = default) => inner.RevokeSessionAsync(userId, sessionId, ct);
+    }
+
+    /// <summary>
+    /// #391 review P3-1: the check runs after the old cookie was rotated, so a 500 there would leave
+    /// the browser holding a spent cookie whose later replay meets the theft response. It signs this
+    /// device out instead, and the other device carries on.
+    /// </summary>
+    [Fact]
+    public async Task A_refresh_whose_check_after_commit_fails_signs_only_this_device_out()
+    {
+        var (laptop, _, phone, _) = await TwoDevicesAsync();
+        using (laptop)
+        using (phone)
+        {
+            using var failing = _fixture.CreateClient(b => b.ConfigureTestServices(s =>
+                s.AddScoped<IRefreshTokenService>(sp => new FailingConfirm(new RefreshTokenService(sp.GetRequiredService<ApplicationDbContext>())))));
+            var refresh = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh");
+            refresh.Headers.Add("Cookie", CookieOf(await laptop.PostAsync("/api/auth/refresh", null)));
+
+            var answer = await failing.SendAsync(refresh);
+
+            answer.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "not a 500");
+            answer.Headers.GetValues("Set-Cookie").Should().Contain(c => c.Contains("expires=Thu, 01 Jan 1970", StringComparison.OrdinalIgnoreCase),
+                "the spent cookie is cleared");
+            (await phone.PostAsync("/api/auth/refresh", null)).StatusCode.Should().Be(HttpStatusCode.OK);
+        }
+    }
+
+    private static string CookieOf(HttpResponseMessage response)
+    {
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        return response.Headers.GetValues("Set-Cookie").Single().Split(';')[0];
     }
 }

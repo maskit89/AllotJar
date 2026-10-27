@@ -1,3 +1,4 @@
+using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
@@ -71,6 +72,13 @@ public class RefreshTokenService : IRefreshTokenService
             return RefreshRotationResult.Failed;
         }
 
+        // A token whose sign-in was signed out is refused as it is: the sign-out already ended
+        // every token of that sign-in, a stolen branch included, so there is nothing left to burn.
+        if (token.SignedOutUtc is not null)
+        {
+            return RefreshRotationResult.Failed;
+        }
+
         // A token that was ROTATED turning up again means the cookie was stolen and replayed —
         // burn every active token for the user so neither party can continue. A token revoked
         // administratively (logout, password change signs out all devices) has no replacement:
@@ -104,13 +112,27 @@ public class RefreshTokenService : IRefreshTokenService
 
         await PruneExpiredAsync(token.UserId, cancellationToken);
         var newRaw = Generate();
+        var newHash = Hash(newRaw);
+        if (!await ClaimAsync(token, now, newHash, cancellationToken))
+        {
+            // Something else wrote to the token since it was read. A sign-out (or the purge, at the
+            // token's last instant) wins: refused, not a 500. Only a sibling tab's rotation of the
+            // same cookie lets this one carry on, with a token of its own, as both tabs did before.
+            var current = await _db.RefreshTokens.AsNoTracking()
+                .Where(t => t.Id == token.Id)
+                .Select(t => new { t.SignedOutUtc, t.ReplacedByTokenHash })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (current is null || current.SignedOutUtc is not null || current.ReplacedByTokenHash is null)
+            {
+                return RefreshRotationResult.Failed;
+            }
+        }
+
         var expires = ExpiryFor(token.SessionStartedUtc, now);
-        token.RevokedUtc = now;
-        token.ReplacedByTokenHash = Hash(newRaw);
         _db.RefreshTokens.Add(new RefreshToken
         {
             UserId = token.UserId,
-            TokenHash = token.ReplacedByTokenHash,
+            TokenHash = newHash,
             CreatedUtc = now,
             ExpiresUtc = expires,
             SessionId = token.SessionId,
@@ -122,6 +144,34 @@ public class RefreshTokenService : IRefreshTokenService
         return RefreshRotationResult.Success(token.UserId, newRaw, expires);
     }
 
+    public async Task<bool> ConfirmAsync(string newRawToken, CancellationToken cancellationToken = default)
+    {
+        var hash = Hash(newRawToken);
+        var token = await _db.RefreshTokens.AsNoTracking()
+            .Where(t => t.TokenHash == hash)
+            .Select(t => new { t.UserId, t.SessionId })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (token is null)
+        {
+            return false;
+        }
+
+        // A sign-out marks its sign-in's tokens, commits, and only then revokes. So once this
+        // rotation is committed, either this read sees the mark, or the rotation committed before
+        // the mark did, and the sign-out's revoke (which runs after its mark) catches the new token.
+        // On a mark, end the sign-in again here: its revoke may have run before this token existed.
+        var signedOut = await _db.RefreshTokens.AsNoTracking().AnyAsync(
+            t => t.UserId == token.UserId && t.SessionId == token.SessionId && t.SignedOutUtc != null,
+            cancellationToken);
+        if (!signedOut)
+        {
+            return true;
+        }
+
+        await EndAsync(t => t.UserId == token.UserId && t.SessionId == token.SessionId, cancellationToken);
+        return false;
+    }
+
     public async Task<string?> RevokeAsync(string rawToken, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrEmpty(rawToken))
@@ -130,38 +180,32 @@ public class RefreshTokenService : IRefreshTokenService
         }
 
         var hash = Hash(rawToken);
-        var token = await _db.RefreshTokens.FirstOrDefaultAsync(t => t.TokenHash == hash, cancellationToken);
+        var token = await _db.RefreshTokens.AsNoTracking()
+            .Where(t => t.TokenHash == hash)
+            .Select(t => new { t.UserId, t.SessionId })
+            .FirstOrDefaultAsync(cancellationToken);
         if (token is null)
         {
             return null;
         }
 
-        if (token.RevokedUtc is null)
-        {
-            token.RevokedUtc = DateTime.UtcNow;
-            await _db.SaveChangesAsync(cancellationToken);
-        }
-
+        // The whole sign-in ends, not just the token presented: a refresh that rotated it a moment
+        // earlier has already minted the next one.
+        await EndAsync(t => t.UserId == token.UserId && t.SessionId == token.SessionId, cancellationToken);
         return token.UserId;
     }
 
     public async Task RevokeAllForUserAsync(string userId, CancellationToken cancellationToken = default)
     {
-        var active = await _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.RevokedUtc == null)
-            .ToListAsync(cancellationToken);
-        foreach (var t in active)
-        {
-            t.RevokedUtc = DateTime.UtcNow;
-        }
-        await _db.SaveChangesAsync(cancellationToken);
+        await EndAsync(t => t.UserId == userId, cancellationToken);
     }
 
     public async Task<IReadOnlyList<ActiveSession>> ListActiveAsync(string userId, string? currentRawToken, CancellationToken cancellationToken = default)
     {
         var now = DateTime.UtcNow;
         var active = await _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.RevokedUtc == null && t.ExpiresUtc > now)
+            // A marked token counts as ended even if the sign-out's revoke never ran.
+            .Where(t => t.UserId == userId && t.RevokedUtc == null && t.SignedOutUtc == null && t.ExpiresUtc > now)
             .ToListAsync(cancellationToken);
         var currentHash = string.IsNullOrEmpty(currentRawToken) ? null : Hash(currentRawToken);
         var currentSession = currentHash is null
@@ -183,18 +227,60 @@ public class RefreshTokenService : IRefreshTokenService
 
     public async Task<bool> RevokeSessionAsync(string userId, Guid sessionId, CancellationToken cancellationToken = default)
     {
-        var active = await _db.RefreshTokens
-            .Where(t => t.UserId == userId && t.SessionId == sessionId && t.RevokedUtc == null)
-            .ToListAsync(cancellationToken);
-        if (active.Count == 0)
+        return await EndAsync(t => t.UserId == userId && t.SessionId == sessionId, cancellationToken) > 0;
+    }
+
+    /// <summary>
+    /// Signs out the tokens in <paramref name="scope"/>: marks them signed out, then revokes those
+    /// still active. Returns how many were still active. On SQL each step is one set-based statement
+    /// committed on its own, the mark first (see <see cref="ConfirmAsync"/>): a refresh that slips a
+    /// new token in between is caught by the revoke or by its own check, and a row the purge deleted
+    /// meanwhile is no conflict (a tracked update of it affected 0 rows and failed with a 500).
+    /// </summary>
+    private async Task<int> EndAsync(Expression<Func<RefreshToken, bool>> scope, CancellationToken cancellationToken)
+    {
+        var now = DateTime.UtcNow;
+        if (_db.Database.IsRelational())
         {
-            return false;
+            await _db.RefreshTokens.Where(scope).Where(t => t.SignedOutUtc == null)
+                .ExecuteUpdateAsync(u => u.SetProperty(t => t.SignedOutUtc, now), cancellationToken);
+            return await _db.RefreshTokens.Where(scope).Where(t => t.RevokedUtc == null)
+                .ExecuteUpdateAsync(u => u.SetProperty(t => t.RevokedUtc, now), cancellationToken);
         }
-        foreach (var t in active)
+
+        var tokens = await _db.RefreshTokens.Where(scope).ToListAsync(cancellationToken);
+        var active = 0;
+        foreach (var t in tokens)
         {
-            t.RevokedUtc = DateTime.UtcNow;
+            t.SignedOutUtc ??= now;
+            if (t.RevokedUtc is null)
+            {
+                t.RevokedUtc = now;
+                active++;
+            }
         }
         await _db.SaveChangesAsync(cancellationToken);
+        return active;
+    }
+
+    /// <summary>
+    /// Marks <paramref name="token"/> rotated, only if nothing else has revoked, signed out or
+    /// deleted it since it was read. On SQL that is one conditional UPDATE: two writers can no longer
+    /// both read it active and the later save undo the earlier (a refresh outliving a sign-out).
+    /// </summary>
+    private async Task<bool> ClaimAsync(RefreshToken token, DateTime now, string newHash, CancellationToken cancellationToken)
+    {
+        if (_db.Database.IsRelational())
+        {
+            return await _db.RefreshTokens
+                .Where(t => t.Id == token.Id && t.RevokedUtc == null && t.SignedOutUtc == null)
+                .ExecuteUpdateAsync(u => u
+                    .SetProperty(t => t.RevokedUtc, now)
+                    .SetProperty(t => t.ReplacedByTokenHash, newHash), cancellationToken) == 1;
+        }
+
+        token.RevokedUtc = now;
+        token.ReplacedByTokenHash = newHash;
         return true;
     }
 
