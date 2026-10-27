@@ -45,8 +45,13 @@ describe('DashboardPage optimistic editing', () => {
   })
 
   it('optimistically drives Remaining to €0,00 on a successful edit', { timeout: 15000 }, async () => {
+    // No money outside a jar (rule 94), so Remaining is the plan's alone.
     mockGet.mockImplementation((url: string) =>
-      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: budget() }),
+      url === '/budget/months'
+        ? Promise.resolve({ data: [] })
+        : url.endsWith('/wrap-up')
+          ? Promise.resolve({ data: { leftOver: 0, toAllot: 0 } })
+          : Promise.resolve({ data: budget() }),
     )
     mockPut.mockResolvedValue({ data: {} })
 
