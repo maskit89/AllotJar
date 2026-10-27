@@ -28,6 +28,10 @@ namespace AllotJar.Infrastructure.Persistence.Migrations
             migrationBuilder.DropColumn(
                 name: "SortCode",
                 table: "Accounts");
+
+            // DROP COLUMN only marks the columns gone; the ciphertext stays in the data pages until
+            // the table is rebuilt.
+            migrationBuilder.Sql("ALTER TABLE [Accounts] REBUILD;");
         }
 
         /// <inheritdoc />

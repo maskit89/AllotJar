@@ -2,7 +2,7 @@ import { LegalLayout } from './LegalLayout'
 
 /**
  * Public privacy policy (/privacy), rewritten 20 Oct 2026 (compliance fix 6) to describe what the
- * app actually does: statement imports and bank details, Google sign-in, the email provider,
+ * app actually does: statement imports, Google sign-in, the email provider,
  * encrypted off-site backups and when they expire, self-hosted fonts, where the server is and the
  * transfer safeguard, real retention periods, "Download my data" and "Delete account".
  *
@@ -232,8 +232,7 @@ export function PrivacyPage() {
       <h2>How we protect it</h2>
       <p>
         Everything travels encrypted (TLS). Passwords and sign-in tokens are stored only as hashes,
-        bank details on your accounts are encrypted in our database, backups are encrypted before
-        they leave our server, and sign-in is protected by rate limits,
+        backups are encrypted before they leave our server, and sign-in is protected by rate limits,
         a lockout after repeated wrong passwords and a check against known breached passwords. You
         can add a passkey so signing in also needs your device. No
         system is perfectly secure; if a breach puts your data at risk, we will tell you and the

@@ -49,6 +49,8 @@ describe('PrivacyPage', () => {
     render(<PrivacyPage />)
     expect(screen.getByText(/CAMT\.053 or CSV/)).toBeInTheDocument()
     expect(screen.getByText(/don’t ask for or keep bank details/)).toBeInTheDocument()
+    // Nothing else in the policy may still say bank details are held (or encrypted).
+    expect(screen.getAllByText(/bank details/i)).toHaveLength(1)
     for (const name of ['InterServer', 'Cloudflare', 'Google']) {
       expect(screen.getAllByText(new RegExp(name)).length).toBeGreaterThan(0)
     }

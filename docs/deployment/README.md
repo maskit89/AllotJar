@@ -99,17 +99,29 @@ powershell -File .\Import-ToServer.ps1 -BacpacPath C:\deploy\ZeroBudget.bacpac
 powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1   # skips SQL install; grants on the new DB
 ```
 
-### 4. No bank details key any more
+### 4. Bank details key (only for rolling back)
 
-From 27 October 2026 AllotJar keeps no bank details (IBAN, BIC, sort code, account number), so the
-`BankDetailsEncryption` section of each stack's settings file is no longer read or checked. The
+From 27 October 2026 AllotJar keeps no bank details (IBAN, BIC, sort code, account number). The
 `RemoveBankDetails` migration drops the four columns, with whatever they held, on the first start of
-that build. The section can stay in the file or be deleted; keep the password-manager entries until
-the last nightly backup taken before that deploy has aged out of R2 (35 days), then delete them.
+that build, and the API and `Deploy.ps1` no longer read or check `BankDetailsEncryption`.
 
-**Rolling back** to a build from before `RemoveBankDetails` needs the columns back first: the old build
-reads them on every account screen. Run the migration's Down (it adds them back, empty) or restore a
-`.bak` taken before the deploy.
+**Keep the `BankDetailsEncryption` section in each stack's settings file, and its passphrase in the
+password manager, for as long as you might roll back** past that build: an older build refuses to start
+(and its `Deploy.ps1` refuses to deploy) without the key. Once rolling back that far is off the table and
+the last nightly backup taken before the deploy has aged out of R2 (35 days), delete both.
+
+**Rolling back** to a build from before `RemoveBankDetails`: an older build does not know that migration,
+so it neither undoes it nor puts the columns back, and every account screen fails. Before redeploying the
+older build, take a backup, then run this on the stack's database (empty columns, and the migration
+forgotten so the newer build re-runs it later):
+
+```sql
+ALTER TABLE Accounts ADD Iban nvarchar(256) NULL, Bic nvarchar(256) NULL,
+    SortCode nvarchar(256) NULL, AccountNumber nvarchar(256) NULL;
+DELETE FROM __EFMigrationsHistory WHERE MigrationId = '20261027201120_RemoveBankDetails';
+```
+
+Or restore a `.bak` taken before the deploy.
 
 ### Adding a domain + TLS (later)
 Once you have a domain:

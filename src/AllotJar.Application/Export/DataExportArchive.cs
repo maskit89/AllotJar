@@ -195,7 +195,7 @@ public static class DataExportArchive
         profile.csv                 your sign-in details and preferences
         sign-ins.csv                the devices you are signed in on, and when each was last used
         passkeys.csv                your passkeys: the device each was added on, and when
-        accounts.csv                accounts, bank details and balances
+        accounts.csv                accounts and balances
         people.csv                  the people in the household
         household-access.csv        who can sign in to the household
         transactions.csv            every transaction, with notes and the statement date, amount and
