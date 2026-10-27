@@ -245,7 +245,6 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
 test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, archived jar dropped, seedable jar re-seeded; edits persist', async ({
   page,
 }) => {
-  const current = monthAt(0)
   const next = monthAt(1)
   await register(page)
 
@@ -400,7 +399,6 @@ test('copy-from-previous: planned carried, DueDay carried with IsPaid reset, arc
 test('month navigation moves every screen together; the jars shelf follows the month; year boundaries roll', async ({
   page,
 }) => {
-  const current = monthAt(0)
   const prev = monthAt(-1)
   const next = monthAt(1)
 
