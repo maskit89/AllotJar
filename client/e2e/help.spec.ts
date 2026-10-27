@@ -113,7 +113,7 @@ test.describe('Help', () => {
     await expect(page.getByRole('region', { name: 'Saving with jars' })).toHaveCount(0)
     await expect(panel.getByRole('listitem')).toHaveText([
       'A jar saves for a bill, a holiday or a rainy day, and sits in one of your accounts.',
-      'Give it a target and a date, set Repeats for a cost that comes back, or tick Fixed amount each month for a pot you keep topping up.',
+      'Give it a target and a date, set Repeats for a cost that comes back, or choose Fixed amount each month for a pot you keep topping up.',
       'AllotJar works out what to set aside each month and puts it on the jar’s line in your Savings group.',
       'Move money shifts money between jars. Covering an overspend from another jar is a move, not spending.',
     ])

@@ -264,8 +264,8 @@ describe('JarsPage', () => {
     expect(dialog.queryByLabelText('Next due date')).not.toBeInTheDocument()
     expect(dialog.getByLabelText('Monthly amount')).toBeInTheDocument()
 
-    // …and unticking it brings both back with the cadence chosen, not reset to "Doesn’t repeat".
-    await user.click(fixed)
+    // …and choosing a date again brings both back with the cadence chosen, not reset to "Doesn’t repeat".
+    await user.click(dialog.getByLabelText('Save by a date'))
     const repeats = dialog.getByLabelText('Repeats') as HTMLSelectElement
     expect(repeats.value).toBe('6')
     expect(repeats.selectedOptions[0].textContent).toBe('Every 6 months')
@@ -309,6 +309,33 @@ describe('JarsPage', () => {
       recurMonths: 12,
       initialAllocation: 0,
     })
+  })
+
+  it('switching to a fixed amount carries the planned monthly amount over, and back keeps the date', { timeout: 15000 }, async () => {
+    fundsData = []
+    mockPost.mockImplementation((url: string) =>
+      url === '/jars/schedule' ? Promise.resolve({ data: schedule() }) : Promise.resolve({ data: {} }),
+    )
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'New jar' }, { timeout: 5000 }))
+    const dialog = within(await screen.findByRole('dialog', {}, { timeout: 5000 }))
+    await user.type(dialog.getByLabelText('Jar name'), 'Sofa')
+    await user.type(dialog.getByLabelText('Target amount'), '300')
+    fireEvent.change(dialog.getByLabelText('Needed by'), { target: { value: '2026-12-01' } })
+    await dialog.findByTestId('jar-schedule-preview', {}, { timeout: 5000 })
+
+    // The plan's 100.00 a month fills "Each month"; the name and target stay as typed.
+    await user.click(dialog.getByLabelText('Set aside a fixed amount each month'))
+    expect(dialog.getByLabelText('Monthly amount')).toHaveValue('100')
+    expect(dialog.getByLabelText('Jar name')).toHaveValue('Sofa')
+    expect(dialog.getByLabelText('Target amount')).toHaveValue('300')
+
+    // Back to a date: the date is still there.
+    await user.click(dialog.getByLabelText('Save by a date'))
+    expect(dialog.getByLabelText('Needed by')).toHaveValue('2026-12-01')
   })
 
   // O3b (answered 1 October 2026): the edit preview says which later months keep the amount the

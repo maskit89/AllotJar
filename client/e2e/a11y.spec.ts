@@ -230,7 +230,7 @@ for (const theme of ['light', 'dark'] as const) {
       await dialog.getByLabel('Include the deadline month').waitFor()
       await expectNoViolations(page)
 
-      // The fixed-monthly switch swaps the date (and Repeats) for a Monthly amount.
+      // Choosing a fixed amount swaps the date (and Repeats) for a Monthly amount, filled from the plan.
       await dialog.getByLabel('Set aside a fixed amount each month').check()
       await dialog.getByLabel('Monthly amount').waitFor()
       await expectNoViolations(page)

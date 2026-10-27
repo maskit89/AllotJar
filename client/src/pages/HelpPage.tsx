@@ -106,7 +106,7 @@ const TOPICS: TopicDef[] = [
     lines: [
       'A jar saves for a bill, a holiday or a rainy day, and sits in one of your accounts.',
       <>
-        Give it a target and a date, set <B>Repeats</B> for a cost that comes back, or tick <B>Fixed amount each month</B>{' '}
+        Give it a target and a date, set <B>Repeats</B> for a cost that comes back, or choose <B>Fixed amount each month</B>{' '}
         for a pot you keep topping up.
       </>,
       // Creating a month seeds each jar's contribution onto its Savings line (USER_GUIDE "Saving with jars").
