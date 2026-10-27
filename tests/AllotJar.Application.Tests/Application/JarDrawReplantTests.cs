@@ -373,6 +373,31 @@ public class JarDrawReplantTests
     }
 
     [Fact]
+    public async Task Money_put_in_settles_nothing_so_a_bill_entered_later_still_reads_deadline_missed()
+    {
+        // #402 review P2-4: the jar was 20 short; the 20 saved before the deadline is entered
+        // first, then the bill paid from the jar the day before the deadline. Putting money in
+        // must not roll the cycle forward Funded before the bill is known.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, "Current", type: AccountType.Current);
+        var jar = SeedYearlyJar(db, account, M0, held: 100m);
+        SeedMonth(db, M0, jar);
+
+        await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(M0.AddDays(-3), "Salary", 20m, TransactionType.Income, null, AccountId: account.Id,
+                JarAllocations: new[] { new JarAllocationInput(jar.Id, 20m) }), Ct);
+        (await db.Jars.AsNoTracking().SingleAsync()).CycleDeadline.Should().Be(M0, "money in settles nothing");
+        (await db.JarCycles.AnyAsync()).Should().BeFalse();
+
+        await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(M0.AddDays(-1), "Transport Malta", 120m, TransactionType.Expense, null,
+                AccountId: account.Id, PaidFromJarId: jar.Id), Ct);
+
+        (await ListAsync(db)).Single().Status.Should().Be("DeadlineMissed");
+        (await db.JarCycles.AnyAsync()).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task A_skipped_month_and_an_amount_typed_by_hand_are_kept()
     {
         // Rule 60 and O3b: next month is skipped and the one after has 25 typed by hand, so the

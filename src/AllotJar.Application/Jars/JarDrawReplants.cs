@@ -80,7 +80,7 @@ public static class JarDrawReplants
     /// <summary>
     /// Once the write is saved: replants every Recurring jar of <paramref name="before"/> or of
     /// <paramref name="transactionIds"/> as saved now whose draws changed or that holds less than
-    /// before (the class summary). A cycle whose deadline has arrived settles first (rule 21:
+    /// before (the class summary). Only those settle: a cycle of theirs whose deadline has arrived settles first (rule 21:
     /// Funded when the jar held its target the day before), so the plan is toward the cycle the
     /// jar is really on; that roll replants on its own. Saves when anything changed. Losing a race
     /// to a page settling the same cycle, or to an edit of the jar's lines, leaves the write as
@@ -102,21 +102,8 @@ public static class JarDrawReplants
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
         try
         {
-            var rolled = new HashSet<Guid>();
-            foreach (var jarId in touched.Order())
-            {
-                if (await JarCycles.SettleAsync(db, ownerId, today, cancellationToken, jarId))
-                {
-                    rolled.Add(jarId);
-                }
-            }
-            touched.ExceptWith(rolled);
-            if (touched.Count == 0)
-            {
-                return;
-            }
-
-            // A replant moves no money: one load of the saved ledger serves every jar (P3-10).
+            // A replant moves no money, nor does settling a cycle: one load of the saved ledger
+            // serves every jar (P3-10).
             var ledger = await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken);
             var after = await BalancesAsync(db, ownerId, touched, ledger, cancellationToken);
             // A jar these transactions reach only now held, before the write, what it holds without them.
@@ -126,15 +113,24 @@ public static class JarDrawReplants
                 : await BalancesAsync(db, ownerId, newcomers,
                     await JarLedgerReader.LoadAsync(db, ownerId, cancellationToken, excludeTransactionIds: ids), cancellationToken);
 
-            var replanted = false;
-            foreach (var jarId in touched.Order())
+            // Which jars to replant is decided before anything settles: a write that only puts
+            // money in settles and replants nothing, so a cycle it would fund is judged by the
+            // next read, after a bill dated earlier may still be entered (#402 review P2-4).
+            var toReplant = touched.Order().Where(jarId =>
             {
                 if (!after.TryGetValue(jarId, out var now))
                 {
-                    continue;
+                    return false;
                 }
                 var then = before.Balances.TryGetValue(jarId, out var b) ? b : without.GetValueOrDefault(jarId, now);
-                if (!drawn.Contains(jarId) && now.Now >= then.Now && now.Opening >= then.Opening)
+                return drawn.Contains(jarId) || now.Now < then.Now || now.Opening < then.Opening;
+            }).ToList();
+
+            var replanted = false;
+            foreach (var jarId in toReplant)
+            {
+                // A cycle whose deadline has come rolls forward first; that roll replants on its own.
+                if (await JarCycles.SettleAsync(db, ownerId, today, cancellationToken, jarId))
                 {
                     continue;
                 }
