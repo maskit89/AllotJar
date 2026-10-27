@@ -47,9 +47,10 @@ public static class JarHistoryChecks
             .Concat(earlier?.Select(c => c.From).Where(d => d > from) ?? Enumerable.Empty<DateOnly>())
             .Where(d => until is not DateOnly end || d < end)
             .Distinct().Order();
+        var viewAt = source.Viewer(account.Id);
         foreach (var date in includeFrom ? dates.Prepend(from) : dates)
         {
-            if (source.ViewAt(account.Id, date) is not { IsAvailable: true } stored)
+            if (viewAt(date) is not { IsAvailable: true } stored)
             {
                 continue;
             }
@@ -183,13 +184,15 @@ public static class JarHistoryChecks
                 .Concat(after.OperationDatesAfter(account.Id, from))
                 .Prepend(from)
                 .Distinct().Order();
+            var nowAt = after.Viewer(account.Id);
+            var thenAt = before.Viewer(account.Id);
             foreach (var date in dates)
             {
-                if (after.ViewAt(account.Id, date) is not { IsAvailable: true } now)
+                if (nowAt(date) is not { IsAvailable: true } now)
                 {
                     continue;
                 }
-                var was = before.ViewAt(account.Id, date) is { IsAvailable: true } then ? Excess(then.Ledger) : 0m;
+                var was = thenAt(date) is { IsAvailable: true } then ? Excess(then.Ledger) : 0m;
                 var excess = Excess(now.Ledger);
                 if (excess > was)
                 {

@@ -163,15 +163,18 @@ public class UpdateAccountCommandHandler : IRequestHandler<UpdateAccountCommand,
         }
         var previous = (opening.OpeningBalance, opening.OpeningDate);
         var dates = source.OperationDatesAfter(account.Id, openingDate).Prepend(openingDate).ToList();
-        var before = dates.Select(d => source.ViewAt(account.Id, d)!).ToList();
+        var beforeAt = source.Viewer(account.Id);
+        var before = dates.Select(d => beforeAt(d)!).ToList();
         // The loaded account is an untracked copy, read again with the new opening.
         opening.OpeningBalance = openingBalance;
         opening.OpeningDate = openingDate;
+        // Walked again from the new opening.
+        var afterAt = source.Viewer(account.Id);
         try
         {
             for (var i = 0; i < dates.Count; i++)
             {
-                var after = source.ViewAt(account.Id, dates[i])!;
+                var after = afterAt(dates[i])!;
                 if (!after.IsAvailable || !before[i].IsAvailable)
                 {
                     continue;
