@@ -585,23 +585,37 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                 candidates.Add((i, named));
             }
         }
-        var header = -1;
-        var most = 0;
+        // A header the bank repeats on every page heads one table: its pages' rows add up, and
+        // the table starts under its first copy.
+        static string Key(List<string> row) => string.Join("\u001f", row.Select(c => c.Trim().ToLowerInvariant()));
+        var dated = new int[candidates.Count];
         for (var k = 0; k < candidates.Count; k++)
         {
             var (row, dc) = candidates[k];
             var end = k + 1 < candidates.Count ? candidates[k + 1].Row : rows.Count;
-            var dated = 0;
             for (var j = row + 1; j < end; j++)
             {
                 if (TryCell(rows[j], dc, out var cell) && TryParseDate(cell, null, out _))
                 {
-                    dated++;
+                    dated[k]++;
                 }
             }
-            if (dated > 0 && dated >= most)
+        }
+        var header = -1;
+        var most = 0;
+        for (var k = 0; k < candidates.Count; k++)
+        {
+            var key = Key(rows[candidates[k].Row]);
+            if (Enumerable.Range(0, k).Any(e => Key(rows[candidates[e].Row]) == key))
             {
-                (header, most) = (row, dated);
+                continue; // a repeat, counted with its first copy
+            }
+            var total = Enumerable.Range(k, candidates.Count - k)
+                .Where(e => Key(rows[candidates[e].Row]) == key)
+                .Sum(e => dated[e]);
+            if (total > 0 && total >= most)
+            {
+                (header, most) = (candidates[k].Row, total);
             }
         }
         if (header >= 0)

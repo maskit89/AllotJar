@@ -441,4 +441,21 @@ public class GenericCsvColumnDetectionTests
         Assert.Equal(4, m.AmountColumn);
         Assert.Equal((27.50m, false, "EUR"), (entries[0].Amount, entries[0].IsCredit, entries[0].Currency));
     }
+
+    // --- Review round 4 of #404 -----------------------------------------------------------------
+
+    [Theory]
+    [InlineData(10, 25)]
+    [InlineData(15, 25)]
+    public void A_header_repeated_on_every_page_imports_every_page(int firstPage, int total)
+    {
+        const string header = "Date,Description,Debit,Credit,Balance\n";
+        string Rows(int from, int to) => string.Concat(Enumerable.Range(from, to - from + 1)
+            .Select(i => $"{i:00}/09/2026,SHOP {i},{i}.00,,{1000 - i}.00\n"));
+        var (m, entries) = Read(CardSummary + header + Rows(1, firstPage) + header + Rows(firstPage + 1, total));
+
+        Assert.Equal((2, true), (m.SkipRows, m.HasHeader));
+        Assert.Equal(total, entries.Count);
+        Assert.All(entries, e => Assert.False(e.IsCredit));
+    }
 }
