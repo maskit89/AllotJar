@@ -123,6 +123,61 @@ export function byAttention<T extends Pick<JarDto, 'status'>>(jars: T[]): { jar:
     .sort((a, b) => (ATTENTION_ORDER[a.jar.status] ?? 6) - (ATTENTION_ORDER[b.jar.status] ?? 6) || a.index - b.index)
 }
 
+/** The orders the Jars page offers; attention first is the default (and the Dashboard shelf's). */
+export type JarSort = 'attention' | 'due' | 'name' | 'saved' | 'funded'
+
+export const JAR_SORTS: { value: JarSort; label: string }[] = [
+  { value: 'attention', label: 'Needs attention' },
+  { value: 'due', label: 'Due soonest' },
+  { value: 'name', label: 'Name' },
+  { value: 'saved', label: 'Most saved' },
+  { value: 'funded', label: 'Most funded' },
+]
+
+export function isJarSort(v: unknown): v is JarSort {
+  return JAR_SORTS.some((s) => s.value === v)
+}
+
+type SortableJar = Pick<JarDto, 'status' | 'name' | 'deadline' | 'monthOnly' | 'currentBalance' | 'targetAmount' | 'completedOn'>
+
+/**
+ * The jars in the chosen order, each with its place in the household's list (its colour, as in
+ * byAttention). Outside attention order a completed goal (rule 55) stays at the end, and a jar
+ * with nothing to compare (no date, an unavailable balance, no target) follows the ones that
+ * have it; ties keep the household's order. A month-only date is due by its last day (rule 92),
+ * so "Nov 2026" follows "15 Nov 2026".
+ */
+export function sortJars<T extends SortableJar>(jars: T[], sort: JarSort): { jar: T; index: number }[] {
+  if (sort === 'attention') return byAttention(jars)
+  const key = (j: T): string | number | null => {
+    switch (sort) {
+      case 'due':
+        // "2026-12-00": after every day of November, before 1 December.
+        return j.deadline && isMonth(j.deadline, j.monthOnly) ? monthsLater(j.deadline, 1).slice(0, 8) + '00' : j.deadline
+      case 'name':
+        return j.name
+      case 'saved':
+        return j.currentBalance === null ? null : -j.currentBalance
+      case 'funded':
+        return j.currentBalance === null || j.targetAmount <= 0 ? null : -(j.currentBalance / j.targetAmount)
+    }
+  }
+  const compare = (a: string | number | null, b: string | number | null): number => {
+    if (a === null || b === null) return a === b ? 0 : a === null ? 1 : -1
+    if (typeof a === 'string' && typeof b === 'string') return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' })
+    return (a as number) - (b as number)
+  }
+  return jars
+    .map((jar, index) => ({ jar, index, key: key(jar) }))
+    .sort(
+      (a, b) =>
+        Number(a.jar.completedOn !== null) - Number(b.jar.completedOn !== null) ||
+        compare(a.key, b.key) ||
+        a.index - b.index,
+    )
+    .map(({ jar, index }) => ({ jar, index }))
+}
+
 /**
  * Rule 14, in one line: this month's plan, what has actually gone in since the month began and
  * what is still to go — three separate figures, the plan never shrinking because money landed.
