@@ -98,6 +98,8 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         // destination's jars, so both sides are locked (P11, JL-P2-6).
         var sides = new[] { transfer.AccountId, transfer.TransferAccountId }.OfType<Guid>().ToList();
         await using var write = sides.Count == 0 ? null : await _db.BeginLedgerWriteAsync(sides, cancellationToken);
+        // A departure now posting its draw on a Recurring jar replants that jar (JarDrawReplants).
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, new[] { transfer.Id }, cancellationToken);
         if (departureNowKnown && transfer.Account is not null)
         {
             await AccountBalanceGuard.EnsureNonNegativeAsync(
@@ -125,6 +127,7 @@ public class ConfirmTransferLegsCommandHandler : IRequestHandler<ConfirmTransfer
         }
 
         await _db.SaveChangesAsync(cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, new[] { transfer.Id }, cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);
