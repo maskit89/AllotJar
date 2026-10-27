@@ -96,6 +96,33 @@ describe('ImportPage', () => {
     await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Columns' })).not.toBeInTheDocument())
   })
 
+  it('generic CSV: switches between one amount column and separate debit and credit columns', { timeout: 15000 }, async () => {
+    const user = userEvent.setup()
+    mockPreview.mockResolvedValue(csvPreview())
+    renderPage()
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    await user.click(screen.getByRole('button', { name: 'Columns' }))
+    expect((screen.getByLabelText('Amounts') as HTMLSelectElement).value).toBe('one')
+    expect(screen.queryByLabelText('Debit column')).not.toBeInTheDocument()
+
+    // Debit and credit start from the amount column and the one after it.
+    await user.selectOptions(screen.getByLabelText('Amounts'), 'split')
+    expect(screen.queryByLabelText('Amount column')).not.toBeInTheDocument()
+    expect((screen.getByLabelText('Debit column') as HTMLSelectElement).value).toBe('2')
+    expect((screen.getByLabelText('Credit column') as HTMLSelectElement).value).toBe('3')
+    await user.selectOptions(screen.getByLabelText('Credit column'), '1')
+
+    mockPreview.mockClear()
+    await user.click(screen.getByRole('button', { name: 'Apply changes & re-scan' }))
+    await waitFor(() => expect(mockPreview).toHaveBeenCalled())
+    const [, , opts] = mockPreview.mock.calls[0]
+    expect(opts.mapping.debitColumn).toBe(2)
+    expect(opts.mapping.creditColumn).toBe(1)
+  })
+
   it('generic CSV: rows without a currency are read in the chosen import account’s currency', { timeout: 15000 }, async () => {
     // A legacy account in another currency: its statement's rows are in that currency.
     mockGet.mockImplementation((url: string) => {

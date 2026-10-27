@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace AllotJar.Application.Imports.Models;
 
 /// <summary>How decimals are written in the amount column of a generic CSV.</summary>
@@ -15,8 +17,12 @@ public enum CsvDecimalStyle
 
 /// <summary>
 /// Column mapping + parse hints for a generic bank-CSV import. Columns are zero-based
-/// indices into each split row. This version reads a single <em>signed</em> amount column
-/// (negative = money out, positive = money in).
+/// indices into each split row. Amounts come either from one <em>signed</em> column
+/// (<see cref="AmountColumn"/>: negative = money out, positive = money in) or, when both
+/// <see cref="DebitColumn"/> and <see cref="CreditColumn"/> are set, from a money-out and a
+/// money-in column (each holding the amount without a sign), and <see cref="AmountColumn"/> is
+/// then not read. <see cref="SkipRows"/> is the number of lines above the header (or the first
+/// row, without a header) that the bank prints first, such as an account name or a period.
 /// </summary>
 public record CsvMapping(
     char Delimiter,
@@ -27,7 +33,15 @@ public record CsvMapping(
     int? CurrencyColumn,
     string? DateFormat,
     CsvDecimalStyle DecimalStyle,
-    string? DefaultCurrency);
+    string? DefaultCurrency,
+    int? DebitColumn = null,
+    int? CreditColumn = null,
+    int SkipRows = 0)
+{
+    /// <summary>Whether amounts come from separate money-out and money-in columns.</summary>
+    [JsonIgnore]
+    public bool SplitAmounts => DebitColumn is not null && CreditColumn is not null;
+}
 
 /// <summary>
 /// What the layout detector inferred from an uploaded CSV, returned to the client so the

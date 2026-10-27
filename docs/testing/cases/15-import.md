@@ -975,3 +975,25 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
   2. Repeat with a debit of 50.00 on 15 Jul and a credit of 30.00 on 15 Jul (closing balance −10.00).
 - **Expected:** First run: both import — the day's credits are applied first, so the balance never goes below zero on 15 Jul regardless of row order. Second run: the day closes below zero, so the debit is **held** (`held` lists the reference with the reason; nothing is posted "anyway"). Holds are judged per day on the closing balance, not per row.
 - **Automated:** Partial (ImportHoldsTests.cs)
+
+## Debit and credit columns, and column detection (27 October 2026)
+
+### IMP-101 - A bank CSV with separate Debit and Credit columns imports money out and money in
+- **Priority:** P1
+- **Type:** Functional
+- **Origin:** Christopher, 27 Oct 2026 (APS prints Debit and Credit apart)
+- **Preconditions:** A CSV with a few lines above the table (bank name, account, period), then `Date,Value Date,Description,Debit,Credit,Balance`, with each row filling either Debit or Credit.
+- **Steps:**
+  1. Upload it as a Bank CSV and review.
+  2. Open **Columns**.
+- **Expected:** The rows import without touching the mapping: a Debit is money out, a Credit is money in, the date is the booking **Date** (not the Value Date), Description is the payee and Balance is never read. **Columns** shows **Amounts: Debit and credit** with the two columns chosen. Switching **Amounts** to **One column** shows the single **Amount column** instead; switching back starts from the amount column and the one after it. A minus sign printed in the Debit column does not turn the row into money in. A row re-imported later through a signed one-column export of the same statement gets the same reference and is skipped as already imported.
+- **Automated:** Yes (GenericCsvColumnDetectionTests.cs, ImportPage.test.tsx)
+
+### IMP-102 - Columns are found by the names banks use, not the first header containing a word
+- **Priority:** P2
+- **Type:** Functional
+- **Origin:** Christopher, 27 Oct 2026 ("make a better job at identifying the columns")
+- **Preconditions:** CSVs with headers such as `Value Date,Balance,Narrative,Transaction Amount`; `Posting Date;Transaction Description;Paid out;Paid in;Currency` with decimal commas; a header-less file with two number columns where each row fills one, beside a running balance.
+- **Steps:** Upload each as a Bank CSV and open **Columns**.
+- **Expected:** Headers match on whole words, best name first ("in" never matches "Description"; "Balance" and "Value date" are never the amount). A semicolon file with decimal commas is read as semicolon-separated. A file with only a value date uses it as the date. Without a header, the pair of number columns is read as debit (left) and credit (right), not the balance. Maltese headers (Data, Deskrizzjoni, Debitu, Kreditu, Bilanċ) are recognised.
+- **Automated:** Yes (GenericCsvColumnDetectionTests.cs)

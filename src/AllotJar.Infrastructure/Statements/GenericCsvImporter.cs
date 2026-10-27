@@ -38,6 +38,9 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     [GeneratedRegex(@"\s+", RegexOptions.CultureInvariant)]
     private static partial Regex WhitespaceRun();
 
+    [GeneratedRegex(@"[^\p{L}\p{N}]+", RegexOptions.CultureInvariant)]
+    private static partial Regex NonWord();
+
     public CsvLayout Detect(string content)
     {
         var lines = NonEmptyLines(content);
@@ -49,21 +52,25 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         var delimiter = DetectDelimiter(lines);
         var rows = lines.Select(l => SplitLine(l, delimiter)).ToList();
 
-        // A header is a first row that carries no date of its own while later rows do.
-        var hasHeader = rows.Count > 1
-            && !RowHasDate(rows[0])
-            && rows.Skip(1).Take(10).Any(RowHasDate);
+        // Banks often print a few lines first (account name, period, opening balance). The table
+        // starts at the first row with a date that is as wide as the transaction rows; the row just
+        // above it is the header when it carries no date of its own.
+        var dataStart = FindDataStart(rows);
+        var hasHeader = dataStart > 0
+            && !RowHasDate(rows[dataStart - 1])
+            && rows[dataStart - 1].Count(c => c.Trim().Length > 0) >= 2;
+        var skipRows = hasHeader ? dataStart - 1 : dataStart;
 
-        var dataRows = (hasHeader ? rows.Skip(1) : rows).Take(30).ToList();
-        var columnCount = rows.Max(r => r.Count);
-        var headers = hasHeader ? rows[0] : new List<string>();
+        var dataRows = rows.Skip(dataStart).Take(30).ToList();
+        var columnCount = rows.Skip(skipRows).Max(r => r.Count);
+        var headers = hasHeader ? rows[skipRows] : new List<string>();
         var columns = Enumerable.Range(0, columnCount)
             .Select(i => hasHeader && i < headers.Count && headers[i].Trim().Length > 0
                 ? headers[i].Trim()
                 : $"Column {i + 1}")
             .ToList();
 
-        var mapping = GuessMapping(delimiter, hasHeader, columns, dataRows, columnCount);
+        var mapping = GuessMapping(delimiter, hasHeader, columns, dataRows, columnCount) with { SkipRows = skipRows };
         var sample = dataRows.Take(5).Select(r => (IReadOnlyList<string>)r).ToList();
         return new CsvLayout(columns, sample, mapping);
     }
@@ -76,7 +83,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             throw new StatementParseException("The CSV file is empty.");
         }
 
-        var rows = lines.Select(l => SplitLine(l, mapping.Delimiter)).ToList();
+        var rows = lines.Select(l => SplitLine(l, mapping.Delimiter)).Skip(Math.Max(0, mapping.SkipRows)).ToList();
         var dataRows = (mapping.HasHeader ? rows.Skip(1) : rows).ToList();
 
         // Lock ONE date format for the whole file. Trying formats per row would read an
@@ -95,9 +102,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                 continue; // header remnant, blank, or a totals footer — not a transaction
             }
 
-            if (!TryCell(row, mapping.AmountColumn, out var amountCell) ||
-                !TryParseSignedAmount(amountCell, mapping.DecimalStyle, out var signed) ||
-                signed == 0m)
+            if (!TryReadAmount(row, mapping, out var signed))
             {
                 continue;
             }
@@ -153,44 +158,252 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             : dataRows.Average(r => col < r.Count ? r[col].Trim().Length : 0);
 
         var cols = Enumerable.Range(0, columnCount).ToList();
+        var used = new HashSet<int>();
 
-        // Header-name hints take priority; otherwise fall back to content scoring.
-        int? ByHeader(params string[] needles) => !hasHeader ? null : columns
-            .Select((name, i) => (name: name.ToLowerInvariant(), i))
-            .Where(x => needles.Any(n => x.name.Contains(n)))
-            .Select(x => (int?)x.i)
-            .FirstOrDefault();
+        // Header names first, by the names banks use for each column; content scoring otherwise.
+        int? ByHeader(HeaderRole role) => !hasHeader ? null : BestHeader(columns, role, used);
 
-        var dateColumn = ByHeader("date", "posted", "booking")
+        var dateColumn = ByHeader(Roles.Date)
+            ?? ByHeader(Roles.ValueDate)
             ?? cols.OrderByDescending(DateScore).First();
-        var amountColumn = ByHeader("amount", "value")
-            ?? cols.Where(c => c != dateColumn).OrderByDescending(AmountScore).FirstOrDefault(dateColumn == 0 ? 1 : 0);
+        used.Add(dateColumn);
 
-        int? currencyColumn = ByHeader("currency", "ccy");
+        // Separate money-out and money-in columns, by their headers or, without a header, two
+        // number columns where each row fills exactly one.
+        int? debitColumn = ByHeader(Roles.Debit);
+        int? creditColumn = debitColumn is int d ? BestHeader(columns, Roles.Credit, [.. used, d]) : null;
+        if (!hasHeader || debitColumn is null || creditColumn is null
+            || !HoldsAmounts(dataRows, debitColumn.Value) || !HoldsAmounts(dataRows, creditColumn.Value))
+        {
+            debitColumn = creditColumn = null;
+        }
+
+        int? amountColumn = ByHeader(Roles.Amount);
+        if (amountColumn is int a && debitColumn is null && AmountScore(a) < 0.5)
+        {
+            amountColumn = null; // "Amount" heads a column of something else; read the content
+        }
+        if (debitColumn is null && amountColumn is null)
+        {
+            var numeric = cols.Where(c => !used.Contains(c) && !IsBalance(columns, hasHeader, c)).ToList();
+            // A pair first: a running balance beside them is a full number column too.
+            var best = numeric.OrderByDescending(AmountScore).FirstOrDefault(-1);
+            if (FindSplitPair(dataRows, numeric) is (int o, int i))
+            {
+                (debitColumn, creditColumn) = (o, i);
+            }
+            else if (best >= 0 && AmountScore(best) >= 0.8)
+            {
+                amountColumn = best;
+            }
+            else
+            {
+                amountColumn = best >= 0 ? best : (dateColumn == 0 ? 1 : 0);
+            }
+        }
+        if (debitColumn is int dc && creditColumn is int cc2)
+        {
+            used.Add(dc);
+            used.Add(cc2);
+            amountColumn = null;
+        }
+        if (amountColumn is int ac)
+        {
+            used.Add(ac);
+        }
+
+        int? currencyColumn = ByHeader(Roles.Currency);
         if (currencyColumn is null)
         {
-            var best = cols.Where(c => c != dateColumn && c != amountColumn)
+            var best = cols.Where(c => !used.Contains(c))
                 .Select(c => (c, s: CurrencyScore(c)))
                 .OrderByDescending(x => x.s)
                 .FirstOrDefault();
             currencyColumn = best.s >= 0.8 ? best.c : null;
         }
+        if (currencyColumn is int cur)
+        {
+            used.Add(cur);
+        }
 
-        var descriptionColumn = ByHeader("description", "payee", "memo", "details", "narrative", "reference", "name")
-            ?? cols.Where(c => c != dateColumn && c != amountColumn && c != currencyColumn)
+        // The description is the longest text that is neither a date nor a number.
+        var descriptionColumn = ByHeader(Roles.Description)
+            ?? cols.Where(c => !used.Contains(c) && DateScore(c) < 0.8 && AmountScore(c) < 0.8)
                 .OrderByDescending(TextLen)
-                .FirstOrDefault(dateColumn);
+                .Cast<int?>()
+                .FirstOrDefault()
+            ?? cols.Where(c => !used.Contains(c)).OrderByDescending(TextLen).Cast<int?>().FirstOrDefault()
+            ?? dateColumn;
 
         return new CsvMapping(
             Delimiter: delimiter,
             HasHeader: hasHeader,
             DateColumn: dateColumn,
-            AmountColumn: amountColumn,
+            // Still a valid column when amounts are split, for a client that reads only this field.
+            AmountColumn: amountColumn ?? debitColumn!.Value,
             DescriptionColumn: descriptionColumn,
             CurrencyColumn: currencyColumn,
             DateFormat: null,
             DecimalStyle: CsvDecimalStyle.Auto,
-            DefaultCurrency: null);
+            DefaultCurrency: null,
+            DebitColumn: debitColumn,
+            CreditColumn: creditColumn);
+    }
+
+    /// <summary>
+    /// The names banks give a column, best first, and the words that rule a header out (a
+    /// "Balance" is never the amount, a "Value date" is not the booking date).
+    /// </summary>
+    private sealed record HeaderRole(string[] Names, string[] Excluded);
+
+    private static class Roles
+    {
+        private static readonly string[] NotMoney = ["balance", "bilanċ", "bilanc", "date", "data", "card", "account", "rate", "reference", "ref", "number", "no"];
+
+        public static readonly HeaderRole Date = new(
+            ["transaction date", "booking date", "posting date", "posted date", "trans date", "txn date", "date", "data", "posted", "booked", "booking"],
+            ["value", "balance", "bilanċ", "bilanc"]);
+
+        public static readonly HeaderRole ValueDate = new(["value date"], []);
+
+        public static readonly HeaderRole Amount = new(
+            ["amount", "transaction amount", "amt", "sum", "value", "ammont"], NotMoney);
+
+        public static readonly HeaderRole Debit = new(
+            ["debit", "debits", "debit amount", "withdrawal", "withdrawals", "money out", "paid out", "out", "dr",
+             "payments", "payment", "outgoing", "outflow", "spent", "charges", "debitu"],
+            [.. NotMoney, "credit", "kreditu"]);
+
+        public static readonly HeaderRole Credit = new(
+            ["credit", "credits", "credit amount", "deposit", "deposits", "money in", "paid in", "in", "cr",
+             "receipts", "incoming", "inflow", "received", "lodgements", "lodgement", "kreditu"],
+            [.. NotMoney, "debit", "debitu"]);
+
+        public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount"]);
+
+        public static readonly HeaderRole Description = new(
+            ["description", "transaction description", "details", "transaction details", "narrative", "narration",
+             "payee", "merchant", "particulars", "beneficiary", "counterparty", "memo", "remarks", "deskrizzjoni",
+             "dettalji", "name", "reference"],
+            ["date", "balance", "amount"]);
+    }
+
+    /// <summary>
+    /// The column whose header best names <paramref name="role"/>: an exact name beats a name
+    /// within a longer header ("Amount (EUR)"), and an earlier name in the role's list beats a
+    /// later one. Matching is on whole words, so "in" never matches "Description".
+    /// </summary>
+    private static int? BestHeader(List<string> columns, HeaderRole role, ICollection<int> taken)
+    {
+        int? best = null;
+        var bestScore = 0;
+        for (var i = 0; i < columns.Count; i++)
+        {
+            if (taken.Contains(i))
+            {
+                continue;
+            }
+            var header = $" {HeaderWords(columns[i])} ";
+            if (header.Trim().Length == 0 || role.Excluded.Any(x => header.Contains($" {x} ", StringComparison.Ordinal)))
+            {
+                continue;
+            }
+            for (var n = 0; n < role.Names.Length; n++)
+            {
+                var name = role.Names[n];
+                var score = header.Trim() == name ? 2000 - n
+                    : header.Contains($" {name} ", StringComparison.Ordinal) ? 1000 - n
+                    : 0;
+                if (score > bestScore)
+                {
+                    (best, bestScore) = (i, score);
+                }
+            }
+        }
+        return best;
+    }
+
+    /// <summary>A header as lowercase words: "Debit (EUR)" reads "debit eur".</summary>
+    private static string HeaderWords(string header) =>
+        WhitespaceRun().Replace(NonWord().Replace(header.ToLowerInvariant(), " "), " ").Trim();
+
+    private static bool IsBalance(List<string> columns, bool hasHeader, int col) =>
+        hasHeader && col < columns.Count && $" {HeaderWords(columns[col])} ".Contains(" balance ", StringComparison.Ordinal);
+
+    /// <summary>Every filled cell of the column is a number, and at least one is filled.</summary>
+    private static bool HoldsAmounts(List<List<string>> rows, int col)
+    {
+        var filled = rows.Where(r => col < r.Count && r[col].Trim().Length > 0).ToList();
+        return filled.Count > 0
+            && filled.Count(r => TryParseSignedAmount(r[col], CsvDecimalStyle.Auto, out _)) >= filled.Count * 0.9;
+    }
+
+    /// <summary>
+    /// Two number columns, side by side, where nearly every row fills exactly one: a money-out and
+    /// a money-in column. Banks put money out first, so the left one is read as money out; the
+    /// user can swap them on the column screen.
+    /// </summary>
+    private static (int Out, int In)? FindSplitPair(List<List<string>> rows, List<int> candidates)
+    {
+        if (rows.Count == 0)
+        {
+            return null;
+        }
+        static bool Filled(List<string> r, int c) =>
+            c < r.Count && TryParseSignedAmount(r[c], CsvDecimalStyle.Auto, out var v) && v != 0m;
+        foreach (var left in candidates)
+        {
+            var right = left + 1;
+            if (!candidates.Contains(right) || !HoldsAmounts(rows, left) || !HoldsAmounts(rows, right))
+            {
+                continue;
+            }
+            var exactlyOne = rows.Count(r => Filled(r, left) ^ Filled(r, right));
+            var both = rows.Any(r => Filled(r, left)) && rows.Any(r => Filled(r, right));
+            if (both && exactlyOne >= rows.Count * 0.8)
+            {
+                return (left, right);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// The row's signed amount: from the one amount column, or money in less money out when the
+    /// mapping splits them (a sign the bank printed in either column is ignored). False for a row
+    /// with no amount, which is not a transaction.
+    /// </summary>
+    private static bool TryReadAmount(List<string> row, CsvMapping mapping, out decimal signed)
+    {
+        signed = 0m;
+        if (!mapping.SplitAmounts)
+        {
+            return TryCell(row, mapping.AmountColumn, out var cell)
+                && TryParseSignedAmount(cell, mapping.DecimalStyle, out signed)
+                && signed != 0m;
+        }
+        var moneyOut = TryCell(row, mapping.DebitColumn!.Value, out var outCell)
+            && TryParseSignedAmount(outCell, mapping.DecimalStyle, out var o) ? Math.Abs(o) : 0m;
+        var moneyIn = TryCell(row, mapping.CreditColumn!.Value, out var inCell)
+            && TryParseSignedAmount(inCell, mapping.DecimalStyle, out var i) ? Math.Abs(i) : 0m;
+        signed = moneyIn - moneyOut;
+        return signed != 0m;
+    }
+
+    /// <summary>
+    /// The first row of the transaction table: the first row with a date that has as many cells as
+    /// most dated rows do, so a "From,01/09/2026" line above the table is not taken for it.
+    /// </summary>
+    private static int FindDataStart(List<List<string>> rows)
+    {
+        var dated = rows.Take(200).Where(RowHasDate).ToList();
+        if (dated.Count == 0)
+        {
+            return 0;
+        }
+        var width = dated.GroupBy(r => r.Count).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).First().Key;
+        var index = rows.FindIndex(r => r.Count >= width && RowHasDate(r));
+        return index < 0 ? 0 : index;
     }
 
     private static double Fraction(List<List<string>> rows, int col, Func<string, bool> predicate)
@@ -202,12 +415,25 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
     private static bool RowHasDate(List<string> row) => row.Any(c => TryParseDate(c, null, out _));
 
+    /// <summary>
+    /// The delimiter that splits the most lines into the same number of fields (more than one).
+    /// Counting fields per line, not characters, keeps a preamble line or a decimal comma in a
+    /// semicolon file from deciding it.
+    /// </summary>
     private static char DetectDelimiter(List<string> lines)
     {
-        var sample = lines.Take(5).ToList();
+        var sample = lines.Take(40).ToList();
         return CandidateDelimiters
-            .OrderByDescending(d => sample.Sum(l => l.Count(ch => ch == d)))
-            .First();
+            .Select((d, order) =>
+            {
+                var widths = sample.Select(l => SplitLine(l, d).Count).Where(n => n > 1).ToList();
+                var mode = widths.GroupBy(n => n).OrderByDescending(g => g.Count()).ThenByDescending(g => g.Key).FirstOrDefault();
+                return (d, order, lines: mode?.Count() ?? 0, width: mode?.Key ?? 0);
+            })
+            .OrderByDescending(x => x.lines)
+            .ThenByDescending(x => x.width)
+            .ThenBy(x => x.order)
+            .First().d;
     }
 
     private static string ResolveCurrency(List<string> row, CsvMapping mapping)
