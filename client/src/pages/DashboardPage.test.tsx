@@ -667,7 +667,7 @@ describe('DashboardPage month navigation', () => {
     household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
   })
 
-  it('offers to copy the previous month when navigating to an empty month', { timeout: 15000 }, async () => {
+  it('continues the previous month when navigating to an empty month, with no blank or template start', { timeout: 15000 }, async () => {
     const now = new Date()
     const cy = now.getFullYear()
     const cm = now.getMonth() + 1
@@ -693,7 +693,9 @@ describe('DashboardPage month navigation', () => {
     await user.click(screen.getByLabelText('Next month'))
 
     expect(await screen.findByText(/No budget for .* yet/, {}, { timeout: 5000 })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /^Copy / }))
+    expect(screen.queryByRole('button', { name: 'Start a blank budget' })).not.toBeInTheDocument()
+    expect(screen.queryByText('Or start from a template')).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /^Start / }))
 
     await waitFor(() =>
       expect(mockPost).toHaveBeenCalledWith(

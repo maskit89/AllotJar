@@ -1295,3 +1295,16 @@ export interface AuthResponse {
   /** Google sign-in only: true when this call CREATED the account (drives sign_up vs login analytics). */
   isNewAccount?: boolean | null
 }
+
+/** GET /budget/{year}/{month}/wrap-up: a month in actual money; leftOver = carriedIn + received − spent − intoJars. */
+export interface MonthWrapUpDto {
+  year: number
+  month: number
+  carriedIn: number
+  received: number
+  spent: number
+  intoJars: number
+  leftOver: number
+  isOver: boolean
+  fxPendingCount: number
+}

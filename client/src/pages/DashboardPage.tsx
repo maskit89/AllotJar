@@ -12,6 +12,7 @@ import type {
   BudgetMonthSummaryDto,
   BudgetTemplateDto,
   JarDto,
+  MonthWrapUpDto,
 } from '../types'
 import {
   billAlerts,
@@ -49,6 +50,7 @@ import { HeroBar, KpiRow, KpiTile } from '../components/KpiTile'
 import { StatusChip } from '../components/StatusChip'
 import { BudgetCard } from '../components/budget/BudgetCard'
 import { JarsCard } from '../components/budget/JarsCard'
+import { MonthWrapUp } from '../components/budget/MonthWrapUp'
 import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { JarFormModal } from '../components/JarFormModal'
 import { monthIso } from '../lib/jarForm'
@@ -260,6 +262,26 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         .sort((a, b) => b.year - a.year || b.month - a.month)[0] ?? null,
     [months, year, monthNum],
   )
+
+  // How the calendar month before the viewed one went (in, spent, into jars, left over), for the
+  // card that starts the viewed month. Only once that month has begun: a month still ahead has
+  // nothing to tell. Only the latest read lands, as with the jars.
+  const [wrapUp, setWrapUp] = useState<MonthWrapUpDto | null>(null)
+  const wrapUpRead = useRef(0)
+  const before = monthNum === 1 ? { year: year - 1, month: 12 } : { year, month: monthNum - 1 }
+  const beforeKey = `${before.year}-${String(before.month).padStart(2, '0')}`
+  const wantsWrapUp = notFound && canWrite && prevBudget !== null && beforeKey <= todayKey
+  useEffect(() => {
+    const read = ++wrapUpRead.current
+    setWrapUp(null)
+    if (!wantsWrapUp) return
+    api
+      .get<MonthWrapUpDto>(`/budget/${before.year}/${before.month}/wrap-up`)
+      .then(({ data }) => {
+        if (read === wrapUpRead.current) setWrapUp(data)
+      })
+      .catch(() => {})
+  }, [wantsWrapUp, before.year, before.month])
 
   // Create the viewed month — copying the previous month's plan, or blank.
   const createMonth = useCallback(
@@ -798,10 +820,6 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     return steps
   }, [accounts.length, month, jars.length, openJarForm])
 
-  // Only a jar still planning gets a line in a new month: not an archived jar or a completed goal
-  // (rules 27, 55).
-  const planningJars = jars.filter((j) => !j.isArchived && !j.completedOn).length
-
   return (
     <AppShell active="budget" title="Dashboard" month>
         {loading && <DashboardSkeleton />}
@@ -865,53 +883,53 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               <p className="mt-1 text-sm text-slate-500">Ask an admin or the owner to set this month up.</p>
             ) : (
               <>
-                <div className="mt-5 flex flex-wrap justify-center gap-3">
-                  {prevBudget && (
-                    <Button onClick={() => createMonth(true)} disabled={creating}>
-                      Copy {MONTH_NAMES[prevBudget.month - 1]} {prevBudget.year}
-                    </Button>
-                  )}
-                  <Button
-                    id="start-blank-budget"
-                    variant={prevBudget ? 'secondary' : 'primary'}
-                    onClick={() => createMonth(false)}
-                    disabled={creating}
-                  >
-                    Start a blank budget
-                  </Button>
-                </div>
-                {planningJars > 0 && (
-                  <p className="mx-auto mt-3 max-w-md text-[13px] text-slate-500">
-                    Your {planningJars} existing {planningJars === 1 ? 'jar is' : 'jars are'} added to any new budget
-                    automatically, so it will have a few more lines than a template lists.
-                  </p>
-                )}
-                {templates.length > 0 && (
-                  <div className="mt-8 border-t border-line pt-6">
-                    <p className="text-[13px] font-medium text-slate-500">Or start from a template</p>
-                    <div className="mt-3 grid gap-3 text-left sm:grid-cols-3">
-                      {templates.map((t) => {
-                        const lineCount = t.groups.reduce((n, g) => n + g.lines.length, 0)
-                        return (
-                          <button
-                            key={t.key}
-                            type="button"
-                            onClick={() => createFromTemplate(t.key)}
-                            disabled={creating}
-                            className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
-                          >
-                            {/* The card's words all read inside its spoken name, after "Start from the template:". */}
-                            <span className="sr-only">Start from the template:</span>{' '}
-                            <span className="text-sm font-semibold text-slate-900">{t.name}</span>
-                            <span className="text-[13px] text-slate-500">{t.description}</span>
-                            <span className="mt-1 text-xs font-semibold text-slate-500 tabular-nums">
-                              {t.groups.length} groups · {lineCount} lines
-                            </span>
-                          </button>
-                        )
-                      })}
+                {prevBudget ? (
+                  // A household with a month before this one continues it (no blank or template:
+                  // that would drop its plan), with how the month before went in actual money.
+                  <>
+                    <div className="mt-5 flex justify-center">
+                      <Button onClick={() => createMonth(true)} disabled={creating}>
+                        Start {MONTH_NAMES[monthNum - 1]}
+                      </Button>
                     </div>
-                  </div>
+                    {wrapUp && <MonthWrapUp wrapUp={wrapUp} currency={budgetCurrency} next={MONTH_NAMES[monthNum - 1]} />}
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-5 flex flex-wrap justify-center gap-3">
+                      <Button id="start-blank-budget" onClick={() => createMonth(false)} disabled={creating}>
+                        Start a blank budget
+                      </Button>
+                    </div>
+                    {/* Templates are for a household's very first budget only. */}
+                    {months.length === 0 && templates.length > 0 && (
+                      <div className="mt-8 border-t border-line pt-6">
+                        <p className="text-[13px] font-medium text-slate-500">Or start from a template</p>
+                        <div className="mt-3 grid gap-3 text-left sm:grid-cols-3">
+                          {templates.map((t) => {
+                            const lineCount = t.groups.reduce((n, g) => n + g.lines.length, 0)
+                            return (
+                              <button
+                                key={t.key}
+                                type="button"
+                                onClick={() => createFromTemplate(t.key)}
+                                disabled={creating}
+                                className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
+                              >
+                                {/* The card's words all read inside its spoken name, after "Start from the template:". */}
+                                <span className="sr-only">Start from the template:</span>{' '}
+                                <span className="text-sm font-semibold text-slate-900">{t.name}</span>
+                                <span className="text-[13px] text-slate-500">{t.description}</span>
+                                <span className="mt-1 text-xs font-semibold text-slate-500 tabular-nums">
+                                  {t.groups.length} groups · {lineCount} lines
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
