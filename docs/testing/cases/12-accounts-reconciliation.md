@@ -541,11 +541,11 @@ a phone). It is read-only.
 ### ACCT-084 - Account details card
 - **Priority:** P2
 - **Type:** Happy
-- **Preconditions:** Owner; Savings (type Savings) held by Alex and Sam, opening balance €5,510.00 on 1 Aug 2026, IBAN and BIC recorded; Joint with no identifiers and no holders.
+- **Preconditions:** Owner; Savings (type Savings) held by Alex and Sam, opening balance €5,510.00 on 1 Aug 2026; Joint with no holders.
 - **Steps:**
   1. Open Savings' page, then Joint's.
-- **Expected:** Savings: the "Account details" card (a region named by its h2) shows the type icon and "Savings", the holders' avatars ("Held by Alex and Sam" for screen readers), "Opening balance €5,510.00" with "On Aug 1, 2026", then one row per recorded identifier (IBAN, BIC); the values are 14px (the date 12px). The IBAN shows in groups of four, as banks print it ("MT84 MALT 0110 …"; restyle PR 20, #344 P3-5): display only, the groups spaced by a margin, so selecting or copying it gives the stored value (no spaces); one too long for a narrow column (about 1,230-1,300px wide windows, 320px phones) breaks only between groups. An IBAN stored with its own spaces shows as stored. Joint: the type and the opening balance only — no avatars, no identifier rows. On a phone the card comes after the transactions.
-- **Automated:** Yes (AccountDetailPage.test.tsx — "lists the account’s type, who holds it and its opening balance and date", "shows recorded bank identifiers, and none when none are recorded"; client/e2e/responsive-dark.spec.ts — UX-036 order and fit at 375px)
+- **Expected:** Savings: the "Account details" card (a region named by its h2) shows the type icon and "Savings", the holders' avatars ("Held by Alex and Sam" for screen readers), "Opening balance €5,510.00" with "On Aug 1, 2026"; the values are 14px (the date 12px). No bank details are listed (none are kept, 27 Oct 2026). Joint: the type and the opening balance only — no avatars. On a phone the card comes after the transactions.
+- **Automated:** Yes (AccountDetailPage.test.tsx — "lists the account’s type, who holds it and its opening balance and date", "lists no bank details on the Account details card"; client/e2e/responsive-dark.spec.ts — UX-036 order and fit at 375px)
 
 ### ACCT-085 - Keyboard and phone layout
 - **Priority:** P2
@@ -663,14 +663,14 @@ a phone). It is read-only.
 - **Expected:** 1: Current, Savings, Cash, Other only. 2: 400 "Credit cards are not accounts here: an account holds money, a card owes it." 3: 400 "The opening balance must be zero or more …" (rule 74).
 - **Automated:** Yes (account validator tests; AccountsPage tests)
 
-### ACCT-063 - Optional bank identifiers are stored, normalised and format-checked
+### ACCT-063 - No bank details are asked for or kept
 - **Priority:** P2
-- **Type:** Happy / Negative
+- **Type:** Happy
 - **Preconditions:** Owner.
 - **Steps:**
-  1. Add "Main" with IBAN "de89 3704 0044 0532 0130 00", BIC "cobadeffxxx", Sort code "12-34-56", Account number "12345678". 2. Add "Piggy bank" with all four blank. 3. Add with IBAN "hello".
-- **Expected:** 1: stored as `DE89370400440532013000`, `COBADEFFXXX`, `123456`, `12345678` and shown on the detail page. 2: accepted — identifiers are never required (rule 76). 3: 400 "Enter a valid IBAN …".
-- **Automated:** Yes (BankIdentifiers/validator tests; AccountsPage tests)
+  1. Open Add account. 2. Edit an existing account. 3. Download my data.
+- **Expected:** 1 and 2: no IBAN, BIC, sort code or account number fields. 3: accounts.csv has no bank-detail columns. Since 27 Oct 2026 (RemoveBankDetails migration) AllotJar keeps no bank details; rule 76 is retired.
+- **Automated:** Yes (AccountsPage.test.tsx — "asks for no bank details on add or edit"; DataExportTests)
 
 ### ACCT-064 - An account holding jars cannot be deleted
 - **Priority:** P1

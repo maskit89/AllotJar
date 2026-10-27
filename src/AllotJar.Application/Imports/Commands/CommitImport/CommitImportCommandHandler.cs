@@ -808,7 +808,6 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
             SkippedDuplicates: skipped,
             Credits: credits,
             Debits: debits,
-            Iban: null,
             AutoCategorized: 0,
             Transfers: transfers,
             MatchedTransfers: matched,

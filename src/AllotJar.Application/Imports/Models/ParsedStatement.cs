@@ -19,11 +19,11 @@ public record ParsedStatementEntry(
 }
 
 /// <summary>
-/// A parsed bank statement: the account it belongs to and its entries.
+/// A parsed bank statement: its entries. The statement's own account identifiers (a CAMT.053
+/// IBAN) are not read: AllotJar keeps no bank details.
 /// <see cref="ResolvedDateFormat"/> is set by the generic CSV importer when it had to auto-detect
 /// the file's date format — surfaced so the UI can show (and pin) what was actually applied.
 /// </summary>
 public record ParsedStatement(
-    string? Iban,
     IReadOnlyList<ParsedStatementEntry> Entries,
     string? ResolvedDateFormat = null);

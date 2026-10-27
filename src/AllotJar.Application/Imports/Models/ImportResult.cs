@@ -20,7 +20,6 @@ public record ImportStatementResult(
     int SkippedDuplicates,
     int Credits,
     int Debits,
-    string? Iban,
     int AutoCategorized = 0,
     int Transfers = 0,
     int MatchedTransfers = 0,

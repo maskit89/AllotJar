@@ -182,7 +182,7 @@ describe('AccountsPage — the account ⋯ menu, its phone sheet, the editor\'s 
     await accountAction(user, 'Savings', 'Edit Savings')
     await waitFor(() => expect(screen.getByLabelText('Name for Savings')).toHaveFocus())
     const card = within(screen.getByRole('article', { name: 'Savings' }))
-    for (const label of ['Name', 'Type', 'Opening balance', 'Opening date', 'Bank details']) {
+    for (const label of ['Name', 'Type', 'Opening balance', 'Opening date']) {
       expect(card.getByText(label)).toBeInTheDocument()
     }
     // While it is open the card shows no ⋯ of its own.
