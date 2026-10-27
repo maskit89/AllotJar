@@ -90,19 +90,23 @@ export function GettingStartedChecklist() {
 
     // Today's month, read on every check: a tab left open over a month's end asks about the new one.
     const { year, month } = currentMonth(new Date())
-    // "Every euro has a job" counts the month's carry as the Dashboard does (rule 94): money
-    // already in the accounts or left by last month needs a job too. Unknown, it is not ticked.
-    Promise.all([
-      api.get<BudgetMonthDto>(`/budget/${year}/${month}`),
-      api
-        .get<MonthWrapUpDto>(`/budget/${year}/${month}/wrap-up`)
-        .then(({ data }) => (typeof data?.toAllot === 'number' ? fromAmount(data.toAllot) : null))
-        .catch(() => null),
-    ])
-      .then(([{ data }, carry]) => {
+    api
+      .get<BudgetMonthDto>(`/budget/${year}/${month}`)
+      .then(({ data }) => {
         const vm = fromDto(data)
         const income = totalIncome(vm)
-        set({ hasIncome: income > 0, balanced: income > 0 && carry !== null && remainingToBudget(vm) + carry === 0 })
+        set({ hasIncome: income > 0 })
+        if (income <= 0) return set({ balanced: false })
+        // "Every euro has a job" counts the month's carry as the Dashboard does (rule 94): money
+        // already in the accounts or left by last month needs a job too. Read only once there is
+        // income, as nothing is balanced without it; unknown, it is not ticked.
+        return api
+          .get<MonthWrapUpDto>(`/budget/${year}/${month}/wrap-up`)
+          .then(({ data: wrapUp }) => {
+            const carry = typeof wrapUp?.toAllot === 'number' ? fromAmount(wrapUp.toAllot) : null
+            set({ balanced: carry !== null && remainingToBudget(vm) + carry === 0 })
+          })
+          .catch(() => set({ balanced: false }))
       })
       .catch(() => set({ hasIncome: false, balanced: false }))
 

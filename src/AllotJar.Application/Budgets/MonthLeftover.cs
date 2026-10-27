@@ -23,8 +23,9 @@ namespace AllotJar.Application.Budgets;
 /// it arrives.</item>
 /// <item><b>NewAccounts</b> is the money an account held when it was opened, in its opening month,
 /// less what its rows dated earlier already counted (they are inside that balance).</item>
-/// <item><b>PrivateTransfers</b> is money moved in from (+) or out to (−) a private account, or the
-/// kept side of a transfer whose other account was erased (P59).</item>
+/// <item><b>PrivateTransfers</b> is money moved in from (+) or out to (−) a private account, a
+/// member's private money the budget counts on a household line (it stays private), or the kept
+/// side of a transfer whose other account was erased (P59).</item>
 /// </list>
 /// Rows still waiting for their budget-currency amount count nowhere (rule 44), as in the budget.
 /// </summary>
@@ -81,9 +82,9 @@ public static class MonthLeftover
             .ToListAsync(cancellationToken))
             .ToDictionary(l => l.Id, l => new Line((l.Year, l.Month), l.Income, l.SavingsId));
 
-        await AddBudgetFiguresAsync(db, userId, At, cancellationToken);
-
         var privateIds = await PrivateAccountIdsAsync(db, userId, cancellationToken);
+
+        await AddBudgetFiguresAsync(db, userId, privateIds, At, cancellationToken);
 
         // Money in from or out to a private account (P56/P57): the household side of the transfer,
         // on the day it posts there. A transfer still held for review has posted nowhere.
@@ -168,52 +169,24 @@ public static class MonthLeftover
     /// the line's month, the rest (not a transfer, not private money off the budget) by their date.
     /// </summary>
     private static async Task AddBudgetFiguresAsync(
-        IApplicationDbContext db, string userId, Func<(int Year, int Month), Figures> at, CancellationToken cancellationToken)
+        IApplicationDbContext db, string userId, HashSet<Guid> privateIds, Func<(int Year, int Month), Figures> at,
+        CancellationToken cancellationToken)
     {
-        var onLines = await (
-                from t in db.Transactions
-                join i in db.BudgetItems on t.BudgetItemId equals (Guid?)i.Id
-                join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
-                join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
-                where t.OwnerId == userId && m.OwnerId == userId && !t.FxPending
-                group t by new { m.Year, m.Month, Income = c.Kind == CategoryKind.Income, t.Type, Refund = t.RefundOfTransactionId != null }
-                into g
-                select new { g.Key.Year, g.Key.Month, g.Key.Income, g.Key.Type, g.Key.Refund, Total = g.Sum(t => t.BudgetAmount ?? t.Amount) })
-            .ToListAsync(cancellationToken);
-        foreach (var r in onLines)
+        foreach (var (month, received, spent) in await OnLinesAsync(db, userId, db.Transactions, cancellationToken))
         {
-            var figures = at((r.Year, r.Month));
-            if (r.Income)
-            {
-                figures.Received += r.Type == TransactionType.Income && !r.Refund ? r.Total : 0m;
-            }
-            else
-            {
-                figures.Spent += r.Type == TransactionType.Expense ? r.Total : r.Refund ? -r.Total : 0m;
-            }
+            var figures = at(month);
+            figures.Received += received;
+            figures.Spent += spent;
         }
 
-        var slicesOnLines = await (
-                from s in db.TransactionSplits
-                join t in db.Transactions on s.TransactionId equals t.Id
-                join i in db.BudgetItems on s.BudgetItemId equals (Guid?)i.Id
-                join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
-                join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
-                where t.OwnerId == userId && m.OwnerId == userId && !t.FxPending && t.RefundOfTransactionId == null
-                group s by new { m.Year, m.Month, Income = c.Kind == CategoryKind.Income, t.Type }
-                into g
-                select new { g.Key.Year, g.Key.Month, g.Key.Income, g.Key.Type, Total = g.Sum(s => s.BudgetAmount ?? s.Amount) })
-            .ToListAsync(cancellationToken);
-        foreach (var r in slicesOnLines)
+        // A member's private money on a household line counts in the budget (P56) but stays in the
+        // private account, so for the household's money it leaves as it counts.
+        if (privateIds.Count > 0)
         {
-            var figures = at((r.Year, r.Month));
-            if (r.Income)
+            var onPrivate = db.Transactions.Where(t => t.AccountId != null && privateIds.Contains(t.AccountId.Value));
+            foreach (var (month, received, spent) in await OnLinesAsync(db, userId, onPrivate, cancellationToken))
             {
-                figures.Received += r.Type == TransactionType.Income ? r.Total : 0m;
-            }
-            else
-            {
-                figures.Spent += r.Type == TransactionType.Expense ? r.Total : 0m;
+                at(month).PrivateTransfers -= received - spent;
             }
         }
 
@@ -270,6 +243,50 @@ public static class MonthLeftover
                 figures.Spent += r.Total;
             }
         }
+    }
+
+    /// <summary>Received and spending on lines, in each line's month, of these rows: whole rows on a line and the slices of split rows.</summary>
+    private static async Task<List<((int Year, int Month) Month, decimal Received, decimal Spent)>> OnLinesAsync(
+        IApplicationDbContext db, string userId, IQueryable<Transaction> rows, CancellationToken cancellationToken)
+    {
+        var sums = new List<((int Year, int Month) Month, decimal Received, decimal Spent)>();
+
+        var onLines = await (
+                from t in rows
+                join i in db.BudgetItems on t.BudgetItemId equals (Guid?)i.Id
+                join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
+                join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
+                where t.OwnerId == userId && m.OwnerId == userId && !t.FxPending
+                group t by new { m.Year, m.Month, Income = c.Kind == CategoryKind.Income, t.Type, Refund = t.RefundOfTransactionId != null }
+                into g
+                select new { g.Key.Year, g.Key.Month, g.Key.Income, g.Key.Type, g.Key.Refund, Total = g.Sum(t => t.BudgetAmount ?? t.Amount) })
+            .ToListAsync(cancellationToken);
+        foreach (var r in onLines)
+        {
+            sums.Add(r.Income
+                ? ((r.Year, r.Month), r.Type == TransactionType.Income && !r.Refund ? r.Total : 0m, 0m)
+                : ((r.Year, r.Month), 0m, r.Type == TransactionType.Expense ? r.Total : r.Refund ? -r.Total : 0m));
+        }
+
+        var slicesOnLines = await (
+                from s in db.TransactionSplits
+                join t in rows on s.TransactionId equals t.Id
+                join i in db.BudgetItems on s.BudgetItemId equals (Guid?)i.Id
+                join c in db.BudgetCategories on i.BudgetCategoryId equals c.Id
+                join m in db.BudgetMonths on c.BudgetMonthId equals m.Id
+                where t.OwnerId == userId && m.OwnerId == userId && !t.FxPending && t.RefundOfTransactionId == null
+                group s by new { m.Year, m.Month, Income = c.Kind == CategoryKind.Income, t.Type }
+                into g
+                select new { g.Key.Year, g.Key.Month, g.Key.Income, g.Key.Type, Total = g.Sum(s => s.BudgetAmount ?? s.Amount) })
+            .ToListAsync(cancellationToken);
+        foreach (var r in slicesOnLines)
+        {
+            sums.Add(r.Income
+                ? ((r.Year, r.Month), r.Type == TransactionType.Income ? r.Total : 0m, 0m)
+                : ((r.Year, r.Month), 0m, r.Type == TransactionType.Expense ? r.Total : 0m));
+        }
+
+        return sums;
     }
 
     /// <summary>

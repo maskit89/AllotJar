@@ -755,7 +755,7 @@ What the months leave over is actual money, the money in the household's shared 
   - September's **"In your accounts"** reads €1,200.00 (1,500.00 less the 300.00 in the new jar); October's **"From September"** €1,500.00; November's **"From October"** €1,380.00, which is the shared accounts' balance less the jars' on 31 October.
   - Savings already there and put into a jar give the same carry with **Set aside** at the jar's creation or **Move money** after.
   - An account added later brings its opening balance in its opening month; rows imported for dates before an account's opening date count once.
-  - Money moved to a private account leaves the carry; money from one into a jar nets out.
+  - Money moved to a private account leaves the carry; money from one into a jar nets out. A member's salary paid into their private account on the household's Salary line, with food paid from it, counts in In and Spent but carries nothing: the wrap-up shows the rest under **To private**.
   - A payday or jar bill dated 31 October and budgeted to November counts in November, with what went straight into a jar as it arrived; jar money on its way between two accounts over a month end carries no phantom.
   - A month with no budget still moves money (December's flows count toward January).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/MonthLeftoverTests.cs)

@@ -176,4 +176,15 @@ describe('GettingStartedChecklist: the collapsed pill and the done line', () => 
     expect(await view.findByText('5 of 6 done')).toBeInTheDocument()
     expect(view.queryByText('Every euro has a job.')).not.toBeInTheDocument()
   })
+
+  it('reads the carry only for a month with income, as nothing is balanced without it', async () => {
+    vi.setSystemTime(new Date('2026-10-15T10:00:00Z'))
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/2026/10' ? Promise.resolve({ data: budgetMonth({ categories: [] }) }) : Promise.resolve({ data: [{ id: 'x1' }] }),
+    )
+    const view = renderWithProviders(<GettingStartedChecklist />)
+    expect(await view.findByText('4 of 6 done')).toBeInTheDocument()
+    expect(mockGet).toHaveBeenCalledWith('/budget/2026/10')
+    expect(mockGet).not.toHaveBeenCalledWith('/budget/2026/10/wrap-up')
+  })
 })

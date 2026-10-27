@@ -319,6 +319,42 @@ public class MonthLeftoverTests
         (await NoJobAsync(db, new DateOnly(2026, 9, 30))).Should().Be(0m);
     }
 
+    /// <summary>
+    /// A member's salary lands in their private account on the household's Salary line, and food is
+    /// paid from it, whole and as a slice of a split. The budget counts all three (P56), but the
+    /// money stays private, so none of it is the household's to give a job (#403 review R2-P2-1).
+    /// </summary>
+    [Fact]
+    public async Task PrivateMoneyOnHouseholdLines_StaysPrivate()
+    {
+        await using var db = NewContext();
+        LedgerFixtures.SeedAccount(db, Owner, "Everyday", 0m, September, AccountType.Current);
+        var savings = LedgerFixtures.SeedAccount(db, Owner, "Savings", 0m, September, order: 1);
+        var mine = LedgerFixtures.SeedAccount(db, Owner, "Mine", 0m, September, AccountType.Current, order: 2);
+        db.AccountPrivacies.Add(new AccountPrivacy { AccountId = mine.Id, UserId = Owner });
+        db.SaveChanges();
+        var sep = SeedMonth(db, September, NewJar(db, savings.Id));
+        LedgerFixtures.Income(db, Owner, mine.Id, 3000m, new DateOnly(2026, 9, 1), sep.Salary);
+        LedgerFixtures.Expense(db, Owner, mine.Id, 1000m, new DateOnly(2026, 9, 20), sep.Food);
+        db.Transactions.Add(new Transaction
+        {
+            OwnerId = Owner, AccountId = mine.Id, Amount = 90m, Currency = CurrencyCode.Eur, Type = TransactionType.Expense,
+            Date = new DateOnly(2026, 9, 22), Payee = "Split",
+            Splits = new List<TransactionSplit> { new() { BudgetItemId = sep.Food, Amount = 60m }, new() { Amount = 30m } },
+        });
+        db.SaveChanges();
+
+        var chain = await ChainAsync(db);
+
+        var september = chain.Of(2026, 9);
+        september.Received.Should().Be(3000m, "the budget counts private money on its lines");
+        september.Spent.Should().Be(1060m);
+        september.PrivateTransfers.Should().Be(-1940m);
+        september.LeftOver.Should().Be(0m);
+        chain.CarriedInto(2026, 10).Should().Be(0m);
+        (await NoJobAsync(db, new DateOnly(2026, 9, 30))).Should().Be(0m);
+    }
+
     /// <summary>A 120 bill paid from the jar on 31 October and budgeted to November's jar line counts in November, as the budget counts it.</summary>
     [Fact]
     public async Task AJarBillBudgetedToTheNextMonth_CountsThere()

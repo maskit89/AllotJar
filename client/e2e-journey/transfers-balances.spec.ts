@@ -152,15 +152,20 @@ test('a transfer moves both balances but never the budget, renders badge + from 
   await addExpenseGroup(page, 'Everyday')
   await addLine(page, 'Everyday', 'Groceries')
   await setPlanned(page, 'Groceries', '400')
-  // Snapshot the dashboard hero — it must be byte-identical after the transfer.
-  const remainingBefore = (await page.getByLabel(/^Remaining to budget:/).textContent()) ?? ''
-  expect(remainingBefore).toContain('400.00') // 0 income − 400 planned
+  await expect(page.getByLabel(/^Remaining to budget:/)).toContainText('400.00') // 0 income − 400 planned
 
   // Two accounts, both in the budget currency (rule 63).
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   await addAccount(page, { name: 'Wallet', opening: '2000' })
   await addAccount(page, { name: 'Pot', opening: '500' })
   await expect(page.getByLabel(/^Total balance:/)).toContainText('2,500.00')
+
+  // Snapshot the dashboard hero — it must be byte-identical after the transfer. The accounts'
+  // 2,500.00 has no job yet, so it counts in Remaining (rule 94): 2,500 − 400 planned.
+  await page.getByRole('link', { name: 'Dashboard' }).click()
+  const remaining = page.getByLabel(/^Remaining to budget:/)
+  await expect(remaining).toContainText('2,100.00')
+  const remainingBefore = (await remaining.textContent()) ?? ''
 
   // --- TRF-001 + TRF-005 + TRF-006: record a 300.00 Wallet→Pot transfer with a
   // custom note through the real modal; the POST returns the single Type=Transfer

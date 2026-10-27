@@ -94,12 +94,13 @@ async function createGoalJar(
   name: string,
   target: string,
   plan: { setAside?: string; monthly?: string } = {},
+  potOpening = '5000',
 ): Promise<void> {
   await page.getByRole('link', { name: 'Accounts', exact: true }).click()
   // The list renders only after its fetch; counting before that would add a second Pot.
   await expect(page.getByRole('heading', { name: 'Your accounts', exact: true })).toBeVisible()
   if ((await page.getByRole('link', { name: 'View Pot', exact: true }).count()) === 0) {
-    await addAccount(page, { name: 'Pot', opening: '5000' })
+    await addAccount(page, { name: 'Pot', opening: potOpening })
   }
   await createJarHeldIn(page, { name, target, heldIn: 'Pot', ...plan })
 }
@@ -209,8 +210,9 @@ test('a jar-owning household’s blank month is born over-budgeted with an accru
   // Own a jar before any month exists: one that doesn't repeat (a Goal), target 1,200.00, needed
   // by the 1st of the month twelve months out → twelve contribution months plan 1,200 ÷ 12 =
   // 100.00/mo (rules 12, 35, 36).
-  // (Held in the Pot account, rule 73.)
-  await createGoalJar(page, 'Holiday', '1200')
+  // (Held in the Pot account, rule 73. The Pot is empty, so no money waits for a job and the plan
+  // alone sets Remaining, rule 94.)
+  await createGoalJar(page, 'Holiday', '1200', {}, '0')
 
   await page.getByRole('link', { name: 'Dashboard' }).click()
 
