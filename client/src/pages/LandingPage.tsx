@@ -8,16 +8,17 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
 
 /**
  * The public landing page, the front door at `allotjar.com/` for anonymous visitors (signed-in
- * users get the dashboard instead; see App.tsx). Restyle PR 15: the sign-in pages' look
- * (AuthFrame, restyle PR 9). The green room runs across the top of the sage page with the wordmark,
- * a quiet "Sign in" and the theme button; the line "Give every euro a job." under the gold glow; the
- * shelf of glass jars, two each side of the off-white card with the gold hairline, which holds one
- * sentence, the page's one primary button ("Create your free account", with "Sign in" beside it) and
- * the free-to-start note. Under the room: three short feature cards, one closing line with the same
- * button, and a quiet footer. On a phone the room is the compact band with the small shelf and the
- * card hangs from its foot. The room, band and card are the `auth-*` rules in index.css; the page's
- * own parts are the `land-*` rules there. The header row and the footer are the public pages'
- * shared pieces (PublicHeader.tsx, restyle PR 16: the legal pages draw the same ones).
+ * users get the dashboard instead; see App.tsx). Restyle PR 15, decluttered on 27 Oct 2026: the
+ * sign-in pages' look (AuthFrame, restyle PR 9). The green room runs across the top of the sage page
+ * with the wordmark, a quiet "Sign in" and the theme button; the line "Give every euro a job." under
+ * the gold glow; the shelf of glass jars, two each side of a short off-white card with the gold
+ * hairline, which holds one short sentence, the page's one primary button ("Create your free
+ * account") and the free-to-start note. Under the room: three quiet features (a glyph, a title, a few
+ * words, no boxes) and the footer. No second "Sign in", no promises line, no closing line. On a phone
+ * the room is the compact band with the small shelf and the card hangs from its foot. The room, band
+ * and card are the `auth-*` rules in index.css; the page's own parts are the `land-*` rules there.
+ * The header row and the footer are the public pages' shared pieces (PublicHeader.tsx, restyle PR 16:
+ * the legal pages draw the same ones).
  *
  * It is **self-contained and SSR-safe**: it renders to static HTML at build time
  * (scripts/prerender.mjs → renderToStaticMarkup), so nothing it renders may read `window`,
@@ -28,9 +29,8 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  */
 
 const REGISTER = '/login?register=1'
-const SIGN_IN = '/login'
 
-/** The page's primary: the sign-in form's green pill, as a link. */
+/** The page's one primary: the sign-in form's green pill, as a link. */
 function CreateAccount() {
   return (
     <PublicLink
@@ -42,27 +42,56 @@ function CreateAccount() {
   )
 }
 
-/** The three things the app does: a glyph in the hue's tint, a short title and one line. */
+/** The three things the app does: a glyph in the hue's tint, a short title and a few words. */
 const FEATURES: { title: string; line: string; hue: CategoryHue; icon: ReactNode }[] = [
   {
     title: 'Budget to zero',
-    line: 'Plan the month until Remaining to budget reads zero.',
+    line: 'Plan each month to zero.',
     hue: 'emerald',
     icon: <Target strokeWidth={1.8} aria-hidden />,
   },
   {
-    title: 'Jars for the big bills',
-    line: 'Set a little aside each month for insurance, the car and the holiday.',
+    title: 'Jars for big bills',
+    line: 'Save a little each month.',
     hue: 'teal',
     icon: <JarNavIcon strokeWidth={1.8} aria-hidden />,
   },
   {
     title: 'Budget together',
-    line: 'One shared budget for everyone in your household.',
+    line: 'One budget for the household.',
     hue: 'indigo',
     icon: <Users strokeWidth={1.8} aria-hidden />,
   },
 ]
+
+/** The features under the room: no boxes, no closing line, no second button. */
+function Features() {
+  return (
+    <section className="land-features" aria-labelledby="land-features-h">
+      <h2 id="land-features-h" className="sr-only">
+        What AllotJar does
+      </h2>
+      <ul className="land-cards">
+        {FEATURES.map((f) => (
+          <li key={f.title} className="land-f">
+            <span
+              aria-hidden
+              className="land-glyph"
+              style={{
+                background: `color-mix(in srgb, ${hueColor(f.hue)} 13%, var(--color-card))`,
+                color: hueColor(f.hue),
+              }}
+            >
+              {f.icon}
+            </span>
+            <h3>{f.title}</h3>
+            <p>{f.line}</p>
+          </li>
+        ))}
+      </ul>
+    </section>
+  )
+}
 
 export function LandingPage() {
   return (
@@ -93,54 +122,13 @@ export function LandingPage() {
         {/* tabIndex -1: the skip link's target is programmatically focusable (as AppShell's main). */}
         <main id="main-content" tabIndex={-1} className="auth-main focus:outline-none">
           <div className="auth-card">
-            <p className="land-lead">
-              Zero-based budgeting for households: plan the month to zero, with jars for the big bills
-              and a budget you share.
-            </p>
+            <p className="land-lead">Zero-based budgeting for your household.</p>
             <div className="land-actions">
               <CreateAccount />
-              <PublicLink to={SIGN_IN} className="auth-link land-signin">
-                Sign in
-              </PublicLink>
             </div>
             <p className="land-note">Free to start · No card required</p>
           </div>
-
-          <section className="land-features" aria-labelledby="land-features-h">
-            <h2 id="land-features-h" className="sr-only">
-              What AllotJar does
-            </h2>
-            <ul className="land-cards">
-              {FEATURES.map((f) => (
-                <li key={f.title} className="land-f">
-                  <span
-                    aria-hidden
-                    className="land-glyph"
-                    style={{
-                      background: `color-mix(in srgb, ${hueColor(f.hue)} 13%, var(--color-card))`,
-                      color: hueColor(f.hue),
-                    }}
-                  >
-                    {f.icon}
-                  </span>
-                  <h3>{f.title}</h3>
-                  <p>{f.line}</p>
-                </li>
-              ))}
-            </ul>
-            <p className="land-promise">
-              <b>In your currency, the way you write it</b>
-              <span className="land-dot" aria-hidden>
-                {' · '}
-              </span>
-              <b>Your data is never sold.</b>
-            </p>
-          </section>
-
-          <section className="land-close" aria-labelledby="land-close-h">
-            <h2 id="land-close-h">Ready to give every euro a job?</h2>
-            <CreateAccount />
-          </section>
+          <Features />
         </main>
 
         <PublicFooter />

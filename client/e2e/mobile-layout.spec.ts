@@ -247,9 +247,8 @@ test.describe('signed-out pages on a phone', () => {
     })
   }
 
-  // The landing (restyle PR 15): the band, the line and the card with the one primary and the
-  // "Sign in" beside it are on the first screen of a 390x844 phone, with the card hanging from
-  // the band's foot as the sign-in sheet does.
+  // The landing (restyle PR 15, decluttered): the band, the line, the card's one primary and the
+  // header's "Sign in" are on the first screen of a 390x844 phone.
   test('the landing shows the line and the primary on the first screen', async ({ page }) => {
     await page.route('**/api/**', mockApi)
     await page.goto('/')
@@ -257,7 +256,7 @@ test.describe('signed-out pages on a phone', () => {
     await line.waitFor()
     await page.waitForLoadState('networkidle')
     await page.evaluate(() => document.fonts.ready)
-    for (const el of [line, page.getByRole('link', { name: 'Create your free account' }).first(), page.getByRole('link', { name: 'Sign in' }).last()]) {
+    for (const el of [line, page.getByRole('link', { name: 'Create your free account' }), page.getByRole('link', { name: 'Sign in' })]) {
       const box = await el.boundingBox()
       expect(box, 'on the page').not.toBeNull()
       expect(box!.y + box!.height).toBeLessThanOrEqual(844)
