@@ -16,13 +16,23 @@ public interface IRefreshTokenService
     /// Validates a presented refresh token and, if good, rotates it (revokes the old, issues a new).
     /// Presenting an already-rotated token is treated as theft and revokes the whole chain — unless
     /// the rotation happened moments ago (concurrent tabs racing the same cookie), which is refused
-    /// without the theft response. A sign-in older than its maximum age is refused too.
+    /// without the theft response. A sign-in older than its maximum age is refused too, and so is a
+    /// token that a sign-out (or the purge) reached between reading and rotating it.
     /// </summary>
     Task<RefreshRotationResult> RotateAsync(string rawToken, string? device = null, CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Revokes a refresh token (sign-out). Returns the owning user id when the token is known
-    /// (even if already revoked, so sign-out can still invalidate access tokens), else null.
+    /// Call once a successful rotation is committed, before handing out its token. False when a
+    /// sign-out of the same sign-in landed at the same moment: the sign-out wins, the new token is
+    /// revoked, and the caller must refuse the refresh. Rotation runs inside the caller's
+    /// transaction, so this check can only be made after it commits.
+    /// </summary>
+    Task<bool> ConfirmAsync(string newRawToken, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Signs out the sign-in a refresh token belongs to (every token of it, so one a racing refresh
+    /// has just minted too). Returns the owning user id when the token is known (even if already
+    /// revoked, so sign-out can still invalidate access tokens), else null.
     /// </summary>
     Task<string?> RevokeAsync(string rawToken, CancellationToken cancellationToken = default);
 

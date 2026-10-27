@@ -1,3 +1,4 @@
+using AllotJar.Infrastructure.Persistence;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -11,7 +12,8 @@ namespace AllotJar.Infrastructure.Retention;
 /// health-ping task (Register-HealthPingTask.ps1, every 5 minutes) keeps it up, so the daily run
 /// keeps going; staging has no ping, so its purge runs only while requests keep it awake. A
 /// recycle or deploy starts the clock again with a run soon after. A failed run is logged as an
-/// error (which emails an alert when those are on) and the next day's run tries again.
+/// error (which emails an alert when those are on) and the next day's run tries again. The first run
+/// waits for <see cref="DatabaseStartupGate"/>, so it never runs before the startup migrations.
 /// </summary>
 public sealed class ExpiredRecordsPurgeService : BackgroundService
 {
@@ -24,13 +26,16 @@ public sealed class ExpiredRecordsPurgeService : BackgroundService
     private readonly IServiceScopeFactory _scopes;
     private readonly TimeProvider _clock;
     private readonly ILogger<ExpiredRecordsPurgeService> _logger;
+    private readonly DatabaseStartupGate _gate;
 
     public ExpiredRecordsPurgeService(
-        IServiceScopeFactory scopes, TimeProvider clock, ILogger<ExpiredRecordsPurgeService> logger)
+        IServiceScopeFactory scopes, TimeProvider clock, ILogger<ExpiredRecordsPurgeService> logger,
+        DatabaseStartupGate gate)
     {
         _scopes = scopes;
         _clock = clock;
         _logger = logger;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -38,6 +43,7 @@ public sealed class ExpiredRecordsPurgeService : BackgroundService
         try
         {
             await Task.Delay(StartDelay, _clock, stoppingToken);
+            await _gate.WaitOpenAsync(stoppingToken);
             using var timer = new PeriodicTimer(Interval, _clock);
             do
             {
