@@ -99,7 +99,7 @@ public class CreateTransferCommandHandler : IRequestHandler<CreateTransferComman
 
         await _db.SaveChangesAsync(cancellationToken);
         // Money taken out of a Recurring jar (the transfer or its fee) replants it.
-        await JarDrawReplants.ReplantAsync(_db, userId, Array.Empty<Guid>(), new[] { transfer.Id }, cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, JarDrawsBefore.None, new[] { transfer.Id }, cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);

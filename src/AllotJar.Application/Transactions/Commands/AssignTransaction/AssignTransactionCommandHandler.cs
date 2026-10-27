@@ -74,7 +74,7 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
             ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
             : null;
         // A line moved onto or off a Recurring jar's replants that jar (JarDrawReplants).
-        var drawnBefore = await JarDrawReplants.DrawnFromAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
 
         // Assigning (or clearing) the whole transaction supersedes any split.
         if (transaction.Splits.Count > 0)
@@ -118,7 +118,7 @@ public class AssignTransactionCommandHandler : IRequestHandler<AssignTransaction
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        await JarDrawReplants.ReplantAsync(_db, userId, drawnBefore, new[] { transaction.Id }, cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, new[] { transaction.Id }, cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);

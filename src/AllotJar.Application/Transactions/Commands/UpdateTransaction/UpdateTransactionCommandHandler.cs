@@ -79,8 +79,8 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         await using var write = locked.Count == 0
             ? null
             : await _db.BeginLedgerWriteAsync(locked, cancellationToken);
-        // The Recurring jars it draws from as saved, replanted with the ones it draws from after.
-        var drawnBefore = await JarDrawReplants.DrawnFromAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
+        // The Recurring jars it touches, and what they hold, as saved (JarDrawReplants).
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
         // The accounts the edit touches, as they stand, to say afterwards whether it left their
         // jars unbacked (D10): the one losing the row, a former destination, the one receiving it.
         var losing = new[] { previousAccount, previousDestination, account }.OfType<Account>().DistinctBy(a => a.Id).ToList();
@@ -402,7 +402,7 @@ public class UpdateTransactionCommandHandler : IRequestHandler<UpdateTransaction
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        await JarDrawReplants.ReplantAsync(_db, userId, drawnBefore, new[] { transaction.Id }, cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, new[] { transaction.Id }, cancellationToken);
         // Saved either way: lowering, re-dating or moving an income whose jar money was moved on
         // since takes money the jars still count (rule 70 lets that stand, as it lets a payment
         // overdraw them); the answer says so.

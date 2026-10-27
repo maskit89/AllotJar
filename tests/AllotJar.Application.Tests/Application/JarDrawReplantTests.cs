@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 using AllotJar.Application.Budgets.Commands.SkipJarContribution;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
+using AllotJar.Application.Imports.Commands.CommitImport;
+using AllotJar.Application.Jars.Commands.ReallocateJarMoney;
 using AllotJar.Application.Jars;
 using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Jars.Queries.GetJars;
@@ -13,6 +15,7 @@ using AllotJar.Application.Transactions.Commands.CreateTransfer;
 using AllotJar.Application.Transactions.Commands.DeleteTransaction;
 using AllotJar.Application.Transactions.Commands.SplitTransaction;
 using AllotJar.Application.Transactions.Commands.UpdateTransaction;
+using AllotJar.Application.Transactions.Commands.UpdateTransfer;
 using AllotJar.Application.Transactions.Dtos;
 using AllotJar.Domain.Entities;
 using AllotJar.Domain.Enums;
@@ -228,6 +231,101 @@ public class JarDrawReplantTests
             new CreateTransferCommand(Today, 120m, account.Id, other.Id, FromJarId: jar.Id, ReceivedOn: Today), Ct);
 
         PlannedIn(db, jar.Id, M0).Should().Be(10m);
+    }
+
+    [Fact]
+    public async Task Paying_from_the_jar_on_another_line_replants()
+    {
+        await using var db = NewContext();
+        var (account, jar) = await FundedOnItsDeadlineAsync(db, settled: true);
+
+        await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(Today, "Transport Malta", 120m, TransactionType.Expense, null, AccountId: account.Id,
+                PaidFromJarId: jar.Id), Ct);
+
+        PlannedIn(db, jar.Id, M0).Should().Be(10m);
+    }
+
+    [Fact]
+    public async Task Editing_a_transfer_out_of_the_jar_replants()
+    {
+        await using var db = NewContext();
+        var (account, jar) = await FundedOnItsDeadlineAsync(db, settled: true);
+        var other = LedgerFixtures.SeedAccount(db, Owner, "Revolut", type: AccountType.Current, order: 1);
+        var transfer = await new CreateTransferCommandHandler(db, User).Handle(
+            new CreateTransferCommand(Today, 60m, account.Id, other.Id, FromJarId: jar.Id, ReceivedOn: Today), Ct);
+        PlannedIn(db, jar.Id, M0).Should().Be(5m);
+
+        await new UpdateTransferCommandHandler(db, User).Handle(
+            new UpdateTransferCommand(transfer.Id, account.Id, other.Id, 120m, Today, Today, FromJarId: jar.Id), Ct);
+
+        PlannedIn(db, jar.Id, M0).Should().Be(10m);
+        PlannedIn(db, jar.Id, M1).Should().Be(10m);
+    }
+
+    [Fact]
+    public async Task A_statement_row_on_the_jars_line_replants()
+    {
+        await using var db = NewContext();
+        var (account, jar) = await FundedOnItsDeadlineAsync(db, settled: true);
+
+        await new CommitImportCommandHandler(db, User).Handle(new CommitImportCommand(account.Id, new[]
+        {
+            new CommitImportItem("REF-1", Today, "Transport Malta", 120m, "EUR", IsCredit: false, LineFor(db, jar.Id, M0).Id, null),
+        }), Ct);
+
+        PlannedIn(db, jar.Id, M0).Should().Be(10m);
+        PlannedIn(db, jar.Id, M1).Should().Be(10m);
+    }
+
+    [Fact]
+    public async Task Moving_the_jars_money_to_another_jar_replants_it()
+    {
+        // #402 review P2-1: a jar-to-jar move takes the money out as surely as a payment.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, "Current", type: AccountType.Current);
+        var jar = SeedYearlyJar(db, account, M2);
+        var other = new Jar
+        {
+            OwnerId = Owner, Name = "Holiday", Kind = JarKind.Goal, TargetAmount = 600m, TargetDate = M0.AddMonths(6),
+            Accrual = AccrualMethod.TargetByDate, FundingAccountId = account.Id,
+        };
+        db.Jars.Add(other);
+        db.SaveChanges();
+        await CreateMonthAsync(db, M0, copy: false);
+        await CreateMonthAsync(db, M1);
+        PlannedIn(db, jar.Id, M0).Should().Be(0m);
+
+        await new ReallocateJarMoneyCommandHandler(db, User).Handle(
+            new ReallocateJarMoneyCommand(account.Id, jar.Id, other.Id, 120m, Today), Ct);
+
+        PlannedIn(db, jar.Id, M0).Should().Be(60m);
+        PlannedIn(db, jar.Id, M1).Should().Be(60m);
+    }
+
+    [Fact]
+    public async Task Taking_back_money_put_into_the_jar_replants_it()
+    {
+        // #402 review P2-2: last month's 60 into the jar is deleted, so the jar holds nothing
+        // entering this month and the two months to the deadline plan 60 each, not 30.
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, "Current", type: AccountType.Current);
+        var jar = SeedYearlyJar(db, account, M2, held: 0m);
+        var income = await new CreateTransactionCommandHandler(db, User).Handle(
+            new CreateTransactionCommand(M0.AddDays(-5), "Salary", 60m, TransactionType.Income, null, AccountId: account.Id,
+                JarAllocations: new[] { new JarAllocationInput(jar.Id, 60m) }), Ct);
+        await CreateMonthAsync(db, M0, copy: false);
+        await CreateMonthAsync(db, M1);
+        PlannedIn(db, jar.Id, M0).Should().Be(30m);
+
+        await new UpdateTransactionCommandHandler(db, User).Handle(
+            new UpdateTransactionCommand(income.Id, M0.AddDays(-5), income.Payee, 60m, TransactionType.Income, AccountId: account.Id,
+                JarAllocations: new[] { new JarAllocationInput(jar.Id, 20m) }), Ct);
+        PlannedIn(db, jar.Id, M0).Should().Be(50m, "20 in the jar leaves 100 over two months");
+
+        await new DeleteTransactionCommandHandler(db, User).Handle(new DeleteTransactionCommand(income.Id), Ct);
+        PlannedIn(db, jar.Id, M0).Should().Be(60m);
+        PlannedIn(db, jar.Id, M1).Should().Be(60m);
     }
 
     [Fact]

@@ -84,8 +84,8 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
             : await _db.BeginLedgerWriteAsync(locked, cancellationToken);
         // The accounts as they stand, to say afterwards whether the delete left their jars
         // unbacked (D10).
-        // The Recurring jars it (or its fee) draws from: the money is back in them once it goes.
-        var drawnBefore = await Jars.JarDrawReplants.DrawnFromAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
+        // The Recurring jars it (or its fee) touches, and what they hold, as it stands (JarDrawReplants).
+        var jarsBefore = await Jars.JarDrawReplants.BeforeAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
         var beforeDelete = affected.Count == 0 ? null : await Jars.JarHistoryChecks.BeforeWriteAsync(_db, userId, affected, cancellationToken);
         var deficitFrom = new[] { transaction.Date, transaction.DepartedOn ?? transaction.Date, transaction.ReceivedOn ?? transaction.Date }.Min();
         if (affected.Count > 0)
@@ -129,10 +129,9 @@ public class DeleteTransactionCommandHandler : IRequestHandler<DeleteTransaction
             }
             await _db.SaveChangesAsync(cancellationToken);
         }
-        // The others replant from what they hold without it, as a payment out of them does
-        // (JarDrawReplants); a reopened cycle is left for the next read to settle afresh.
-        drawnBefore.ExceptWith(reopened.Select(j => j.Id));
-        await Jars.JarDrawReplants.ReplantAsync(_db, userId, drawnBefore, Array.Empty<Guid>(), cancellationToken);
+        // The others replant from what they hold without it: a draw gone, or money put into them
+        // taken back (JarDrawReplants); a reopened cycle is left for the next read to settle afresh.
+        await Jars.JarDrawReplants.ReplantAsync(_db, userId, jarsBefore.Without(reopened.Select(j => j.Id)), Array.Empty<Guid>(), cancellationToken);
         // Deleted either way: an income whose jar money was moved on since leaves jars the
         // account no longer backs (rule 70 lets that stand); the answer says so.
         var warning = beforeDelete is null

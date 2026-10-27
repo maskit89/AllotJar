@@ -209,7 +209,7 @@ public class CreateTransactionCommandHandler : IRequestHandler<CreateTransaction
 
         await _db.SaveChangesAsync(cancellationToken);
         // A payment out of a Recurring jar replants it, marked paid or not.
-        await JarDrawReplants.ReplantAsync(_db, userId, Array.Empty<Guid>(), new[] { transaction.Id }, cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, JarDrawsBefore.None, new[] { transaction.Id }, cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);

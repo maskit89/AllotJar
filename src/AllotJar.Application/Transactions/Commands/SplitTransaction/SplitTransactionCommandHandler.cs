@@ -96,7 +96,7 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
             ? await _db.BeginLedgerWriteAsync(transaction.Account.Id, cancellationToken)
             : null;
         // A slice moved onto or off a Recurring jar's line replants that jar (JarDrawReplants).
-        var drawnBefore = await JarDrawReplants.DrawnFromAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, new[] { transaction.Id }, cancellationToken);
 
         // Shared slice rules (transfer rejection, sum, ownership, direction match, month
         // coherence, member ownership) — the same guard CreateTransaction uses for
@@ -150,7 +150,7 @@ public class SplitTransactionCommandHandler : IRequestHandler<SplitTransactionCo
         }
 
         await _db.SaveChangesAsync(cancellationToken);
-        await JarDrawReplants.ReplantAsync(_db, userId, drawnBefore, new[] { transaction.Id }, cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, new[] { transaction.Id }, cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);

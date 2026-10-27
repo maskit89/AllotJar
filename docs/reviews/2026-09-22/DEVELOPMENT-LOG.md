@@ -1679,6 +1679,12 @@ Follow-ups from the review (reviews/pr-390/REVIEW.md; P2-2, P3-1, P3-2, P3-3 and
 - #391 P3-3 (note, no change needed): tab B's refresh races a password change, or a fresh sign-in, in tab A of the same browser. B's refusal clears the cookie, and if its answer lands after A's, the browser loses A's new cookie and signs out at its next refresh, about 15 minutes later. This fails safe; before #391 the old sign-in stayed alive instead.
 - #391 P3-4 (pre-existing): account deletion removes `RefreshTokens` with a tracked `RemoveRange` (`AccountDeletion.cs`). A purge or prune deleting one of the loaded expired rows first fails the deletion with a 500, and a token minted between the load and the save is left behind. Fix: `ExecuteDeleteAsync` on the login's rows inside the existing transaction.
 
+## Follow-ups from the review of #402 (recalculate a recurring jar on every payment)
+
+#402 replans a recurring jar whenever money leaves it (rule 93). Logged from its review:
+- #402 P2-3: a payment dated in the future replans nothing on the day its date arrives. The jar holds less from that day, but its stored month lines keep the old plan until the next write that touches the jar, or a new month, replans it. Fix when needed: replan lazily on read, as the cycle rollover settles on read, for a Recurring jar with a draw dated after its lines were last planned and on or before today.
+- #402 P3-4 (by design, P29): a figure typed for the current month is recalculated by a payment out of the jar, as by any other replan; only figures typed while their month was a later one are kept (O3b).
+
 ## Release record: #386 to #396, production on `b5bdebd` — 25 to 27 October 2026
 
 **Merged (UTC, squash commit).** Eleven pull requests after `b7ee389`, the head of the previous record. Production ran `b7ee389` (Deploy run 291) from 25 October 12:55 until this deploy. The order is the order on `main`.
