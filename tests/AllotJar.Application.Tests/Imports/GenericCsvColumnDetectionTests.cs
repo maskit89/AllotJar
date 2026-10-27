@@ -408,4 +408,37 @@ public class GenericCsvColumnDetectionTests
         var m = _importer.Detect("Date,Description,Amount,Status\n01/09/2026,LIDL,-23.40,C\n02/09/2026,SALARY,2100.00,D\n03/09/2026,ATM,-50.00,C\n").Suggested;
         Assert.Null(m.DirectionColumn);
     }
+
+    // --- Review round 3 of #404 -----------------------------------------------------------------
+
+    private const string CardSummary = "Card,Statement date,Total amount\n****1234,30/09/2026,523.40\n";
+
+    [Theory]
+    [InlineData(CardSummary + "Date,Description,Debit,Credit,Balance\n,Balance brought forward,,,1000.00\n01/09/2026,AMAZON,25.00,,975.00\n02/09/2026,LIDL,40.00,,935.00\n03/09/2026,REFUND,,5.00,940.00\n")]
+    [InlineData(CardSummary + "Date,Description,Debit,Credit\n01/09/2026,AMAZON,25.00,\n,MKTPLACE EU,,\n02/09/2026,LIDL,40.00,\n,QORMI,,\n03/09/2026,REFUND,,5.00\n")]
+    public void Undated_lines_in_the_table_do_not_hand_the_header_to_a_summary_block(string csv)
+    {
+        var (m, entries) = Read(csv);
+
+        Assert.Equal((2, true), (m.SkipRows, m.HasHeader));
+        Assert.Equal(new[] { (25.00m, false), (40.00m, false), (5.00m, true) }, entries.Select(e => (e.Amount, e.IsCredit)));
+    }
+
+    [Fact]
+    public void An_opening_balance_line_under_the_header_keeps_the_header()
+    {
+        var layout = _importer.Detect("Date,Description,Debit,Credit,Balance\n,Opening balance,,,1000.00\n01/09/2026,AMAZON,25.00,,975.00\n02/09/2026,SALARY,,2100.00,3075.00\n");
+
+        Assert.Equal((0, true), (layout.Suggested.SkipRows, layout.Suggested.HasHeader));
+        Assert.Equal("Date", layout.Columns[0]);
+    }
+
+    [Fact]
+    public void The_amount_in_the_account_currency_beats_the_original_amount()
+    {
+        var (m, entries) = Read("Date,Description,Original Amount,Original Currency,Amount (Account Currency)\n01/09/2026,AMAZON US,-30.00,USD,-27.50\n02/09/2026,SALARY,2100.00,EUR,2100.00\n");
+
+        Assert.Equal(4, m.AmountColumn);
+        Assert.Equal((27.50m, false, "EUR"), (entries[0].Amount, entries[0].IsCredit, entries[0].Currency));
+    }
 }

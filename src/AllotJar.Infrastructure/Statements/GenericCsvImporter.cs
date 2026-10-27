@@ -249,7 +249,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         int? currencyColumn = ByHeader(Roles.Currency);
         if (currencyColumn is null)
         {
-            var best = cols.Where(c => !used.Contains(c))
+            var best = cols.Where(c => !used.Contains(c)
+                    && !(hasHeader && $" {HeaderWords(columns[c])} ".Contains(" original ", StringComparison.Ordinal)))
                 .Select(c => (c, s: CurrencyScore(c)))
                 .OrderByDescending(x => x.s)
                 .FirstOrDefault();
@@ -301,8 +302,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
         public static readonly HeaderRole ValueDate = new(["value date"], []);
 
+        // The amount in the account's own currency first, before an "Original Amount".
         public static readonly HeaderRole Amount = new(
-            ["amount", "transaction amount", "amt", "sum", "value", "ammont"], NotMoney);
+            ["amount account currency", "amount in account currency", "account currency amount", "amount",
+             "transaction amount", "amt", "sum", "value", "ammont"],
+            [.. NotMoney.Where(x => x != "account")]);
 
         public static readonly HeaderRole Debit = new(
             ["debit", "debits", "debit amount", "withdrawal", "withdrawals", "money out", "paid out", "out", "dr",
@@ -319,7 +323,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
              "transaction type", "type", "dc"],
             []);
 
-        public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount"]);
+        // An "Original Currency" goes with the original amount, not the one imported.
+        public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount", "original"]);
 
         public static readonly HeaderRole Description = new(
             ["description", "transaction description", "details", "transaction details", "payment details", "narrative",
@@ -562,10 +567,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     private static (int DataStart, bool HasHeader) LocateTable(List<List<string>> rows)
     {
         // A summary block above the table ("Statement Date,…,Total Amount" and its values) names
-        // the same kinds of columns, so of the rows that do, the header is the one heading the
-        // longest run of rows dated in the column it names as the date (the first, on a tie).
-        var header = -1;
-        var longest = 0;
+        // the same kinds of columns. Of the rows that do, the header is the one with the most rows
+        // dated in the column it names as the date, counted down to the next such row (undated
+        // rows such as "Balance brought forward" or a second description line are passed over);
+        // on a tie the later one, nearer the data.
+        var candidates = new List<(int Row, int DateColumn)>();
         for (var i = 0; i < Math.Min(rows.Count - 1, 50); i++)
         {
             var row = rows[i];
@@ -574,20 +580,28 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             {
                 continue;
             }
-            var named = BestHeader(row, Roles.Date, []) ?? BestHeader(row, Roles.ValueDate, []);
-            if (named is not int dc)
+            if ((BestHeader(row, Roles.Date, []) ?? BestHeader(row, Roles.ValueDate, [])) is int named)
             {
-                continue;
+                candidates.Add((i, named));
             }
-            var run = 0;
-            while (i + 1 + run < rows.Count
-                && TryCell(rows[i + 1 + run], dc, out var cell) && TryParseDate(cell, null, out _))
+        }
+        var header = -1;
+        var most = 0;
+        for (var k = 0; k < candidates.Count; k++)
+        {
+            var (row, dc) = candidates[k];
+            var end = k + 1 < candidates.Count ? candidates[k + 1].Row : rows.Count;
+            var dated = 0;
+            for (var j = row + 1; j < end; j++)
             {
-                run++;
+                if (TryCell(rows[j], dc, out var cell) && TryParseDate(cell, null, out _))
+                {
+                    dated++;
+                }
             }
-            if (run > longest)
+            if (dated > 0 && dated >= most)
             {
-                (header, longest) = (i, run);
+                (header, most) = (row, dated);
             }
         }
         if (header >= 0)
