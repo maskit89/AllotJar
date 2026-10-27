@@ -58,6 +58,9 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
             throw JarAccounts.Validation("DestinationJarId", $"{destination.Name} is archived. Restore it before moving money into it.");
         }
 
+        // A Recurring jar the money leaves replans from what it holds after (rule 93, JarDrawReplants).
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, Array.Empty<Guid>(), cancellationToken,
+            new[] { request.SourceJarId }.OfType<Guid>());
         var ledger = await JarLedgerReader.LoadAsync(_db, userId, cancellationToken, new[] { account.Id });
         if (ledger.ViewAt(account.Id, date) is not { IsAvailable: true } view)
         {
@@ -100,6 +103,7 @@ public class ReallocateJarMoneyCommandHandler : IRequestHandler<ReallocateJarMon
             Postings = postings.Select(p => new JarAllocationPosting { JarId = p.JarId, Amount = p.Amount }).ToList(),
         });
         await _db.SaveChangesAsync(cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, Array.Empty<Guid>(), cancellationToken);
         if (write is not null)
         {
             await write.CommitAsync(cancellationToken);

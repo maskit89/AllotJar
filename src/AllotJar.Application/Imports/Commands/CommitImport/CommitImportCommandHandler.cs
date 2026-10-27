@@ -88,6 +88,9 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
         await using var write = lockedAccountIds.Count == 0
             ? null
             : await _db.BeginLedgerWriteAsync(lockedAccountIds, cancellationToken);
+        // The Recurring jars the transfers a row confirms or returns touch, and what they hold: a
+        // row paying from a jar, or changing such a transfer, replants the jar (JarDrawReplants).
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, targetIds, cancellationToken);
 
         // Transfers the user chose to confirm the other side of. Loaded tracked: matching writes
         // the statement's date and reference onto the open leg instead of inserting a row.
@@ -796,6 +799,7 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
                     }
                 }
             }
+            await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, created.Select(t => t.Id).Concat(targetIds), cancellationToken);
         }
         if (write is not null)
         {

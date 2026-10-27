@@ -66,6 +66,8 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
         // One row carries both legs, so its version covers the departure and the receipt (D11).
         // Checked on the row read under the lock, the one this save writes.
         _db.ExpectVersion(transfer, request.Version);
+        // The Recurring jars it (or its fee) touches, and what they hold, as saved (JarDrawReplants).
+        var jarsBefore = await JarDrawReplants.BeforeAsync(_db, userId, new[] { transfer.Id }, cancellationToken);
 
         var from = await OwnedAccountAsync(request.FromAccountId, userId, cancellationToken);
         var to = await OwnedAccountAsync(request.ToAccountId, userId, cancellationToken);
@@ -194,6 +196,7 @@ public class UpdateTransferCommandHandler : IRequestHandler<UpdateTransferComman
             _db, affected, fee is null ? new[] { transfer } : new[] { transfer, fee }, removed, nameof(request.Amount), cancellationToken);
 
         await _db.SaveChangesAsync(cancellationToken);
+        await JarDrawReplants.ReplantAsync(_db, userId, jarsBefore, new[] { transfer.Id }, cancellationToken);
         // Saved either way (D10, rule 70): the answer says when the jars are left unbacked.
         var warning = beforeEdit is null
             ? null
