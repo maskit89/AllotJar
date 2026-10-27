@@ -1290,15 +1290,26 @@ export interface AuthResponse {
   isNewAccount?: boolean | null
 }
 
-/** GET /budget/{year}/{month}/wrap-up: a month in actual money; leftOver = carriedIn + received − spent − intoJars. */
+/** GET /budget/{year}/{month}/wrap-up: a month in actual money, carried from month to month (rule 94). */
 export interface MonthWrapUpDto {
   year: number
   month: number
+  /** What every month before it left over: money in the accounts with no job (can be negative). */
   carriedIn: number
+  /** What accounts opened in the month held when they were opened. */
+  newAccounts: number
   received: number
+  /** Spending from the month's own money (what jars paid is left out); negative when refunds came to more. */
   spent: number
+  /** Money put into jars, net of any taken out (negative when more came out). */
   intoJars: number
+  /** The part of intoJars set aside when a jar was made. */
+  setAside: number
+  /** Money moved in from (+) or out to (−) private accounts. */
+  privateTransfers: number
+  /** carriedIn + newAccounts + received − spent − intoJars + privateTransfers. */
   leftOver: number
-  isOver: boolean
+  /** What the month's budget gives a job besides its income (the "From" line). */
+  toAllot: number
   fxPendingCount: number
 }

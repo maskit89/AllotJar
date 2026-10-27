@@ -748,27 +748,33 @@ export function BudgetLine({
 }
 
 /**
- * The money the month before left over (or overspent), at the top of Income: what the earlier
- * months left that nobody has given a job yet (MonthLeftover on the server). It counts in
- * Remaining to budget like income, but it is not income: nothing edits it, and the reports leave
- * it out. Null before the month starts: it arrives then, so the line says when instead of a figure.
+ * The money this month has to give a job besides its income, at the top of Income (rule 94):
+ * what the months before left that nobody gave a job, plus money that reached the accounts
+ * outside the plan this month, from GET /budget/{y}/{m}/wrap-up (MonthLeftover on the server).
+ * It counts in Remaining to budget like income, but it is not income: nothing edits it, and the
+ * reports leave it out. A first budget names it "In your accounts". With no figure (null) the
+ * line says why: the month has not started, the figure is loading, or it could not be read.
  */
 export function CarryLine({
   from,
   month,
   minor,
+  state,
   currency,
   phone,
 }: {
-  /** The month the money comes from, e.g. "October". */
-  from: string
+  /** The month the money comes from, e.g. "October"; null for a first budget (money already in the accounts). */
+  from: string | null
   /** The month this line is in, e.g. "November". */
   month: string
   minor: Minor | null
+  /** Why there is no figure yet: the month is still ahead, the figure is on its way, or reading it failed. */
+  state?: 'ahead' | 'loading' | 'failed'
   currency: string
   phone: boolean
 }) {
   const over = minor !== null && minor < 0
+  const label = from ? `From ${from}` : 'In your accounts'
   const cols = phone
     ? 'grid-cols-[30px_minmax(0,1fr)_auto] @min-[500px]:grid-cols-[30px_minmax(0,1fr)_minmax(0,1.25fr)_88px]'
     : 'grid-cols-[30px_minmax(0,1fr)_auto_auto] @min-[500px]:grid-cols-[30px_minmax(0,1fr)_minmax(0,1.25fr)_88px_32px]'
@@ -783,22 +789,29 @@ export function CarryLine({
         </Tile>
       </div>
       <div className="col-start-2 row-start-1 flex min-w-0 items-center gap-1.5">
-        <span className="min-w-0 truncate text-sm font-semibold text-slate-900">From {from}</span>
+        <span className="min-w-0 truncate text-sm font-semibold text-slate-900">{label}</span>
         <InfoHint
-          label={`About the money from ${from}`}
+          label={from ? `About the money from ${from}` : 'About the money in your accounts'}
           align={phone ? 'center' : 'start'}
           buttonClassName="relative -my-1 inline-grid size-[22px] place-items-center rounded-full text-slate-500 opacity-85 transition after:absolute after:-inset-[9px] after:content-[''] hover:bg-slate-500/10 hover:opacity-100"
         >
-          {minor === null
-            ? `What ${from} leaves over arrives here when ${month} starts.`
-            : over
-              ? `${from} spent more than it had. ${month} makes up the difference.`
-              : `Left over from ${from}: not spent and not in a jar. Give it a job this month.`}
+          {state === 'failed'
+            ? "Couldn't load this. Reload the page to try again."
+            : minor === null
+              ? from
+                ? `What ${from} leaves over arrives here when ${month} starts.`
+                : `Money in your accounts that isn't in a jar arrives here when ${month} starts.`
+              : over
+                ? `${from ?? 'Your accounts'} spent more than ${from ? 'it' : 'they'} had. ${month} makes up the difference.`
+                : from
+                  ? `Left over from ${from}: not spent and not in a jar. Give it a job this month.`
+                  : "Money in your accounts that isn't in a jar yet. Give it a job this month."}
         </InfoHint>
       </div>
       <div className="col-start-3 row-start-1 flex justify-end text-right @min-[500px]:col-start-4">
         <span
           data-testid="carry-amount"
+          aria-busy={state === 'loading' || undefined}
           className={`text-sm font-semibold whitespace-nowrap tabular-nums ${over ? 'text-bad' : minor === null ? 'text-slate-500' : 'text-slate-900'}`}
         >
           {minor === null ? '—' : over ? `− ${formatMoney(-minor, currency)}` : formatMoney(minor, currency)}

@@ -9,11 +9,13 @@ public class GetMonthWrapUpQueryHandler : IRequestHandler<GetMonthWrapUpQuery, M
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly IIdentityService? _identity;
 
-    public GetMonthWrapUpQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetMonthWrapUpQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _identity = identity;
     }
 
     public async Task<MonthWrapUpDto> Handle(GetMonthWrapUpQuery request, CancellationToken cancellationToken)
@@ -29,22 +31,27 @@ public class GetMonthWrapUpQueryHandler : IRequestHandler<GetMonthWrapUpQuery, M
             });
         }
 
-        var (carriedIn, month, inChain) = await MonthLeftover.WithCarryAsync(
-            _db, userId, request.Year, request.Month, cancellationToken);
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var currency = await BudgetCurrency.ResolveAsync(_db, _identity, userId, cancellationToken);
+        var chain = await MonthLeftover.ReadAsync(_db, userId, currency, cancellationToken);
+        var month = chain.Of(request.Year, request.Month);
+        var carriedIn = chain.CarriedInto(request.Year, request.Month);
+        var waiting = await BudgetActuals.FxPendingCountsAsync(
+            _db, userId, new[] { (request.Year, request.Month) }, cancellationToken);
 
         return new MonthWrapUpDto
         {
             Year = request.Year,
             Month = request.Month,
             CarriedIn = carriedIn,
+            NewAccounts = month.NewAccounts,
             Received = month.Received,
             Spent = month.Spent,
             IntoJars = month.IntoJars,
-            // A month before the first budget passes nothing on (it is outside the chain).
-            LeftOver = inChain ? carriedIn + month.LeftOver : 0m,
-            IsOver = new DateOnly(request.Year, request.Month, 1).AddMonths(1) <= today,
-            FxPendingCount = month.FxPendingCount,
+            SetAside = month.SetAside,
+            PrivateTransfers = month.PrivateTransfers,
+            LeftOver = carriedIn + month.LeftOver,
+            ToAllot = carriedIn + month.OutsidePlan,
+            FxPendingCount = waiting.GetValueOrDefault((request.Year, request.Month)),
         };
     }
 }

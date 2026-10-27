@@ -144,6 +144,7 @@ describe('GettingStartedChecklist: the collapsed pill and the done line', () => 
       ],
     })
     mockGet.mockImplementation((url: string) => {
+      if (url.endsWith('/wrap-up')) return Promise.resolve({ data: { toAllot: 0, leftOver: 0 } })
       if (url.startsWith('/budget/') && url !== '/budget/months') return Promise.resolve({ data: balanced })
       return Promise.resolve({ data: [{ id: 'x1' }] })
     })
@@ -157,5 +158,22 @@ describe('GettingStartedChecklist: the collapsed pill and the done line', () => 
     expect(dismiss).not.toHaveClass('bg-brand-600')
     fireEvent.click(dismiss)
     expect(dismissChecklist).toHaveBeenCalledTimes(1)
+  })
+
+  it('a balanced plan with money still to give a job (rule 94 carry) is not done yet', async () => {
+    const balanced = budgetMonth({
+      categories: [
+        budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'pay', name: 'Pay', plannedAmount: 3000 })] }),
+        budgetCategory({ id: 'hou', name: 'Housing', kind: 'Expense', items: [budgetItem({ id: 'rent', name: 'Rent', plannedAmount: 3000 })] }),
+      ],
+    })
+    mockGet.mockImplementation((url: string) => {
+      if (url.endsWith('/wrap-up')) return Promise.resolve({ data: { toAllot: 500, leftOver: 500 } })
+      if (url.startsWith('/budget/') && url !== '/budget/months') return Promise.resolve({ data: balanced })
+      return Promise.resolve({ data: [{ id: 'x1' }] })
+    })
+    const view = renderWithProviders(<GettingStartedChecklist />)
+    expect(await view.findByText('5 of 6 done')).toBeInTheDocument()
+    expect(view.queryByText('Every euro has a job.')).not.toBeInTheDocument()
   })
 })

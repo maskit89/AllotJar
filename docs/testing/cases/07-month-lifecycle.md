@@ -701,7 +701,7 @@
 
 ## Continuing a month: wrap-up and carry-over (27 October 2026)
 
-What a month leaves over is actual money: income received (rule 41), less net spending (rules 37–39) other than what jars paid (saved for earlier), less money moved into jars (never the money set aside when a jar was made, SC-P2-1). Each month passes on what it carried in plus its own result, counted from the household's first budget (`MonthLeftover`, `GET /api/budget/{y}/{m}/wrap-up`). Nothing is stored: a back-dated correction (rule 49) moves it.
+What the months leave over is actual money, the money in the household's shared accounts that is neither spent nor in a jar (rule 94): what new accounts held when opened, plus income received (rule 41) and money in from private accounts, less net spending (rules 37–39) other than what jars paid (saved for earlier), less money put into jars however it got there, less money out to private accounts. Counted from the household's first recorded money (`MonthLeftover`, `GET /api/budget/{y}/{m}/wrap-up`). Nothing is stored: a back-dated correction (rule 49) moves it.
 
 ### BUDG-063 - The not-found card shows how the month before went
 - **Priority:** P1
@@ -710,14 +710,15 @@ What a month leaves over is actual money: income received (rule 41), less net sp
 - **Expected:**
   - Under **"Start July"**, a section **"June 2026"**: In €3,000.00 · Spent − €2,380.00 · Into jars − €500.00 · **Left over €120.00** (green), with an ⓘ saying July starts with it.
   - Overspent instead (left over below zero): the last figure reads **Overspent** in red.
-  - A month before with a carry of its own shows **"From May"** as the first figure, so the row adds up.
+  - A month before with a carry of its own shows **"From May"** as the first figure, so the row adds up; **New accounts** and **To private** / **From private** show only when not zero.
+  - Money taken out of jars reads **Out of jars + €300.00**, refunds above spending **Spent + €…**: every figure carries its own sign, so the row adds up as shown.
 - **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx; tests/AllotJar.Application.Tests/Application/MonthLeftoverTests.cs)
 
 ### BUDG-064 - No wrap-up for a month before that has not begun
 - **Priority:** P2
 - **Type:** Edge
 - **Preconditions:** budg-owner; today in July 2026; JUL26 exists; viewing September 2026 (no budget).
-- **Expected:** only **"Start September"**: August has not begun, so there is nothing to sum. While the month before is still running the heading reads **"July 2026 so far"**.
+- **Expected:** only **"Start September"**: August has not begun, so there is nothing to sum. While the month before is still running the heading reads **"July 2026 so far"**, by the viewer's own date (on 1 August at 01:00 Malta time it reads "July 2026").
 - **Automated:** No
 
 ### BUDG-065 - A started month shows "From {Month}" first under Income, counted in Remaining
@@ -728,15 +729,16 @@ What a month leaves over is actual money: income received (rule 41), less net sp
   - The Income group's first row is **"From June"** €120.00 (not editable, no menu), with an ⓘ.
   - Remaining to budget reads €220.00 (3,000 + 120 − 2,900), and its bar fills against 3,120.00; the Income tile stays €3,000.00 with its own received figure (the carry is not income).
   - With June overspent by 80.00 the row reads **− €80.00** in red and Remaining drops by 80.00.
+  - While the figure loads, the row and Remaining read **—** and nothing says "balanced" or "over"; if it can't load they stay **—** and the row's ⓘ says "Couldn't load this. Reload the page to try again." Moving to another month never shows the last month's figure.
   - Reports are unchanged: the carry is not income (Planned income and Received exclude it, rule 41).
 - **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx)
 
-### BUDG-066 - The first budget carries nothing in
+### BUDG-066 - The first budget gives a job to money already in the accounts
 - **Priority:** P1
 - **Type:** Boundary
-- **Preconditions:** budg-solo; only JUL26 exists.
-- **Expected:** no **"From …"** row; Remaining is income − planned; no wrap-up request is made.
-- **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx; MonthLeftoverTests)
+- **Preconditions:** budg-solo; only JUL26 exists; Everyday holds 700.00, Savings 2,000.00 of which 2,000.00 is in a jar.
+- **Expected:** the first Income row reads **"In your accounts"** €700.00 and Remaining counts it. With nothing outside a jar there is no row, and Remaining is income − planned. The Getting started step "Give every euro a job" ticks only once this is given a job too.
+- **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx; GettingStartedChecklist.test.tsx; MonthLeftoverTests)
 
 ### BUDG-067 - A month that has not begun shows the carry as still to come
 - **Priority:** P2
@@ -745,10 +747,16 @@ What a month leaves over is actual money: income received (rule 41), less net sp
 - **Expected:** August's first Income row reads **"From July"** with **—** and an ⓘ ("What July leaves over arrives here when August starts."); Remaining does not count it yet.
 - **Automated:** Yes (client/src/pages/DashboardPage.carry.test.tsx)
 
-### BUDG-068 - Carried money given a job nets out; money left alone keeps carrying
-- **Priority:** P1
+### BUDG-068 - The carry always equals the money in the accounts with no job
+- **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** budg-owner; first budget September; September leaves 300.00 (a 50.00 bill paid from a jar and 300.00 set aside at the jar's creation do not count against it); October overspends 120.00 (20.00 of it uncategorised).
-- **Expected:** November's **"From October"** reads €180.00; a month with no budget still moves money (December's flows count toward January); a month before the first budget passes nothing on.
+- **Preconditions:** budg-owner; Everyday (500.00) and Savings (1,000.00) opened 1 September, 300.00 set aside into Holiday; September: 3,000.00 in, 2,500.00 on food, 200.00 moved into Holiday, a 50.00 bill paid from it; October overspends 120.00 (20.00 of it uncategorised).
+- **Expected:**
+  - September's **"In your accounts"** reads €1,200.00 (1,500.00 less the 300.00 in the new jar); October's **"From September"** €1,500.00; November's **"From October"** €1,380.00, which is the shared accounts' balance less the jars' on 31 October.
+  - Savings already there and put into a jar give the same carry with **Set aside** at the jar's creation or **Move money** after.
+  - An account added later brings its opening balance in its opening month; rows imported for dates before an account's opening date count once.
+  - Money moved to a private account leaves the carry; money from one into a jar nets out.
+  - A payday or jar bill dated 31 October and budgeted to November counts in November, with what went straight into a jar as it arrived; jar money on its way between two accounts over a month end carries no phantom.
+  - A month with no budget still moves money (December's flows count toward January).
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/MonthLeftoverTests.cs)
 

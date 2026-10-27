@@ -121,9 +121,16 @@ function budgetMonth(year: number, month: number) {
   }
 }
 
-/** How a month went in actual money (GET /budget/{y}/{m}/wrap-up): 120 left over for the next one. */
-export function monthWrapUp(year: number, month: number) {
-  return { year, month, carriedIn: 0, received: 3000, spent: 2380, intoJars: 500, leftOver: 120, isOver: true, fxPendingCount: 0 }
+/**
+ * How a month went in actual money (GET /budget/{y}/{m}/wrap-up): 120 left over for the next one,
+ * and nothing besides its income for its own budget to give a job (toAllot), so no mocked
+ * Remaining to budget moves.
+ */
+export function monthWrapUp(year: number, month: number, toAllot = 0) {
+  return {
+    year, month, carriedIn: 0, newAccounts: 0, received: 3000, spent: 2380, intoJars: 500, setAside: 0,
+    privateTransfers: 0, leftOver: 120, toAllot, fxPendingCount: 0,
+  }
 }
 
 function allocationProfile() {

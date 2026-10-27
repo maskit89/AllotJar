@@ -37,10 +37,12 @@ export interface BudgetCardProps {
   /** A past month: jar plans are history (rule 46), and nothing in it can be skipped (rule 60). */
   isPastMonth: boolean
   /**
-   * What the month before left over, shown first under Income (null amount: the month has not
-   * started, so it has not arrived yet); absent for the first budget.
+   * The money the month gives a job besides its income (CarryLine), shown first under Income:
+   * what the months before left over (from a month), or money already in the accounts (a first
+   * budget, from null). A null amount says why there is none yet (state); absent when there is
+   * nothing to show.
    */
-  carry?: { from: string; month: string; minor: Minor | null }
+  carry?: { from: string | null; month: string; minor: Minor | null; state?: 'ahead' | 'loading' | 'failed' }
   onCommitItem: (itemId: string, plannedMinor: Minor) => void
   onSetItemMember: (itemId: string, memberId: string | null) => void
   onSetBill: (itemId: string, dueDay: number | null) => void

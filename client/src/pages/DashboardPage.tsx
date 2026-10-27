@@ -245,11 +245,14 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   }, [])
 
   // A jar created here (from a Savings group or the checklist) plants its line in the
-  // month server-side: re-read the month so it appears, and refresh the shelf.
+  // month server-side: re-read the month so it appears, and refresh the shelf. What it set
+  // aside comes off the month's carry, so that is read again too.
+  const [wrapUpTick, setWrapUpTick] = useState(0)
   const onJarCreated = useCallback(() => {
     setJarFormOpen(false)
     void refreshMonth()
     refreshJars()
+    setWrapUpTick((n) => n + 1)
   }, [refreshMonth, refreshJars])
 
   // The most recent month strictly before the viewed one — what "copy" actually
@@ -262,39 +265,58 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     [months, year, monthNum],
   )
 
-  // How the calendar month before the viewed one went (in, spent, into jars, left over): the card
-  // that starts the viewed month shows it, and a month that exists carries what it left over
-  // (the "From <month>" line under Income, counted in Remaining to budget). Read once that month
-  // has begun (a month still ahead has nothing to tell yet) and when there is a budget before the
-  // viewed one (the first budget carries nothing in). Only the latest read lands, as with the jars.
-  const [wrapUp, setWrapUp] = useState<MonthWrapUpDto | null>(null)
+  // The month in actual money (rule 94, GET /budget/{y}/{m}/wrap-up). A month that exists reads
+  // its own: what it gives a job besides its income (the "From <month>" line under Income,
+  // counted in Remaining to budget). The card that starts a missing month reads the month before
+  // it, to show how that month went. Read once the month read has begun (one still ahead has
+  // nothing to tell yet). Each answer is kept with the month it is for, so a month never shows
+  // another's, and only the latest read lands, as with the jars.
+  const [wrapUp, setWrapUp] = useState<{ key: string; data: MonthWrapUpDto | null } | null>(null)
   const wrapUpRead = useRef(0)
   const before = monthNum === 1 ? { year: year - 1, month: 12 } : { year, month: monthNum - 1 }
   const beforeKey = `${before.year}-${String(before.month).padStart(2, '0')}`
   const hasMonth = month !== null
-  const wantsWrapUp = prevBudget !== null && beforeKey <= todayKey && (hasMonth || (notFound && canWrite))
+  const wrapTarget = hasMonth ? { year, month: monthNum } : before
+  const wrapKey = `${wrapTarget.year}-${wrapTarget.month}`
+  const wantsWrapUp = hasMonth ? !isFutureMonth : prevBudget !== null && notFound && canWrite && beforeKey <= todayKey
   useEffect(() => {
     const read = ++wrapUpRead.current
-    setWrapUp(null)
     if (!wantsWrapUp) return
     api
-      .get<MonthWrapUpDto>(`/budget/${before.year}/${before.month}/wrap-up`)
+      .get<MonthWrapUpDto>(`/budget/${wrapTarget.year}/${wrapTarget.month}/wrap-up`)
       .then(({ data }) => {
-        // Guarded like the jars: an answer without the figures shows none.
-        if (read === wrapUpRead.current && typeof data?.leftOver === 'number') setWrapUp(data)
+        // Guarded like the jars: an answer without the figures counts as a failed read.
+        if (read !== wrapUpRead.current) return
+        const ok = typeof data?.leftOver === 'number' && typeof data?.toAllot === 'number'
+        setWrapUp({ key: wrapKey, data: ok ? data : null })
       })
-      .catch(() => {})
-  }, [wantsWrapUp, before.year, before.month])
-  // The carry the viewed month shows: what the month before left over once the viewed month has
-  // begun; before it begins nothing has arrived yet (null). Absent for a first budget.
-  const carry = prevBudget === null
+      .catch(() => {
+        if (read === wrapUpRead.current) setWrapUp({ key: wrapKey, data: null })
+      })
+  }, [wantsWrapUp, wrapTarget.year, wrapTarget.month, wrapKey, wrapUpTick])
+  // This month's answer: undefined while it is on its way, null when it could not be read.
+  const wrapAnswer = wantsWrapUp && wrapUp?.key === wrapKey ? wrapUp.data : undefined
+  // The carry the viewed month shows. A month after another budget always shows it (the
+  // continuation); a first budget shows money already in the accounts once there is some. Until
+  // the figure is in, the line and Remaining to budget show none (never €0.00), and a month still
+  // ahead says the money arrives when it starts.
+  const carryFrom = prevBudget !== null ? MONTH_NAMES[before.month - 1] : null
+  const carryState: 'ahead' | 'loading' | 'failed' | undefined = !hasMonth
     ? undefined
-    : {
-        from: MONTH_NAMES[before.month - 1],
-        month: MONTH_NAMES[monthNum - 1],
-        minor: isFutureMonth ? null : wrapUp ? fromAmount(wrapUp.leftOver) : 0,
-      }
-  const carryMinor = carry?.minor ?? 0
+    : isFutureMonth
+      ? 'ahead'
+      : wrapAnswer === undefined
+        ? 'loading'
+        : wrapAnswer === null
+          ? 'failed'
+          : undefined
+  const carryMinor = wrapAnswer ? fromAmount(wrapAnswer.toAllot) : null
+  const carry = !hasMonth || (carryFrom === null && (carryState === 'ahead' || carryState === 'loading' || carryMinor === 0))
+    ? undefined
+    : { from: carryFrom, month: MONTH_NAMES[monthNum - 1], minor: carryMinor, state: carryState }
+  // Remaining to budget is unknown while the carry is (a month that has begun); a month still
+  // ahead plans only its own income, as the carry has not arrived.
+  const carryKnown = carryState !== 'loading' && carryState !== 'failed'
 
   // Create the viewed month — copying the previous month's plan, or blank.
   const createMonth = useCallback(
@@ -907,7 +929,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                         Start {MONTH_NAMES[monthNum - 1]}
                       </Button>
                     </div>
-                    {wrapUp && <MonthWrapUp wrapUp={wrapUp} currency={budgetCurrency} next={MONTH_NAMES[monthNum - 1]} />}
+                    {wrapAnswer ? (
+                      <MonthWrapUp
+                        wrapUp={wrapAnswer}
+                        currency={budgetCurrency}
+                        next={MONTH_NAMES[monthNum - 1]}
+                        isOver={beforeKey < todayKey}
+                      />
+                    ) : (
+                      wrapAnswer === null && (
+                        <p className="mt-6 text-xs text-slate-500">Couldn't load how {MONTH_NAMES[before.month - 1]} went.</p>
+                      )
+                    )}
                   </>
                 ) : (
                   <>
@@ -953,17 +986,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
         {month && (() => {
           const incomeMinor = totalIncome(month)
-          // What the month before left over is money to give a job, as income is (the "From"
-          // row under Income), but it is not income: the Income tile leaves it out.
-          const toPlanMinor = incomeMinor + carryMinor
+          // The carry is money to give a job, as income is (the "From" row under Income), but it
+          // is not income: the Income tile leaves it out. While it is unknown (on its way, or not
+          // read) so is Remaining to budget, so nothing says "balanced" or "over" on a guess.
+          const toPlanMinor = incomeMinor + (carryMinor ?? 0)
           const allottedMinor = monthPlanned(month)
-          const remainingMinor = remainingToBudget(month) + carryMinor
+          const remainingMinor = carryKnown ? remainingToBudget(month) + (carryMinor ?? 0) : null
           const money = (minor: Minor) => formatMoney(minor, month.currency)
           // A month with nothing to plan and nothing planned has Remaining €0, but it
           // isn't balanced — it's empty. Prompt for income instead of celebrating.
-          const empty = toPlanMinor === 0 && allottedMinor === 0
-          const balanced = toPlanMinor > 0 && remainingMinor === 0
-          const over = remainingMinor < 0
+          const empty = remainingMinor !== null && toPlanMinor === 0 && allottedMinor === 0
+          const balanced = remainingMinor !== null && toPlanMinor > 0 && remainingMinor === 0
+          const over = remainingMinor !== null && remainingMinor < 0
           const noun = currencyNoun(month.currency)
           const receivedMinor = sumMinor(month.categories.filter(isIncome).map(categoryActual))
           const allReceived = incomeMinor > 0 && receivedMinor >= incomeMinor
@@ -994,9 +1028,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 hero
                 data-tour="remaining-banner"
                 label="Remaining to budget"
-                hint={`Money not given a job yet: your income${carry ? ` and what ${carry.from} left over` : ''}. Allot it in the budget below until this reaches ${money(0)}.`}
-                value={money(remainingMinor)}
-                valueLabel={`Remaining to budget: ${money(remainingMinor)}`}
+                hint={`Money not given a job yet: your income${carry ? (carry.from ? ` and what ${carry.from} left over` : ' and money already in your accounts') : ''}. Allot it in the budget below until this reaches ${money(0)}.`}
+                value={remainingMinor === null ? '—' : money(remainingMinor)}
+                valueLabel={`Remaining to budget: ${remainingMinor === null ? (carryState === 'failed' ? "couldn't load" : 'loading') : money(remainingMinor)}`}
                 extra={<HeroBar pct={toPlanMinor > 0 ? (allottedMinor / toPlanMinor) * 100 : 0} />}
                 sub={
                   balanced ? (

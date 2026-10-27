@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { AUTHED_ROUTES, authedSetup, FLAGS, mockApi, mockSignedIn, ONBOARDING_EMAIL } from './mocks'
+import { AUTHED_ROUTES, authedSetup, FLAGS, mockApi, mockSignedIn, monthWrapUp, ONBOARDING_EMAIL } from './mocks'
 
 /** Waits until nothing under `target` is still animating, so axe reads the settled colours. A
  *  cancelled animation (a transition replaced, its node removed) rejects its `finished` promise with
@@ -212,6 +212,7 @@ for (const theme of ['light', 'dark'] as const) {
 
       // Once June exists, its Income starts with what May left over.
       await page.unroute('**/api/budget/2026/6')
+      await page.route('**/api/budget/2026/6/wrap-up', (route) => route.fulfill(route200(monthWrapUp(2026, 6, 120))))
       await page.route('**/api/budget/months', (route) =>
         route.fulfill(months([{ year: 2026, month: 5, key: '2026-05' }, { year: 2026, month: 6, key: '2026-06' }])),
       )
