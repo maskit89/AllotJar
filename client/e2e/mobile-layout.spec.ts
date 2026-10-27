@@ -47,10 +47,10 @@ test('the jar modal fits a phone screen (2-col grid in a dialog)', async ({ page
   await expect(dialog.getByLabel('Needed by')).toHaveCount(1)
   await assertNoHorizontalOverflow(page, '/jars (new-jar modal)')
   // Just the month: the list of months in the date's half of the grid.
-  await dialog.getByRole('radio', { name: 'Month' }).check()
+  await dialog.getByRole('radio', { name: 'Month', exact: true }).check()
   await dialog.getByLabel('Needed by (month)').waitFor()
   await assertNoHorizontalOverflow(page, '/jars (new-jar modal, just the month)')
-  await dialog.getByRole('radio', { name: 'Date' }).check()
+  await dialog.getByRole('radio', { name: 'Date', exact: true }).check()
   // The More options fold holds a second 2-col grid ("Already set aside" + "Set aside on").
   await dialog.getByRole('button', { name: 'More options' }).click()
   await dialog.getByLabel('Set aside on').waitFor()
