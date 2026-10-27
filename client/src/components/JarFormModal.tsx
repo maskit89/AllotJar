@@ -28,6 +28,8 @@ const REPEAT_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
 
 /** How long the form waits after a keystroke before asking the server for the schedule. */
 const PREVIEW_DEBOUNCE_MS = 250
+/** One cent in minor units: a carried monthly amount is rounded up to it. */
+const CENT = fromAmount(0.01)
 
 /** Parse a non-negative amount string into a wire decimal; '' → 0; null when invalid. */
 function parseAmount(input: string): number | null {
@@ -283,14 +285,24 @@ export function JarFormModal({
 
   // Switching to a fixed amount carries the plan just worked out from the target and date into
   // "Each month", so the switch doesn't look like it lost what was typed; the date and Repeats
-  // stay in the form for switching back.
-  const setFixedMonthly = (fixedMonthly: boolean) =>
+  // stay in the form for switching back. Rule 35 floors each month and puts the remainder in the
+  // last, so the carried amount is the average rounded up to the cent: the same months, never
+  // one more for a cent. Only the preview of what the form says now is carried (not one still
+  // being re-asked), and not the months typed by hand on a Savings line (O3b). An amount carried
+  // earlier and left as it was is carried afresh; one the user typed stays.
+  const carried = useRef<string | null>(null)
+  const setFixedMonthly = (fixedMonthly: boolean) => {
+    const current = preview && preview.key === requestKey ? preview.schedule : null
+    const months = current && current.accrual === AccrualMethod.TargetByDate ? current.months.filter((m) => !m.skipped && !m.byHand && m.planned > 0) : []
+    const sum = months.reduce((total, m) => total + fromAmount(m.planned), 0)
+    const monthly = months.length > 0 ? toEditString(Math.ceil(sum / months.length / CENT) * CENT) : null
     setForm((prev) => {
-      if (!fixedMonthly || prev.monthly.trim() !== '' || !schedule || schedule.accrual !== AccrualMethod.TargetByDate)
-        return { ...prev, fixedMonthly }
-      const planned = schedule.months.find((m) => !m.skipped && m.planned > 0)?.planned ?? 0
-      return { ...prev, fixedMonthly, monthly: planned > 0 ? toEditString(fromAmount(planned)) : '' }
+      const untouched = prev.monthly.trim() === '' || prev.monthly === carried.current
+      if (!fixedMonthly || !untouched || monthly === null) return { ...prev, fixedMonthly }
+      carried.current = monthly
+      return { ...prev, fixedMonthly, monthly }
     })
+  }
 
   const submit = useCallback(async (shareAccount = false) => {
     if (form.name.trim() === '') {

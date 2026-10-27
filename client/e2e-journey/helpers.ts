@@ -253,7 +253,7 @@ export function firstOfMonthAhead(monthsAhead: number): string {
  * Create a Goal jar — one that doesn't repeat — through the one jar form (rule 73) on the Jars
  * page (navigates there). The form asks no type: Repeats "Doesn’t repeat" (a new jar's default)
  * makes it a Goal, which saves by its "Needed by" date or at a fixed monthly amount (rule 17):
- * `monthly` ticks "Set aside a fixed amount each month" (an ongoing pot when `target` is empty,
+ * `monthly` chooses "Set aside a fixed amount each month" (an ongoing pot when `target` is empty,
  * rule 16); otherwise it saves by `deadline`, which defaults to the 1st of the month twelve
  * months out, so twelve contribution months plan (target − set aside) ÷ 12 (rule 35). `heldIn`
  * names the account that holds its money; `setAside` (under "More options") divides money
