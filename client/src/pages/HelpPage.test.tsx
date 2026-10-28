@@ -137,7 +137,7 @@ describe('HelpPage', () => {
     expect(text('Saving with jars')).toContain('Move money shifts money between jars.')
     expect(text('Transactions')).toContain('Repeat payees categorise themselves.')
     expect(text('Transactions')).toContain('A Transfer moves money between your own accounts and never touches the budget.')
-    expect(text('Importing a statement')).toContain('Import reads your bank’s CSV export or a CAMT.053 statement.')
+    expect(text('Importing a statement')).toContain('Import reads your bank’s CSV export, a PDF statement or a CAMT.053 statement.')
     expect(text('Importing a statement')).toContain('Importing the same file again never creates duplicates.')
     expect(text('Reports')).toContain('What each jar paid out, monthly and for the year.')
     expect(text('People & allocation')).toContain('On your own, it stays out of the way until you add someone.')

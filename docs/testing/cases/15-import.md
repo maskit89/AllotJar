@@ -1006,3 +1006,25 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Steps:** Upload each as a Bank CSV; for (d) open **Columns** › **More options**.
 - **Expected:** (a) DR rows are money out and CR rows money in. (b) **Direction column** under More options is detected and sets each row's direction. (c) The pair is kept and every purchase is money out. (d) The table starts at the real header (**Skip lines** shows how many lines are skipped and can be changed). A first transaction printed without its trailing empty fields is not skipped. Text with digits ("POS 4921 LIDL") is never taken for an amount.
 - **Automated:** Yes (GenericCsvColumnDetectionTests.cs, ImportPage.test.tsx)
+
+## PDF statements (28 October 2026)
+
+### IMP-104 - A PDF statement imports through the column screen
+- **Priority:** P1
+- **Type:** Functional
+- **Origin:** Christopher, 27-28 Oct 2026 (APS offers some statements only as PDF; "Any bank, map the columns")
+- **Preconditions:** A text PDF statement, such as an APS credit card statement: lines above the table (bank, statement date), a header printed over two lines ("Transaction" over "Date"), rows with a second description line, the header repeated on page 2, and an "Amount in EUR" column beside the amount in the currency spent.
+- **Steps:**
+  1. Choose **Bank CSV or PDF (auto-detect)**, upload the PDF and review.
+  2. Open **Columns**.
+- **Expected:** The file strip says **PDF**. Every transaction in the statement is listed once, with the totals in and out matching the statement. The header reads as one line per column ("Transaction Date"), a second description line joins its row, the statement date above the table is not a row, and page 2's header is not a row. **Columns** shows the PDF's columns with the date, description and "Amount in EUR" chosen; they can be changed as for a CSV. Dates printed as "1 Sep 2026" are read too. The PDF is read in memory only and never stored. Importing the same PDF again skips every row as already imported.
+- **Automated:** Partial (PdfTableReaderTests.cs, ImportPage.test.tsx); checked by hand on a real APS card statement, 38 rows.
+
+### IMP-105 - PDFs that cannot be read say why
+- **Priority:** P2
+- **Type:** Negative
+- **Origin:** PDF import, 28 Oct 2026
+- **Preconditions:** A scanned (image-only) PDF; a password-protected PDF; a damaged file named .pdf; a PDF of more than 60 pages; a PDF with no dates in it; a PDF uploaded with the HSBC or CAMT.053 format chosen.
+- **Steps:** Upload each.
+- **Expected:** Scan: "This PDF has no text in it, so it may be a scan. Download the statement from your internet banking instead." Password: "This PDF is password-protected. Save it without a password and upload it again." Damaged: "This PDF could not be read." Too long: "This PDF has N pages, which is too long for a statement." No dates: "No transactions were found in this PDF." Wrong format: "A PDF statement is imported as Bank CSV or PDF." Nothing is saved in any case.
+- **Automated:** Partial (PdfTableReaderTests.cs)

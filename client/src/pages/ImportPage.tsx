@@ -64,9 +64,9 @@ type Phase = 'upload' | 'review' | 'done'
 
 const FORMATS: Record<Format, { label: string; accept: string; hint: string; wire: StatementFormat }> = {
   generic: {
-    label: 'Bank CSV (auto-detect)',
-    accept: '.csv,text/csv',
-    hint: "Most banks' CSV export. Known formats (like the HSBC transaction history) are recognised automatically; otherwise you'll confirm which columns are the date, amount and description.",
+    label: 'Bank CSV or PDF (auto-detect)',
+    accept: '.csv,text/csv,.pdf,application/pdf',
+    hint: "Most banks' CSV export or PDF statement. Known formats (like the HSBC transaction history) are recognised automatically; otherwise you'll confirm which columns are the date, amount and description.",
     wire: 'GenericCsv',
   },
   hsbc: {
@@ -85,6 +85,9 @@ const FORMATS: Record<Format, { label: string; accept: string; hint: string; wir
 
 /** The format's short name, for the review's file strip. */
 const FORMAT_SHORT: Record<Format, string> = { generic: 'Bank CSV', hsbc: 'HSBC CSV', camt: 'CAMT.053' }
+
+/** A PDF statement goes through the Bank CSV path: the server rebuilds its table. */
+const isPdf = (file: File | null) => !!file && (file.type === 'application/pdf' || /\.pdf$/i.test(file.name))
 
 /** Human names for the parser the server actually used, keyed by the wire StatementFormat. */
 const DETECTED_FORMAT_LABELS: Record<string, string> = {
@@ -2508,7 +2511,7 @@ export function ImportPage() {
             <div className="flex min-w-0 flex-1 flex-col">
               <b className="truncate text-sm font-semibold text-slate-900">{file?.name}</b>
               <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500">
-                <span className="shrink-0">{FORMAT_SHORT[format]}</span>
+                <span className="shrink-0">{format === 'generic' && isPdf(file) ? 'PDF' : FORMAT_SHORT[format]}</span>
                 {detected && (
                   <InfoHint fixed label="About the format" buttonClassName={ROW_HINT}>
                     We recognised this file as {detected} and read it with the dedicated importer, so payees and duplicate detection stay consistent.

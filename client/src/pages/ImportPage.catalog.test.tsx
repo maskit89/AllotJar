@@ -80,7 +80,7 @@ describe('ImportPage (catalog)', () => {
       .getAllByRole('option')
       .map((o) => o.textContent)
     expect(optionLabels).toEqual([
-      'Bank CSV (auto-detect)',
+      'Bank CSV or PDF (auto-detect)',
       'HSBC transaction history (CSV)',
       'CAMT.053 statement (XML)',
     ])

@@ -28,8 +28,9 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     private static readonly string[] DateFormats =
     {
         "yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "MM/dd/yyyy", "dd.MM.yyyy",
-        "d/M/yyyy", "M/d/yyyy", "dd-MM-yyyy", "yyyyMMdd", "dd MMM yyyy", "MMM d, yyyy",
-        "dd/MM/yy", "MM/dd/yy", "d/M/yy", "M/d/yy", "dd.MM.yy", "dd-MM-yy",
+        "d/M/yyyy", "M/d/yyyy", "dd-MM-yyyy", "yyyyMMdd", "dd MMM yyyy", "d MMM yyyy", "d MMMM yyyy",
+        "dd-MMM-yyyy", "MMM d, yyyy", "MMMM d, yyyy",
+        "dd/MM/yy", "MM/dd/yy", "d/M/yy", "M/d/yy", "dd.MM.yy", "dd-MM-yy", "d MMM yy", "dd-MMM-yy",
     };
 
     [GeneratedRegex(@"^[A-Za-z]{3}$", RegexOptions.CultureInvariant)]
@@ -246,8 +247,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             used.Add(ac);
         }
 
+        // "Amount in EUR" names its currency: a column of codes beside it is the currency spent.
+        var amountNamesCurrency = hasHeader && amountColumn is int named
+            && HeaderWords(columns[named]).Split(' ').Any(w => w.Length == 3 && StrictAmount().IsMatch($"1 {w.ToUpperInvariant()}"));
         int? currencyColumn = ByHeader(Roles.Currency);
-        if (currencyColumn is null)
+        if (currencyColumn is null && !amountNamesCurrency)
         {
             var best = cols.Where(c => !used.Contains(c)
                     && !(hasHeader && $" {HeaderWords(columns[c])} ".Contains(" original ", StringComparison.Ordinal)))
@@ -302,9 +306,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
         public static readonly HeaderRole ValueDate = new(["value date"], []);
 
-        // The amount in the account's own currency first, before an "Original Amount".
+        // The amount in the account's own currency first, before an "Original Amount" or a card
+        // statement's "Transaction Amount" in the currency spent.
         public static readonly HeaderRole Amount = new(
-            ["amount account currency", "amount in account currency", "account currency amount", "amount",
+            ["amount account currency", "amount in account currency", "account currency amount",
+             "amount in eur", "amount eur", "eur amount", "amount",
              "transaction amount", "amt", "sum", "value", "ammont"],
             [.. NotMoney.Where(x => x != "account")]);
 
@@ -327,7 +333,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount", "original"]);
 
         public static readonly HeaderRole Description = new(
-            ["description", "transaction description", "details", "transaction details", "payment details", "narrative",
+            ["description", "transaction description", "details", "transaction details", "transaction detail",
+             "payment details", "detail", "narrative",
              "narration", "payee", "merchant", "particulars", "beneficiary", "counterparty", "memo", "remarks",
              "deskrizzjoni", "dettalji", "name", "reference"],
             ["date", "balance", "amount", "account"]);

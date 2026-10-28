@@ -141,7 +141,7 @@ const TOPICS: TopicDef[] = [
     flag: 'camtImport',
     lines: [
       <>
-        <B>Import</B> reads your bank’s CSV export or a CAMT.053 statement.
+        <B>Import</B> reads your bank’s CSV export, a PDF statement or a CAMT.053 statement.
       </>,
       'You review every row before anything is saved.',
       'Importing the same file again never creates duplicates.',

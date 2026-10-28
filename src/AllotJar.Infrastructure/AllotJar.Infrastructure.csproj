@@ -18,6 +18,8 @@
          this pin only clears the NuGet audit warning. Remove it once Microsoft.Data.SqlClient depends on Pkcs 10.0.x or later. -->
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
+    <!-- PDF statements: text and word positions only, in memory (Apache-2.0, managed code, no native parts). -->
+    <PackageReference Include="PdfPig" Version="0.1.16" />
   </ItemGroup>
 
   <PropertyGroup>
