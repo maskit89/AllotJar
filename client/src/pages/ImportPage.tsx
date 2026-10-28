@@ -2007,7 +2007,13 @@ export function ImportPage() {
   function renderColumnsDialog() {
     if (!columnsOpen || !layout || !mapping) return null
     const dateLabel = dateFormatLabel(mapping.dateFormat)
-    const numeric = layout.columns.map((_, ci) => layout.sampleRows.length > 0 && layout.sampleRows.every((row) => /^\s*-?[\d.,\s]+\s*$/.test(row[ci] ?? '')))
+    const split = mapping.debitColumn != null && mapping.creditColumn != null
+    // A number column may leave cells empty (a debit column on a money-in row).
+    const numeric = layout.columns.map(
+      (_, ci) =>
+        layout.sampleRows.some((row) => (row[ci] ?? '').trim() !== '') &&
+        layout.sampleRows.every((row) => /^\s*(-?[\d.,\s]+)?\s*$/.test(row[ci] ?? '')),
+    )
     const columnOptions = layout.columns.map((name, i) => (
       <option key={i} value={i}>
         {name}
@@ -2116,13 +2122,54 @@ export function ImportPage() {
                 {columnOptions}
               </select>
             </SelectField>
-            <SelectField label="Amount column" hint="Signed: money out is negative." hintLabel="About the amount column">
-              <select aria-label="Amount column" value={mapping.amountColumn} onChange={(e) => setMapping((m) => (m ? { ...m, amountColumn: Number(e.target.value) } : m))}>
-                {columnOptions}
+            <SelectField label="Amounts">
+              <select
+                aria-label="Amounts"
+                value={split ? 'split' : 'one'}
+                onChange={(e) =>
+                  setMapping((m) => {
+                    if (!m) return m
+                    if (e.target.value === 'one') return { ...m, debitColumn: null, creditColumn: null }
+                    // Start from the amount column and the one after it; the user corrects either.
+                    const credit = m.amountColumn + 1 < layout.columns.length ? m.amountColumn + 1 : Math.max(0, m.amountColumn - 1)
+                    return { ...m, debitColumn: m.amountColumn, creditColumn: credit, directionColumn: null }
+                  })
+                }
+              >
+                <option value="one">One column</option>
+                <option value="split">Debit and credit</option>
               </select>
             </SelectField>
+            {split ? (
+              <>
+                <SelectField label="Debit column">
+                  <select
+                    aria-label="Debit column"
+                    value={mapping.debitColumn ?? 0}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, debitColumn: Number(e.target.value) } : m))}
+                  >
+                    {columnOptions}
+                  </select>
+                </SelectField>
+                <SelectField label="Credit column">
+                  <select
+                    aria-label="Credit column"
+                    value={mapping.creditColumn ?? 0}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, creditColumn: Number(e.target.value) } : m))}
+                  >
+                    {columnOptions}
+                  </select>
+                </SelectField>
+              </>
+            ) : (
+              <SelectField label="Amount column" hint="Signed: money out is negative." hintLabel="About the amount column">
+                <select aria-label="Amount column" value={mapping.amountColumn} onChange={(e) => setMapping((m) => (m ? { ...m, amountColumn: Number(e.target.value) } : m))}>
+                  {columnOptions}
+                </select>
+              </SelectField>
+            )}
           </div>
-          {/* The four that are almost never changed, behind one quiet row (closed). */}
+          {/* The ones that are almost never changed, behind one quiet row (closed). */}
           <details className="group/more mt-4 border-t border-line max-[699.98px]:mt-3.5">
             <summary className="flex h-11 cursor-pointer list-none items-center gap-2 rounded-lg text-sm font-semibold text-slate-500 transition hover:text-slate-900 [&::-webkit-details-marker]:hidden">
               More options
@@ -2156,6 +2203,31 @@ export function ImportPage() {
                   <option value=";">Semicolon ;</option>
                   <option value={'\t'}>Tab</option>
                   <option value="|">Pipe |</option>
+                </select>
+              </SelectField>
+              {!split && (
+                <SelectField label="Direction column">
+                  <select
+                    aria-label="Direction column"
+                    value={mapping.directionColumn ?? ''}
+                    onChange={(e) => setMapping((m) => (m ? { ...m, directionColumn: e.target.value === '' ? null : Number(e.target.value) } : m))}
+                  >
+                    <option value="">None (signed amounts)</option>
+                    {columnOptions}
+                  </select>
+                </SelectField>
+              )}
+              <SelectField label="Skip lines">
+                <select
+                  aria-label="Skip lines"
+                  value={mapping.skipRows ?? 0}
+                  onChange={(e) => setMapping((m) => (m ? { ...m, skipRows: Number(e.target.value) } : m))}
+                >
+                  {Array.from({ length: Math.max(21, (mapping.skipRows ?? 0) + 1) }, (_, n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
                 </select>
               </SelectField>
               <label className="dlg-check flex h-10 cursor-pointer items-center gap-2.5 self-end text-sm font-medium text-slate-900 max-[699.98px]:h-11">

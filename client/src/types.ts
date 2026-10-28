@@ -470,6 +470,13 @@ export interface CsvMapping {
   decimalStyle: CsvDecimalStyle
   /** Stamped on rows with no currency column (the user's home currency). */
   defaultCurrency: string | null
+  /** Money-out and money-in columns; when both are set they replace amountColumn. */
+  debitColumn?: number | null
+  creditColumn?: number | null
+  /** Lines the bank prints above the header (or the first row). */
+  skipRows?: number
+  /** With one amount column: a column of DR/CR (or Debit/Credit) markers that sets each row's direction. */
+  directionColumn?: number | null
 }
 
 /** The layout the server detected from an uploaded CSV, for the mapping UI. */
