@@ -47,7 +47,7 @@ describe('PrivacyPage', () => {
   // Compliance fix 6: the policy names what the app really does with data.
   it('names imports, that no bank details are kept, the providers, where the server is and real retention periods', () => {
     render(<PrivacyPage />)
-    expect(screen.getByText(/CAMT\.053 or CSV/)).toBeInTheDocument()
+    expect(screen.getByText(/CAMT\.053, CSV or PDF/)).toBeInTheDocument()
     expect(screen.getByText(/don’t ask for or keep bank details/)).toBeInTheDocument()
     // Nothing else in the policy may still say bank details are held (or encrypted).
     expect(screen.getAllByText(/bank details/i)).toHaveLength(1)
