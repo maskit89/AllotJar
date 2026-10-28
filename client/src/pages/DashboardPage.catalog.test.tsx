@@ -178,9 +178,10 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     const eyebrow = await screen.findByText('Remaining to budget', {}, { timeout: 5000 })
     const hero = eyebrow.closest('section')!
 
-    // Gold amount + its accessible name. The remaining amount is said once, by the hero number
+    // Gold amount + its accessible name, once the month's carry has loaded (it reads "loading"
+    // until then). The remaining amount is said once, by the hero number
     // (restyle PR 3: the "€X still to assign" pill only repeated it).
-    expect(hero.querySelector('[aria-label="Remaining to budget: €1,080.00"]')).toBeTruthy()
+    expect(await within(hero).findByLabelText('Remaining to budget: €1,080.00', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText(/still to assign/)).not.toBeInTheDocument()
     // Allotted = 1,920 (expense + savings planned, income excluded), under the hero's bar;
     // Income = 3,000 (income planned) in its own tile.
@@ -198,7 +199,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     expect(await screen.findByText('Every euro has a job', {}, { timeout: 5000 })).toBeInTheDocument()
     const eyebrow = screen.getByText('Remaining to budget')
     const hero = eyebrow.closest('section')!
-    expect(hero.querySelector('[aria-label="Remaining to budget: €0.00"]')).toBeTruthy()
+    expect(await within(hero).findByLabelText('Remaining to budget: €0.00', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(screen.queryByText(/still to assign/)).not.toBeInTheDocument()
     expect(screen.queryByText(/over-budgeted/)).not.toBeInTheDocument()
   })
@@ -216,7 +217,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     expect(screen.queryByText(/has a job/)).not.toBeInTheDocument()
 
     const hero = screen.getByText('Remaining to budget').closest('section')!
-    expect(hero.querySelector('[aria-label="Remaining to budget: -€500.00"]')).toBeTruthy()
+    expect(await within(hero).findByLabelText('Remaining to budget: -€500.00', {}, { timeout: 5000 })).toBeInTheDocument()
     expect(within(screen.getByRole('group', { name: 'Income' })).getByText('€0.00')).toBeInTheDocument()
     expect(within(hero).getByText('€500.00 allotted')).toBeInTheDocument()
   })
@@ -232,7 +233,7 @@ describe('DashboardPage — hero footnote states (PR #172) & render', () => {
     expect(footnote).toHaveAttribute('data-tone', 'bad')
     const hero = screen.getByText('Remaining to budget').closest('section')!
     // The overrun is the gold amount, negative; the chip does not repeat it.
-    expect(hero.querySelector('[aria-label="Remaining to budget: -€120.00"]')).toHaveTextContent('-€120.00')
+    expect(await within(hero).findByLabelText('Remaining to budget: -€120.00', {}, { timeout: 5000 })).toHaveTextContent('-€120.00')
     expect(within(hero).queryByText(/120\.00 over/)).not.toBeInTheDocument()
     expect(screen.queryByText(/still to assign/)).not.toBeInTheDocument()
   })
@@ -366,7 +367,7 @@ describe('DashboardPage — income card & spending lines', () => {
 
     const hero = screen.getByText('Remaining to budget').closest('section')!
     await waitFor(() => expect(within(hero).getByText('€2,070.00 allotted')).toBeInTheDocument(), { timeout: 5000 })
-    expect(hero.querySelector('[aria-label="Remaining to budget: €930.00"]')).toBeTruthy()
+    expect(await within(hero).findByLabelText('Remaining to budget: €930.00', {}, { timeout: 5000 })).toBeInTheDocument()
     await waitFor(() => expect(mockPut).toHaveBeenCalledWith('/budget/items/i-holiday', { plannedAmount: 300, version: null }), { timeout: 5000 })
   })
 })
