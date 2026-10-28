@@ -25,14 +25,14 @@
   - Extends **07-month-lifecycle.md** BUDG-039 (single-screen roll) to the app-wide multi-screen + label-localization angle.
 - **Automated:** No
 
-### TIME-002 - Copying January 2027 picks December 2026 as the source across the year boundary
+### TIME-002 - Starting January 2027 continues December 2026 across the year boundary
 - **Priority:** P0
 - **Type:** Boundary
 - **Preconditions:** time-owner; DEC26 is the most-recent existing month; viewing **January 2027** with no budget (writer not-found state).
 - **Steps:**
-  1. On the "No budget for January 2027 yet." card read the copy button label, then click it.
+  1. On the "No budget for January 2027 yet." card click **"Start January"**.
 - **Expected:**
-  - The button reads **"Copy December 2026"** — `prevBudget` is the most-recent month *strictly before* the target by absolute (year,month) ordering, so it reaches back across the year edge, not to a January.
+  - The source is December 2026 — `prevBudget` is the most-recent month *strictly before* the target by absolute (year,month) ordering, so it reaches back across the year edge, not to a January. Once January has begun, its Income starts with **"From December"** (BUDG-065).
   - `POST /api/budget {year:2027, month:1, copyFromPrevious:true}` → 200; the new month carries December's groups/lines, `DueDay` values, `ExcludeFromAllocation`, `SavingsId` identity, `BaseCurrency`; `IsPaid` resets to false; actuals are 0 (Jan 2027 has no transactions).
   - Builds on **07-month-lifecycle.md** BUDG-007 (source is strictly-before) — this case pins the cross-year selection specifically.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/CreateBudgetMonthTests.cs — copy uses the caller's most-recent prior month and resets actuals/paid)

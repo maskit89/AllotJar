@@ -273,6 +273,10 @@ public static class JarLedgerReader
 /// <summary>One jar's share of one expense (or refund) on its date, as <see cref="JarLedgerSource.SpendingBetween"/> reads it: a positive amount paid out of the jar, or a positive amount refunded back into it.</summary>
 public readonly record struct JarSpendingPosting(Guid JarId, DateOnly Date, decimal Amount, bool IsRefund);
 
+/// <summary>One signed jar posting as <see cref="JarLedgerSource.JarPostings"/> reads it, with what it came from.</summary>
+public readonly record struct JarPostingRead(
+    Guid JarId, DateOnly Date, Transaction? Transaction, JarAllocationKind? Kind, Transaction? ReturnOf, decimal Amount);
+
 public sealed class JarLedgerSource
 {
     private readonly string _ownerId;
@@ -648,6 +652,49 @@ public sealed class JarLedgerSource
             }
         }
         return (postings, waiting.Count);
+    }
+
+    /// <summary>
+    /// Every jar posting the ledger reads, in every account, future-dated ones included: one walk
+    /// over each account's operations, for a reader that sorts the postings itself (the month
+    /// carry-over, <see cref="Budgets.MonthLeftover"/>). <c>Transaction</c> is the row a
+    /// transaction-linked posting attributes (a returned transfer's for its return leg),
+    /// <c>Kind</c> a stored operation's kind and <c>ReturnOf</c> the transfer a Return operation
+    /// puts back.
+    /// </summary>
+    public IEnumerable<JarPostingRead> JarPostings()
+    {
+        var returnOf = _stored
+            .Where(a => a.ReturnOfTransferId is not null)
+            .ToDictionary(a => a.Id, a => a.ReturnOfTransferId!.Value);
+        foreach (var account in _accounts)
+        {
+            if (account.OpeningDate is not DateOnly openingDate)
+            {
+                continue;
+            }
+            var (operations, _, kinds) = OperationsOf(account, openingDate, DateOnly.MaxValue);
+            foreach (var op in operations)
+            {
+                if (op.Date < openingDate)
+                {
+                    continue;
+                }
+                var transaction = op.TransactionId is not Guid id ? null
+                    : _byId.TryGetValue(id, out var row) ? row
+                    : _returnLegs.TryGetValue(id, out var transferId) ? _byId[transferId]
+                    : null;
+                JarAllocationKind? kind = kinds.TryGetValue(op.Id, out var stored) ? stored : null;
+                var returned = returnOf.TryGetValue(op.Id, out var returnedId) && _byId.TryGetValue(returnedId, out var transfer) ? transfer : null;
+                foreach (var posting in op.Postings)
+                {
+                    if (posting.JarId is Guid jarId && posting.Amount != 0m)
+                    {
+                        yield return new JarPostingRead(jarId, op.Date, transaction, kind, returned, posting.Amount);
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>The jar postings dated between <paramref name="from"/> and <paramref name="to"/> of the operations whose kind <paramref name="include"/> accepts, summed per jar where <paramref name="counts"/> says so; positive totals only.</summary>

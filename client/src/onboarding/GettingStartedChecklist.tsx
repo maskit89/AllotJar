@@ -2,14 +2,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { ChevronUp } from 'lucide-react'
 import { api } from '../lib/api'
-import type { AccountDto, BudgetMonthDto, BudgetMonthSummaryDto, JarDto, TransactionDto } from '../types'
+import type { AccountDto, BudgetMonthDto, BudgetMonthSummaryDto, JarDto, MonthWrapUpDto, TransactionDto } from '../types'
 import { fromDto, remainingToBudget, totalIncome } from '../budgetModel'
 import { CheckIcon, ChevronDownIcon, CloseIcon } from '../components/icons'
 import { InfoHint } from '../components/InfoHint'
 import { StatusChip } from '../components/StatusChip'
 import { ROW_HINT } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
-import { currencyNoun } from '../lib/money'
+import { currencyNoun, fromAmount } from '../lib/money'
 import { currentMonth } from '../lib/dates'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { useFeatures } from '../features/FeatureContext'
@@ -95,7 +95,18 @@ export function GettingStartedChecklist() {
       .then(({ data }) => {
         const vm = fromDto(data)
         const income = totalIncome(vm)
-        set({ hasIncome: income > 0, balanced: income > 0 && remainingToBudget(vm) === 0 })
+        set({ hasIncome: income > 0 })
+        if (income <= 0) return set({ balanced: false })
+        // "Every euro has a job" counts the month's carry as the Dashboard does (rule 94): money
+        // already in the accounts or left by last month needs a job too. Read only once there is
+        // income, as nothing is balanced without it; unknown, it is not ticked.
+        return api
+          .get<MonthWrapUpDto>(`/budget/${year}/${month}/wrap-up`)
+          .then(({ data: wrapUp }) => {
+            const carry = typeof wrapUp?.toAllot === 'number' ? fromAmount(wrapUp.toAllot) : null
+            set({ balanced: carry !== null && remainingToBudget(vm) + carry === 0 })
+          })
+          .catch(() => set({ balanced: false }))
       })
       .catch(() => set({ hasIncome: false, balanced: false }))
 

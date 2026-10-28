@@ -121,6 +121,18 @@ function budgetMonth(year: number, month: number) {
   }
 }
 
+/**
+ * How a month went in actual money (GET /budget/{y}/{m}/wrap-up): 120 left over for the next one,
+ * and nothing besides its income for its own budget to give a job (toAllot), so no mocked
+ * Remaining to budget moves.
+ */
+export function monthWrapUp(year: number, month: number, toAllot = 0) {
+  return {
+    year, month, carriedIn: 0, newAccounts: 0, received: 3000, spent: 2380, intoJars: 500, setAside: 0,
+    privateTransfers: 0, leftOver: 120, toAllot, fxPendingCount: 0,
+  }
+}
+
 function allocationProfile() {
   return {
     id: 'p1', name: 'Household allocation', sourceAccountId: 'acc0', balanceLeanPercent: 25,
@@ -381,6 +393,10 @@ export async function mockApi(route: Route) {
   if (/^\/budget\/\d+\/\d+$/.test(path)) {
     const [, , y, m] = path.split('/')
     return json(budgetMonth(Number(y), Number(m)))
+  }
+  if (/^\/budget\/\d+\/\d+\/wrap-up$/.test(path)) {
+    const [, , y, m] = path.split('/')
+    return json(monthWrapUp(Number(y), Number(m)))
   }
   if (path === '/accounts') return json(accountsList())
   if (path === '/accounts/reconciliation') return json(accountReconciliation())

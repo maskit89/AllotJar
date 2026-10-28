@@ -93,6 +93,8 @@ function setupGet() {
     if (url === '/auth/me') {
       return meData ? Promise.resolve({ data: meData }) : Promise.reject({ response: { status: 401 } })
     }
+    // The current month's carry (rule 94): nothing besides its income to give a job.
+    if (url.endsWith('/wrap-up')) return Promise.resolve({ data: { leftOver: 0, toAllot: 0 } })
     if (url.startsWith('/budget/')) {
       // /budget/{year}/{month} — the checklist's current-month probe.
       return currentMonth ? Promise.resolve({ data: currentMonth }) : Promise.reject({ response: { status: 404 } })

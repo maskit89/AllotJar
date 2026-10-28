@@ -99,6 +99,8 @@ function mockLoads(opts: {
     if (url === '/budget/months') return Promise.resolve({ data: months })
     if (url === '/budget/templates') return Promise.resolve({ data: templates })
     if (url === '/jars') return Promise.resolve({ data: jars })
+    // The month's carry (rule 94): nothing besides its income to give a job.
+    if (url.endsWith('/wrap-up')) return Promise.resolve({ data: { leftOver: 0, toAllot: 0 } })
     if (/^\/budget\/\d+\/\d+$/.test(url)) {
       return month ? Promise.resolve({ data: month }) : Promise.reject({ response: { status: 404 } })
     }
