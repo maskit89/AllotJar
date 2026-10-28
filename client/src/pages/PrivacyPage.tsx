@@ -41,7 +41,7 @@ const TRANSFER_SAFEGUARD = 'the EU-US Data Privacy Framework, under which each o
 
 export function PrivacyPage() {
   return (
-    <LegalLayout title="Privacy Policy" lastUpdated="27 October 2026">
+    <LegalLayout title="Privacy Policy" lastUpdated="28 October 2026">
       <p>
         This policy explains what personal data AllotJar holds, why, who else handles it, how long
         we keep it and what rights you have. AllotJar is a budgeting app at{' '}
@@ -70,7 +70,7 @@ export function PrivacyPage() {
           its date, amount, payee, notes and, when imported, the bank’s reference for it.
         </li>
         <li>
-          <strong>Bank statements you import</strong>: we read a CAMT.053 or CSV file to create
+          <strong>Bank statements you import</strong>: we read a CAMT.053, CSV or PDF file to create
           transactions in the account you choose. The file itself is only read while it uploads and
           is never kept; only the transactions you import are kept.
         </li>

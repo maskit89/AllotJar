@@ -49,6 +49,8 @@ public static class DependencyInjection
 
         // Generic bank-CSV import (user-confirmed column mapping) — see ICsvImporter.
         services.AddScoped<ICsvImporter, GenericCsvImporter>();
+        // PDF statements are read into the same CSV rows, in memory.
+        services.AddSingleton<IPdfTableReader, PdfTableReader>();
 
         // Reference rates for SUGGESTED conversions only (rule 44), via the free, key-less
         // Frankfurter (ECB) API. Nothing applies a rate without the user confirming the amount.

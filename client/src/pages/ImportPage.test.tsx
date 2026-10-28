@@ -600,6 +600,35 @@ describe('ImportPage', () => {
     expect(screen.queryByText(/recognised this file as/)).not.toBeInTheDocument()
   })
 
+  it('takes a PDF statement through the Bank CSV path and names it PDF', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...csvPreview(), detectedFormat: 'GenericCsv' })
+    const user = userEvent.setup()
+    renderPage()
+
+    const input = await screen.findByLabelText(/^Statement file/)
+    expect(input).toHaveAttribute('accept', expect.stringContaining('.pdf'))
+    await user.upload(input, new File(['%PDF-1.7'], 'statement.pdf', { type: 'application/pdf' }))
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    expect(mockPreview.mock.calls[0][1]).toBe('GenericCsv')
+    expect(screen.getByText('PDF')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Columns' })).toBeInTheDocument()
+  })
+
+  it('says how many lines with an amount were not read', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...csvPreview(), detectedFormat: 'GenericCsv', unreadLines: 2 })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    expect(screen.getByText('2 not read')).toBeInTheDocument()
+    expect(await openHint(user, 'About lines not read')).toHaveTextContent(/2 lines with an amount were left out/)
+  })
+
   it('shows real money sums (not counts) on the success screen', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     renderPage()

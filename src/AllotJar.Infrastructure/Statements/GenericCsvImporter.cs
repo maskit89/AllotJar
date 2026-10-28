@@ -28,8 +28,9 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     private static readonly string[] DateFormats =
     {
         "yyyy-MM-dd", "yyyy/MM/dd", "dd/MM/yyyy", "MM/dd/yyyy", "dd.MM.yyyy",
-        "d/M/yyyy", "M/d/yyyy", "dd-MM-yyyy", "yyyyMMdd", "dd MMM yyyy", "MMM d, yyyy",
-        "dd/MM/yy", "MM/dd/yy", "d/M/yy", "M/d/yy", "dd.MM.yy", "dd-MM-yy",
+        "d/M/yyyy", "M/d/yyyy", "dd-MM-yyyy", "yyyyMMdd", "dd MMM yyyy", "d MMM yyyy", "d MMMM yyyy",
+        "dd-MMM-yyyy", "MMM d, yyyy", "MMMM d, yyyy",
+        "dd/MM/yy", "MM/dd/yy", "d/M/yy", "M/d/yy", "dd.MM.yy", "dd-MM-yy", "d MMM yy", "dd-MMM-yy",
     };
 
     [GeneratedRegex(@"^[A-Za-z]{3}$", RegexOptions.CultureInvariant)]
@@ -100,24 +101,64 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         // inconsistent dates AND unstable idempotency references.
         var dateFormat = mapping.DateFormat ?? ResolveDateFormat(dataRows, mapping.DateColumn);
 
+        // "Amount in EUR" names the currency of every row when no column gives one.
+        var header = mapping.HasHeader && rows.Count > 0 ? rows[0] : null;
+        if (mapping.CurrencyColumn is null && header is not null
+            && HeaderCurrency(header, mapping.SplitAmounts ? mapping.DebitColumn!.Value : mapping.AmountColumn) is string named)
+        {
+            mapping = mapping with { DefaultCurrency = named };
+        }
+
+        // A card statement that marks only its payments CR prints its purchases bare: those are
+        // money out.
+        var unmarkedOut = !mapping.SplitAmounts && mapping.DirectionColumn is null && OnlyCreditsMarked(dataRows, mapping.AmountColumn);
+
         var entries = new List<ParsedStatementEntry>();
         var references = new SignatureReferences("csv:");
+        var unread = 0;
 
         foreach (var row in dataRows)
         {
             if (!TryCell(row, mapping.DateColumn, out var dateCell) ||
                 !TryParseDate(dateCell, dateFormat, out var date))
             {
-                continue; // header remnant, blank, or a totals footer — not a transaction
-            }
-
-            if (!TryReadAmount(row, mapping, out var signed))
-            {
+                // A header remnant, blank, or a totals footer: not a transaction. A line with an
+                // amount is counted, so the review can say some lines were not read.
+                if (HasAmount(row, mapping))
+                {
+                    unread++;
+                }
                 continue;
             }
 
             TryCell(row, mapping.DescriptionColumn, out var descCell);
             var description = Normalize(descCell);
+            if (IsSummaryLine(description))
+            {
+                // "Closing balance", "Total": the statement's summary, not a transaction. Counted,
+                // so a real payment worded like one is not lost unseen.
+                if (HasAmount(row, mapping))
+                {
+                    unread++;
+                }
+                continue;
+            }
+
+            if (!AmountCellsReadable(row, mapping) || BothSidesFilled(row, mapping))
+            {
+                // Text where the amount should be (never read digits out of it), or money out and
+                // in on one line (a total, not one transaction).
+                unread++;
+                continue;
+            }
+            if (!TryReadAmount(row, mapping, out var signed))
+            {
+                continue;
+            }
+            if (unmarkedOut && signed > 0m && TryCell(row, mapping.AmountColumn, out var bare) && !DirectionMarker().IsMatch(bare.Trim()))
+            {
+                signed = -signed;
+            }
 
             // Display payee: surface just the merchant when the cell is an HSBC-style packed
             // Details blob. The idempotency signature stays on the RAW cell text, so references
@@ -152,7 +193,106 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
         // Echo the format that was actually applied, so the UI can show it and pin it for
         // re-scans/re-imports — auto-detection is file-relative and must not stay invisible.
-        return new ParsedStatement(Entries: entries, ResolvedDateFormat: dateFormat);
+        return new ParsedStatement(Entries: entries, ResolvedDateFormat: dateFormat) { UnreadLines = unread };
+    }
+
+    /// <summary>The currency a money column's header names ("Amount in EUR"), if it names one.</summary>
+    private static string? HeaderCurrency(List<string> header, int column) =>
+        column < header.Count
+            ? HeaderWords(header[column]).Split(' ')
+                .Select(w => w.ToUpperInvariant())
+                .FirstOrDefault(w => w.Length == 3 && w.All(char.IsAsciiLetterUpper) && StrictAmount().IsMatch($"1 {w}"))
+            : null;
+
+    /// <summary>Some amount cells say CR and none say DR or carry a minus.</summary>
+    private static bool OnlyCreditsMarked(List<List<string>> rows, int column)
+    {
+        var credits = 0;
+        foreach (var row in rows)
+        {
+            if (!TryCell(row, column, out var cell) || !IsNumberCell(cell))
+            {
+                continue;
+            }
+            var t = cell.Trim().Replace('\u2212', '-');
+            var marker = DirectionMarker().Match(t);
+            if (marker.Success && DirectionSign(marker.Groups["m"].Value) < 0 || t.Contains('-') || t.StartsWith('('))
+            {
+                return false;
+            }
+            if (marker.Success)
+            {
+                credits++;
+            }
+        }
+        return credits > 0;
+    }
+
+    /// <summary>The mapped amount cells hold an amount or nothing: no text with digits in it.</summary>
+    private static bool AmountCellsReadable(List<string> row, CsvMapping mapping)
+    {
+        IEnumerable<int> columns = mapping.SplitAmounts
+            ? [mapping.DebitColumn!.Value, mapping.CreditColumn!.Value]
+            : [mapping.AmountColumn];
+        return columns.All(c => !TryCell(row, c, out var cell) || IsBlank(cell) || StrictAmount().IsMatch(Bare(cell)));
+
+        // "-120.00 SGD" (a code the pattern does not list) and "12.50*" (a pending mark) are amounts.
+        static string Bare(string cell)
+        {
+            var t = cell.Trim().TrimEnd('*').Trim();
+            var code = TrailingCode().Match(t);
+            return code.Success ? t[..code.Index].Trim() : t;
+        }
+    }
+
+    [GeneratedRegex(@"(?<=[\d)])\s?[A-Za-z]{3}$", RegexOptions.CultureInvariant)]
+    private static partial Regex TrailingCode();
+
+    private static bool BothSidesFilled(List<string> row, CsvMapping mapping) =>
+        mapping.SplitAmounts
+        && new[] { mapping.DebitColumn!.Value, mapping.CreditColumn!.Value }.All(c =>
+            TryCell(row, c, out var cell) && TryParseSignedAmount(cell, mapping.DecimalStyle, out var a) && a != 0m);
+
+    private static bool HasAmount(List<string> row, CsvMapping mapping)
+    {
+        IEnumerable<int> columns = mapping.SplitAmounts
+            ? [mapping.DebitColumn!.Value, mapping.CreditColumn!.Value]
+            : [mapping.AmountColumn];
+        return columns.Any(c => TryCell(row, c, out var cell) && IsNumberCell(cell)
+            && TryParseSignedAmount(cell, mapping.DecimalStyle, out var a) && a != 0m);
+    }
+
+    // Labels that only a statement's summary starts with.
+    private static readonly string[] SummaryPhrases =
+    [
+        "opening balance", "closing balance", "previous balance", "new balance", "statement balance",
+        "balance brought forward", "balance carried forward", "brought forward", "carried forward",
+        "balance b f", "balance c f", "minimum payment due", "sub total", "subtotal", "grand total",
+    ];
+
+    // Labels a merchant's name can start with too ("TOTAL SERVICE STATION", "Total Fitness"):
+    // a summary only when every word after them is one a summary uses, or a number.
+    private static readonly string[] BareSummaryPhrases = ["total", "totals", "payment due"];
+
+    private static readonly HashSet<string> SummaryWords =
+    [
+        "for", "the", "this", "of", "to", "by", "on", "in", "period", "month", "statement", "card", "ending",
+        "account", "amount", "amounts", "due", "date", "debits", "credits", "payments", "purchases", "charges",
+        "fees", "interest", "spent", "received", "paid", "out", "eur", "usd", "gbp",
+    ];
+
+    /// <summary>A line of the statement's summary rather than a transaction.</summary>
+    internal static bool IsSummaryLine(string description)
+    {
+        var words = $" {HeaderWords(description)} ";
+        if (SummaryPhrases.Any(p => words.StartsWith($" {p} ", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+        var bare = BareSummaryPhrases.FirstOrDefault(p => words.StartsWith($" {p} ", StringComparison.Ordinal));
+        return bare is not null
+            && words[(bare.Length + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .All(w => SummaryWords.Contains(w) || w.All(char.IsDigit));
     }
 
     // --- Detection helpers ---------------------------------------------------
@@ -180,7 +320,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         // A column named for money out or money in is never read as a signed amount: its numbers
         // carry no sign, so every row would become money in.
         var sideNamed = !hasHeader ? new HashSet<int>() : cols
-            .Where(c => BestHeader(columns, Roles.Debit, []) == c || BestHeader(columns, Roles.Credit, []) == c)
+            .Where(c => BestHeader(columns, Roles.Debit, []) == c || BestHeader(columns, Roles.Credit, []) == c
+                || NamesBothSides(columns[c]))
             .ToHashSet();
 
         // Separate money-out and money-in columns named by their headers. Every filled cell must be
@@ -246,8 +387,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             used.Add(ac);
         }
 
+        // "Amount in EUR" names its currency: a column of codes beside it is the currency spent.
+        var amountNamesCurrency = hasHeader && amountColumn is int named
+            && HeaderWords(columns[named]).Split(' ').Any(w => w.Length == 3 && StrictAmount().IsMatch($"1 {w.ToUpperInvariant()}"));
         int? currencyColumn = ByHeader(Roles.Currency);
-        if (currencyColumn is null)
+        if (currencyColumn is null && !amountNamesCurrency)
         {
             var best = cols.Where(c => !used.Contains(c)
                     && !(hasHeader && $" {HeaderWords(columns[c])} ".Contains(" original ", StringComparison.Ordinal)))
@@ -302,9 +446,11 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
         public static readonly HeaderRole ValueDate = new(["value date"], []);
 
-        // The amount in the account's own currency first, before an "Original Amount".
+        // The amount in the account's own currency first, before an "Original Amount" or a card
+        // statement's "Transaction Amount" in the currency spent.
         public static readonly HeaderRole Amount = new(
-            ["amount account currency", "amount in account currency", "account currency amount", "amount",
+            ["amount account currency", "amount in account currency", "account currency amount",
+             "amount in eur", "amount eur", "eur amount", "amount",
              "transaction amount", "amt", "sum", "value", "ammont"],
             [.. NotMoney.Where(x => x != "account")]);
 
@@ -327,7 +473,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         public static readonly HeaderRole Currency = new(["currency", "ccy", "curr", "currency code"], ["amount", "original"]);
 
         public static readonly HeaderRole Description = new(
-            ["description", "transaction description", "details", "transaction details", "payment details", "narrative",
+            ["description", "transaction description", "details", "transaction details", "transaction detail",
+             "payment details", "detail", "narrative",
              "narration", "payee", "merchant", "particulars", "beneficiary", "counterparty", "memo", "remarks",
              "deskrizzjoni", "dettalji", "name", "reference"],
             ["date", "balance", "amount", "account"]);
@@ -376,6 +523,18 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         return best;
     }
 
+    /// <summary>
+    /// "Debit Credit" over one column of unsigned figures (a PDF whose Credit column had nothing
+    /// in it that month): never a signed amount.
+    /// </summary>
+    private static bool NamesBothSides(string header)
+    {
+        var words = $" {HeaderWords(header)} ";
+        return words.Contains(" debit ", StringComparison.Ordinal) && words.Contains(" credit ", StringComparison.Ordinal)
+            || words.Contains(" debitu ", StringComparison.Ordinal) && words.Contains(" kreditu ", StringComparison.Ordinal)
+            || words.Contains(" paid out ", StringComparison.Ordinal) && words.Contains(" paid in ", StringComparison.Ordinal);
+    }
+
     /// <summary>A header as lowercase words: "Debit (EUR)" reads "debit eur".</summary>
     private static string HeaderWords(string header) =>
         WhitespaceRun().Replace(NonWord().Replace(header.ToLowerInvariant(), " "), " ").Trim();
@@ -403,7 +562,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     /// <see cref="TryParseSignedAmount"/>, which reads a mapped column and drops any other text,
     /// so "POS 4921 LIDL" is never taken for 4921. A date is not an amount.
     /// </summary>
-    private static bool IsNumberCell(string cell) =>
+    internal static bool IsNumberCell(string cell) =>
         StrictAmount().IsMatch(cell.Trim()) && !TryParseDate(cell, null, out _);
 
     /// <summary>An empty cell, or a dash or "n/a" a bank prints for nothing.</summary>
@@ -735,7 +894,7 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         return false;
     }
 
-    private static bool TryParseDate(string value, string? format, out DateOnly date)
+    internal static bool TryParseDate(string value, string? format, out DateOnly date)
     {
         var text = value.Trim();
         if (text.Length == 0)

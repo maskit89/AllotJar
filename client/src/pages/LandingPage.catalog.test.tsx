@@ -413,7 +413,7 @@ describe('Legal pages — Privacy & Terms completeness and chrome', () => {
   // LegalPages.test.tsx).
   it('LAND-011: Privacy shows the last-updated date, the Malta IDPC link and the 16+ clause', () => {
     render(<PrivacyPage />)
-    expect(screen.getByText('Last updated: 27 October 2026')).toBeInTheDocument()
+    expect(screen.getByText('Last updated: 28 October 2026')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'idpc.org.mt' })).toHaveAttribute('href', 'https://idpc.org.mt')
     expect(screen.getByText(/only for\s+people aged 16 and over/i)).toBeInTheDocument()
   })

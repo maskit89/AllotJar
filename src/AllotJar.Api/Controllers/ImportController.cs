@@ -3,6 +3,8 @@ using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
+using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
@@ -21,13 +23,15 @@ namespace AllotJar.Api.Controllers;
 public class ImportController : ControllerBase
 {
     private readonly ISender _mediator;
+    private readonly IPdfTableReader _pdf;
 
     // The generic-CSV column mapping arrives as a JSON form field; accept camelCase from the SPA.
     private static readonly JsonSerializerOptions MappingJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public ImportController(ISender mediator)
+    public ImportController(ISender mediator, IPdfTableReader pdf)
     {
         _mediator = mediator;
+        _pdf = pdf;
     }
 
     /// <summary>
@@ -35,6 +39,7 @@ public class ImportController : ControllerBase
     /// saved. The user categorises/attributes them, then posts the kept rows to <c>commit</c>.
     /// </summary>
     [HttpPost("preview")]
+    [EnableRateLimiting("import")]
     [RequestSizeLimit(10 * 1024 * 1024)] // 10 MB cap
     [ProducesResponseType(typeof(ImportPreviewResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -52,9 +57,31 @@ public class ImportController : ControllerBase
             return BadRequest(new { error = "No file was uploaded." });
         }
 
-        // Read as UTF-8 so the masked-card bullets (• = U+2022) survive intact.
-        using var reader = new StreamReader(file.OpenReadStream(), Encoding.UTF8);
-        var content = await reader.ReadToEndAsync(ct);
+        // The file is read into memory only; nothing of it is stored.
+        byte[] bytes;
+        using (var buffer = new MemoryStream((int)file.Length))
+        {
+            await file.CopyToAsync(buffer, ct);
+            bytes = buffer.ToArray();
+        }
+
+        string content;
+        if (_pdf.IsPdf(bytes))
+        {
+            // A PDF statement's table is rebuilt as CSV and goes through the column screen.
+            if (format != StatementFormat.GenericCsv)
+            {
+                return BadRequest(new { error = "A PDF statement is imported as Bank CSV or PDF." });
+            }
+            content = _pdf.ReadAsCsv(bytes, ct);
+        }
+        else
+        {
+            // UTF-8 unless a byte-order mark says otherwise (Excel's "Unicode Text" is UTF-16),
+            // so the masked-card bullets (• = U+2022) survive intact.
+            using var reader = new StreamReader(new MemoryStream(bytes), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            content = await reader.ReadToEndAsync(ct);
+        }
 
         // Generic CSV carries a user-confirmed column mapping (absent on the first upload → auto-detect).
         CsvMapping? csvMapping = null;

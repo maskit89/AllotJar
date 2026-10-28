@@ -84,6 +84,7 @@ public record ImportCandidate(
 /// <see cref="DetectedFormat"/> names the parser that actually read the file — a "generic"
 /// upload that sniffs as a known bank export (e.g. HSBC) is routed to that adapter so the
 /// same file always yields the same payees and idempotency references.
+/// <see cref="UnreadLines"/> is the number of lines with an amount that were not read.
 /// </summary>
 public record ImportPreviewResult(
     int TotalEntries,
@@ -93,4 +94,5 @@ public record ImportPreviewResult(
     int Debits,
     IReadOnlyList<ImportCandidate> Items,
     CsvLayout? Layout = null,
-    string DetectedFormat = nameof(StatementFormat.GenericCsv));
+    string DetectedFormat = nameof(StatementFormat.GenericCsv),
+    int UnreadLines = 0);
