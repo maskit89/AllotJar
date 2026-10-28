@@ -262,19 +262,37 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             && TryParseSignedAmount(cell, mapping.DecimalStyle, out var a) && a != 0m);
     }
 
+    // Labels that only a statement's summary starts with.
     private static readonly string[] SummaryPhrases =
     [
         "opening balance", "closing balance", "previous balance", "new balance", "statement balance",
         "balance brought forward", "balance carried forward", "brought forward", "carried forward",
-        "balance b f", "balance c f", "minimum payment due", "payment due", "total", "totals", "sub total",
-        "subtotal", "grand total",
+        "balance b f", "balance c f", "minimum payment due", "sub total", "subtotal", "grand total",
+    ];
+
+    // Labels a merchant's name can start with too ("TOTAL SERVICE STATION", "Total Fitness"):
+    // a summary only when every word after them is one a summary uses, or a number.
+    private static readonly string[] BareSummaryPhrases = ["total", "totals", "payment due"];
+
+    private static readonly HashSet<string> SummaryWords =
+    [
+        "for", "the", "this", "of", "to", "by", "on", "in", "period", "month", "statement", "card", "ending",
+        "account", "amount", "amounts", "due", "date", "debits", "credits", "payments", "purchases", "charges",
+        "fees", "interest", "spent", "received", "paid", "out", "eur", "usd", "gbp",
     ];
 
     /// <summary>A line of the statement's summary rather than a transaction.</summary>
     internal static bool IsSummaryLine(string description)
     {
         var words = $" {HeaderWords(description)} ";
-        return SummaryPhrases.Any(p => words.StartsWith($" {p} ", StringComparison.Ordinal));
+        if (SummaryPhrases.Any(p => words.StartsWith($" {p} ", StringComparison.Ordinal)))
+        {
+            return true;
+        }
+        var bare = BareSummaryPhrases.FirstOrDefault(p => words.StartsWith($" {p} ", StringComparison.Ordinal));
+        return bare is not null
+            && words[(bare.Length + 1)..].Split(' ', StringSplitOptions.RemoveEmptyEntries)
+                .All(w => SummaryWords.Contains(w) || w.All(char.IsDigit));
     }
 
     // --- Detection helpers ---------------------------------------------------

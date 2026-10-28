@@ -277,6 +277,33 @@ public class PdfTableReaderTests
     }
 
     [Fact]
+    public void A_same_day_payment_equal_to_the_rows_above_is_shown_as_not_read()
+    {
+        // Review #405 round 3 (R7): taken for a subtotal, but counted, never lost unseen.
+        var csv = _reader.ReadAsCsv(Pdf([
+            new Text(700, (40, "Date"), (110, "Description"), (420, "Amount")),
+            new(685, (40, "01/09/2026"), (110, "Coffee"), (420, "-2.50")),
+            new(670, (110, "Coffee"), (420, "-2.50")),
+            new(655, (110, "Lunch"), (420, "-5.00")),
+        ]), default);
+        var m = _importer.Detect(csv).Suggested;
+        var parsed = _importer.Parse(csv, m with { DefaultCurrency = "EUR" });
+
+        parsed.Entries.Should().HaveCount(2);
+        parsed.UnreadLines.Should().Be(1);
+    }
+
+    [Fact]
+    public void An_undated_amount_line_further_under_the_table_is_shown_as_not_read()
+    {
+        // Review #405 round 3 (R9).
+        var csv = _reader.ReadAsCsv(Pdf(Table(new Text(620, (110, "Card fee"), (330, "2.00")))), default);
+        var m = _importer.Detect(csv).Suggested;
+
+        _importer.Parse(csv, m with { DefaultCurrency = "EUR" }).UnreadLines.Should().Be(1);
+    }
+
+    [Fact]
     public void A_payment_described_as_a_minimum_payment_is_imported()
     {
         // Review #405 round 2 (R4).

@@ -680,9 +680,9 @@ public sealed partial class PdfTableReader : IPdfTableReader
         public void WritePage(StringBuilder csv, List<Line> page)
         {
             var (headerStart, first) = HeaderLines(page);
-            if (first < 0)
+            if (!page.Any(InTable))
             {
-                return;
+                return; // a page without rows: a cover, terms, a summary
             }
 
             string[]? pending = null;
@@ -690,6 +690,7 @@ public sealed partial class PdfTableReader : IPdfTableReader
             string[]? lastRow = null;
             Line? previous = null;
             var sums = new Sums();
+            var last = page.FindLastIndex(InTable);
 
             if (headerStart < first)
             {
@@ -759,6 +760,13 @@ public sealed partial class PdfTableReader : IPdfTableReader
                     {
                         lastRow = null; // a subtotal or summary line ends the day's rows
                         sums = new Sums();
+                        // Written without a date, a line with an amount in or just under the table
+                        // is counted as not read: a subtotal costs a visible count, and a payment
+                        // taken for one is not lost unseen.
+                        if (i < last || line.Top >= page[last].Bottom - 4 * (_rowGap + line.Height))
+                        {
+                            WriteRow(csv, row);
+                        }
                     }
                 }
                 previous = line;

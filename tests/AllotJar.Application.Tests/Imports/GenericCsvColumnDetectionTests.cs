@@ -538,4 +538,14 @@ public class GenericCsvColumnDetectionTests
 
         Assert.Equal([120.00m, 3.50m, 12.50m], entries.Select(e => e.Amount));
     }
+
+    // --- Review round 3 of #405 -----------------------------------------------------------------
+
+    [Fact]
+    public void Merchants_named_like_a_total_are_imported()
+    {
+        var (_, entries) = Read("Date,Description,Amount\n01/09/2026,TOTAL SERVICE STATION PARIS,-60.00\n02/09/2026,Total Fitness monthly,-35.00\n03/09/2026,Payment due reminder fee,-5.00\n04/09/2026,Total for card ending 4921,-100.00\n05/09/2026,Payment due date,-25.00\n");
+
+        Assert.Equal(["TOTAL SERVICE STATION PARIS", "Total Fitness monthly", "Payment due reminder fee"], entries.Select(e => e.Payee));
+    }
 }
