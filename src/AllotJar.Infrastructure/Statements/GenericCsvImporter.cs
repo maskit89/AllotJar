@@ -135,12 +135,20 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             var description = Normalize(descCell);
             if (IsSummaryLine(description))
             {
-                continue; // "Closing balance", "Minimum payment due": the statement's summary, not a transaction
+                // "Closing balance", "Total": the statement's summary, not a transaction. Counted,
+                // so a real payment worded like one is not lost unseen.
+                if (HasAmount(row, mapping))
+                {
+                    unread++;
+                }
+                continue;
             }
 
-            if (!AmountCellsReadable(row, mapping))
+            if (!AmountCellsReadable(row, mapping) || BothSidesFilled(row, mapping))
             {
-                unread++; // text where the amount should be: never read digits out of it
+                // Text where the amount should be (never read digits out of it), or money out and
+                // in on one line (a total, not one transaction).
+                unread++;
                 continue;
             }
             if (!TryReadAmount(row, mapping, out var signed))
@@ -226,8 +234,24 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         IEnumerable<int> columns = mapping.SplitAmounts
             ? [mapping.DebitColumn!.Value, mapping.CreditColumn!.Value]
             : [mapping.AmountColumn];
-        return columns.All(c => !TryCell(row, c, out var cell) || IsBlank(cell) || StrictAmount().IsMatch(cell.Trim()));
+        return columns.All(c => !TryCell(row, c, out var cell) || IsBlank(cell) || StrictAmount().IsMatch(Bare(cell)));
+
+        // "-120.00 SGD" (a code the pattern does not list) and "12.50*" (a pending mark) are amounts.
+        static string Bare(string cell)
+        {
+            var t = cell.Trim().TrimEnd('*').Trim();
+            var code = TrailingCode().Match(t);
+            return code.Success ? t[..code.Index].Trim() : t;
+        }
     }
+
+    [GeneratedRegex(@"(?<=[\d)])\s?[A-Za-z]{3}$", RegexOptions.CultureInvariant)]
+    private static partial Regex TrailingCode();
+
+    private static bool BothSidesFilled(List<string> row, CsvMapping mapping) =>
+        mapping.SplitAmounts
+        && new[] { mapping.DebitColumn!.Value, mapping.CreditColumn!.Value }.All(c =>
+            TryCell(row, c, out var cell) && TryParseSignedAmount(cell, mapping.DecimalStyle, out var a) && a != 0m);
 
     private static bool HasAmount(List<string> row, CsvMapping mapping)
     {
@@ -242,12 +266,12 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     [
         "opening balance", "closing balance", "previous balance", "new balance", "statement balance",
         "balance brought forward", "balance carried forward", "brought forward", "carried forward",
-        "balance b f", "balance c f", "minimum payment", "payment due", "total debits", "total credits",
-        "total payments", "total purchases",
+        "balance b f", "balance c f", "minimum payment due", "payment due", "total", "totals", "sub total",
+        "subtotal", "grand total",
     ];
 
     /// <summary>A line of the statement's summary rather than a transaction.</summary>
-    private static bool IsSummaryLine(string description)
+    internal static bool IsSummaryLine(string description)
     {
         var words = $" {HeaderWords(description)} ";
         return SummaryPhrases.Any(p => words.StartsWith($" {p} ", StringComparison.Ordinal));

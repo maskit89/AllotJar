@@ -689,6 +689,7 @@ public sealed partial class PdfTableReader : IPdfTableReader
             var pendingHasAmount = false;
             string[]? lastRow = null;
             Line? previous = null;
+            var sums = new Sums();
 
             if (headerStart < first)
             {
@@ -716,6 +717,7 @@ public sealed partial class PdfTableReader : IPdfTableReader
                     pending = row;
                     pendingHasAmount = amounts.Count > 0;
                     lastRow = row;
+                    sums.Add(row, amounts);
                 }
                 else if (pending is not null && near && !line.HasDate && amounts.Count > 0 && !pendingHasAmount
                     && row.Select((c, k) => c.Length == 0 || pending[k].Length == 0).All(x => x)
@@ -732,7 +734,9 @@ public sealed partial class PdfTableReader : IPdfTableReader
                 }
                 else if (lastRow is not null && !line.HasDate && amounts.Count > 0
                     && row.Where((c, k) => c.Length > 0 && !amounts.Contains(k)).Any()
-                    && previous is not null && previous.Bottom - line.Top <= _rowGap * 1.5 + 1)
+                    && previous is not null && previous.Bottom - line.Top <= _rowGap * 1.5 + 1
+                    && !GenericCsvImporter.IsSummaryLine(string.Join(' ', row.Where((c, k) => !amounts.Contains(k))))
+                    && !sums.IsSubtotal(row, amounts))
                 {
                     // Another transaction on the same day: the bank printed the date once.
                     Flush();
@@ -745,6 +749,7 @@ public sealed partial class PdfTableReader : IPdfTableReader
                     }
                     pending = row;
                     pendingHasAmount = true;
+                    sums.Add(row, amounts);
                 }
                 else
                 {
@@ -753,6 +758,7 @@ public sealed partial class PdfTableReader : IPdfTableReader
                     if (amounts.Count > 0 && !line.HasDate)
                     {
                         lastRow = null; // a subtotal or summary line ends the day's rows
+                        sums = new Sums();
                     }
                 }
                 previous = line;
@@ -768,6 +774,36 @@ public sealed partial class PdfTableReader : IPdfTableReader
                     pendingHasAmount = false;
                 }
             }
+        }
+
+        /// <summary>
+        /// Each column's running total of the rows since the table started or the last total
+        /// line: a line whose amounts are those totals is a subtotal, whatever it is called.
+        /// </summary>
+        private sealed class Sums
+        {
+            private readonly Dictionary<int, decimal> _totals = [];
+            private int _rows;
+
+            public void Add(string[] row, List<int> amounts)
+            {
+                _rows++;
+                foreach (var k in amounts)
+                {
+                    if (TryAmount(row[k], out var a))
+                    {
+                        _totals[k] = _totals.GetValueOrDefault(k) + a;
+                    }
+                }
+            }
+
+            public bool IsSubtotal(string[] row, List<int> amounts) =>
+                _rows >= 2 && amounts.Count > 0
+                && amounts.All(k => TryAmount(row[k], out var a) && _totals.TryGetValue(k, out var t) && t == a);
+
+            private static bool TryAmount(string cell, out decimal amount) =>
+                decimal.TryParse(cell.Replace(",", "").Replace("\u2212", "-").Trim(), System.Globalization.NumberStyles.Number,
+                    System.Globalization.CultureInfo.InvariantCulture, out amount) && (amount = Math.Abs(amount)) >= 0;
         }
 
         private string[] Empty()

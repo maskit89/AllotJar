@@ -220,6 +220,75 @@ public class PdfTableReaderTests
         entries.Select(e => e.Payee).Should().Equal("Cafe Roma Valletta", "Online Shop Order for groceries", "Payment received", "Bookshop");
     }
 
+    private static Text[] Table(params Text[] after) =>
+    [
+        Header(700),
+        new(685, (40, "01/09/2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+        new(670, (40, "02/09/2026"), (110, "Salary"), (400, "2,100.00"), (470, "3,076.60")),
+        new(655, (40, "03/09/2026"), (110, "Cash"), (330, "50.00"), (470, "3,026.60")),
+        .. after,
+    ];
+
+    [Theory]
+    [InlineData(null, "Total")]
+    [InlineData(null, "Totals")]
+    [InlineData("30/09/2026", "Total for the period")]
+    [InlineData(null, "Carried forward")]
+    public void A_total_line_under_the_rows_is_not_a_transaction(string? date, string label)
+    {
+        // Review #405 round 2 (R1, R1b, R1c).
+        var words = new List<(double, string)>();
+        if (date is not null) words.Add((40, date));
+        words.AddRange([(110, label), (330, "73.40"), (400, "2,100.00")]);
+
+        var entries = Import(Pdf(Table(new Text(640, [.. words]))));
+
+        entries.Select(e => e.Payee).Should().Equal("Supermarket", "Salary", "Cash");
+    }
+
+    [Fact]
+    public void Card_subtotals_are_not_transactions()
+    {
+        // Review #405 round 2 (R1d): a sub-total per card holder and the total due.
+        var entries = Import(Pdf([
+            new Text(700, (40, "Date"), (110, "Description"), (420, "Amount")),
+            new(685, (40, "01/09/2026"), (110, "Cafe"), (420, "-12.50")),
+            new(670, (40, "03/09/2026"), (110, "Shop"), (420, "-40.00")),
+            new(655, (110, "Sub-total for J Borg"), (420, "-52.50")),
+            new(640, (40, "04/09/2026"), (110, "Bakery"), (420, "-3.00")),
+            new(625, (110, "Total amount due"), (420, "-55.50")),
+        ]));
+
+        entries.Select(e => e.Payee).Should().Equal("Cafe", "Shop", "Bakery");
+        entries.Sum(e => e.Amount).Should().Be(55.50m);
+    }
+
+    [Fact]
+    public void A_line_whose_amount_is_the_sum_of_the_rows_above_is_a_subtotal()
+    {
+        var entries = Import(Pdf([
+            new Text(700, (40, "Date"), (110, "Description"), (420, "Amount")),
+            new(685, (40, "01/09/2026"), (110, "Cafe"), (420, "-12.50")),
+            new(670, (40, "03/09/2026"), (110, "Shop"), (420, "-40.00")),
+            new(655, (110, "J Borg"), (420, "-52.50")),
+        ]));
+
+        entries.Select(e => e.Payee).Should().Equal("Cafe", "Shop");
+    }
+
+    [Fact]
+    public void A_payment_described_as_a_minimum_payment_is_imported()
+    {
+        // Review #405 round 2 (R4).
+        var entries = Import(Pdf([
+            new Text(700, (40, "Date"), (110, "Description"), (420, "Amount")),
+            new(685, (40, "01/09/2026"), (110, "Cafe"), (420, "-12.50")),
+            new(670, (40, "15/09/2026"), (110, "Minimum payment direct debit"), (420, "25.00")),
+        ]));
+
+        entries.Should().Contain((new DateOnly(2026, 9, 15), true, 25.00m, "Minimum payment direct debit"));
+    }
+
     [Fact]
     public void Dates_as_banks_print_them_are_found_wherever_they_line_up()
     {

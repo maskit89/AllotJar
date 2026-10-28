@@ -2554,8 +2554,8 @@ export function ImportPage() {
                     </span>
                     <span className="shrink-0 text-warn">{unreadLines} not read</span>
                     <InfoHint fixed label="About lines not read" buttonClassName={`${LINE_HINT} text-warn`}>
-                      {unreadLines === 1 ? 'One line' : `${unreadLines} lines`} with an amount could not be read: no date beside it, or text
-                      where the amount should be. Check them against your statement, or change the columns.
+                      {unreadLines === 1 ? 'One line' : `${unreadLines} lines`} with an amount were left out: a total or balance, no date beside
+                      it, or text where the amount should be. Check them against your statement, or change the columns.
                     </InfoHint>
                   </>
                 )}

@@ -626,7 +626,7 @@ describe('ImportPage', () => {
     await screen.findByLabelText('Include TESCO on 2026-06-20')
 
     expect(screen.getByText('2 not read')).toBeInTheDocument()
-    expect(await openHint(user, 'About lines not read')).toHaveTextContent(/2 lines with an amount could not be read/)
+    expect(await openHint(user, 'About lines not read')).toHaveTextContent(/2 lines with an amount were left out/)
   })
 
   it('shows real money sums (not counts) on the success screen', { timeout: 15000 }, async () => {
