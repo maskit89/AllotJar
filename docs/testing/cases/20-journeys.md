@@ -29,7 +29,7 @@
   10. Go to `/transactions`, **"+ Add transaction"**, record an Expense (Type Expense, Payee "Tesco", Amount 45.30, Account "Everyday", Category = the billed line). Submit **"Add transaction"**.
   11. Back on `/`, tick the bill's **"Paid"** toggle (as DASH-056).
   12. Review month-end: read the bills strip and the Hero footnote; open `/reports`.
-  13. Advance the month with the TopBar **"Next month"** ‹›, then click **"Copy {Month Year}"** on the next month's create hero (as BUDG-005 / DASH-007).
+  13. Advance the month with the TopBar **"Next month"** ‹›, then click **"Start {Month}"** on the next month's create hero (as BUDG-005 / DASH-007).
   14. Verify the Getting-started checklist state throughout (bottom-right).
 - **Expected:**
   - CP2: account created with `includeSampleData:false`; analytics `sign_up {method:'password', sample_data:false}`. No ConsentModal (registration records consent up front, as REG-048).
@@ -187,7 +187,7 @@
   2. Record real spending and income transactions for M1 across expense + savings lines.
   3. On `/allocation` press **Allocate** (named "Allocate {M1}"), tick **"I’ve completed these transfers"** and press **"Record transfers"**; note the transfers in the "Allocated" strip.
   4. Open `/jars` and read each jar's balance, status chip and pace label.
-  5. TopBar **"Next month"** → create M2 with **"Copy {M1}"**.
+  5. TopBar **"Next month"** → create M2 with **"Start {M2}"** (continues M1).
   6. Inspect M2's re-seeded jar lines vs M1.
   7. Repeat spend/allocate for M2, then create M3 by copy.
   8. In M3, open `/reports` and read the trend + annual overview.
@@ -347,7 +347,7 @@
   5. Build the minimum: add one account, plan one income line, add one expense line to balance, log one transaction.
   6. Re-walk `/reports` and the checklist.
 - **Expected:**
-  - CP1: create-month hero "No budget for {Month} {Year} yet" with **"Start a blank budget"** + template grid, and NO **"Copy …"** button (first-ever month).
+  - CP1: create-month hero "No budget for {Month} {Year} yet" with **"Start a blank budget"** + template grid, and NO **"Start {Month}"** button (first-ever month).
   - CP2: `/transactions` "No transactions yet"; `/accounts` "No accounts yet"; `/jars` "No jars yet" with its three example jars (JAR-124); `/reports` "No budget data yet" (empty, NOT sample figures — PR #170); `/people` shows the solo "You" row (People nav always visible when flag on).
   - CP3: the **Allocation** nav item is hidden (solo, isShared false); deep-linking `/allocation` renders the in-page **"Add people first"** EmptyState with an **"Add people"** button → `/people` (not a hard error).
   - CP4: checklist reads 0 of 5 with the five exact steps.

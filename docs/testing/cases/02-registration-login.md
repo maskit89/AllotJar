@@ -89,7 +89,7 @@
   5. Click "Create account".
 - **Expected:**
   - 200 from `POST /api/auth/register` with `includeSampleData: false` in the request body; user is signed in immediately (no email verification step) and navigated to `/`.
-  - Dashboard shows the create-month hero: "No budget for {current month} {year} yet." with buttons "Start a blank budget" and the "Or start from a template" template grid. **No** "Copy …" button (no previous month exists).
+  - Dashboard shows the create-month hero: "No budget for {current month} {year} yet." with buttons "Start a blank budget" and the "Or start from a template" template grid. **No** "Start {Month}" button (no previous month exists).
   - No budget months, no transactions, no accounts; `/jars` shows its empty state (no "Emergency Fund" jar).
   - The account-menu chip shows "Ana Borg" (DisplayName = "First Last").
 - **Automated:** Yes (client/e2e-journey/register.spec.ts — default registration lands on an empty budget)

@@ -394,7 +394,7 @@ describe('DashboardPage — the jars shelf follows the viewed month (W05)', () =
     const user = userEvent.setup()
     renderWithNav()
 
-    await user.click(await screen.findByRole('button', { name: 'Start a blank budget' }, { timeout: 5000 }))
+    await user.click(await screen.findByRole('button', { name: /^Start / }, { timeout: 5000 }))
     await waitFor(() => expect(mockPost).toHaveBeenCalled())
     await user.click(screen.getByText('go-prev'))
     expect(await screen.findByText('€300.00 saved', {}, { timeout: 5000 })).toBeInTheDocument()

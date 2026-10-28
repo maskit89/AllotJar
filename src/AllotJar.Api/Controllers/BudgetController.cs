@@ -18,6 +18,7 @@ using AllotJar.Application.Jars.Dtos;
 using AllotJar.Application.Budgets.Commands.UpdateBudgetItem;
 using AllotJar.Application.Budgets.Dtos;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonth;
+using AllotJar.Application.Budgets.Queries.GetMonthWrapUp;
 using AllotJar.Application.Budgets.Queries.GetBudgetMonths;
 using AllotJar.Application.Budgets.Queries.GetBudgetTemplates;
 using AllotJar.Domain.Enums;
@@ -66,6 +67,15 @@ public class BudgetController : ControllerBase
     public async Task<ActionResult<IReadOnlyList<BudgetMonthSummaryDto>>> GetMonths(CancellationToken ct)
     {
         var result = await _mediator.Send(new GetBudgetMonthsQuery(), ct);
+        return Ok(result);
+    }
+
+    /// <summary>How a month went in actual money: in, spent, into jars and left over.</summary>
+    [HttpGet("{year:int}/{month:int}/wrap-up")]
+    [ProducesResponseType(typeof(MonthWrapUpDto), StatusCodes.Status200OK)]
+    public async Task<ActionResult<MonthWrapUpDto>> GetWrapUp(int year, int month, CancellationToken ct)
+    {
+        var result = await _mediator.Send(new GetMonthWrapUpQuery(year, month), ct);
         return Ok(result);
     }
 

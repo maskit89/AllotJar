@@ -51,9 +51,9 @@
   1. Use the TopBar › to view August 2026.
 - **Expected:**
   - Dashed card: "No budget for August 2026 yet."
-  - Buttons: "Copy July 2026" (emerald) and "Start a blank budget"; below, "Or start from a template" grid.
+  - One button, "Start August" (emerald); no blank start, no template grid (those are for a first budget, BUDG-003). Under it, once July has begun, July's wrap-up (BUDG-063).
   - No error strip; no Hero.
-- **Automated:** Partial (client/src/pages/DashboardPage.test.tsx — Copy-previous offer on an empty month; client/e2e-journey/register.spec.ts — create hero for a first-ever month)
+- **Automated:** Partial (client/src/pages/DashboardPage.test.tsx and DashboardPage.carry.test.tsx — Start continues on an empty month; client/e2e-journey/register.spec.ts — create hero for a first-ever month)
 
 ### DASH-005 - No-budget state for a non-writer is read-only
 - **Priority:** P2
@@ -63,22 +63,22 @@
   1. Load the month-less month on `/`.
 - **Expected:**
   - "No budget for {Month} {Year} yet." plus "Ask an admin or the owner to set this month up."
-  - No Copy/blank buttons, no template grid, no jars note.
+  - No Start/blank buttons, no template grid, no wrap-up.
 - **Automated:** No
 
 ## First-run empty state & quick-start templates
 
-### DASH-006 - First-ever month shows no Copy button
+### DASH-006 - First-ever month shows no Start {Month} button
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Brand-new owner registered WITHOUT sample figures (PR #170 default) — zero budget months exist.
 - **Steps:**
   1. Land on `/` after registration.
 - **Expected:**
-  - "No budget for {current Month Year} yet." with ONLY "Start a blank budget" + "Or start from a template" — no "Copy …" button (no strictly-earlier month exists).
+  - "No budget for {current Month Year} yet." with ONLY "Start a blank budget" + "Or start from a template" — no "Start {Month}" button (no strictly-earlier month exists).
 - **Automated:** Yes (client/e2e-journey/register.spec.ts — no Copy button for a first-ever month, empty landing)
 
-### DASH-007 - Copy button names the actual source month across a gap
+### DASH-007 - Start continues the actual source month across a gap
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #168 (copy names the real source, which may not be last calendar month)
@@ -86,8 +86,8 @@
 - **Steps:**
   1. View July 2026 (no budget).
 - **Expected:**
-  - The copy button reads exactly "Copy May 2026" (the most recent strictly-earlier month), NOT "Copy June 2026".
-- **Automated:** Partial (client/src/pages/DashboardPage.test.tsx asserts the Copy offer; gap-naming unasserted)
+  - "Start July" builds July from May 2026's plan (the most recent strictly-earlier month). The wrap-up still shows June 2026 (the calendar month before), which had no budget but still moved money.
+- **Automated:** Partial (client/src/pages/DashboardPage.test.tsx asserts the Start offer; the source month is the handler's)
 
 ### DASH-008 - "Start a blank budget" lands on a truly empty month
 - **Priority:** P0
@@ -128,17 +128,14 @@
   - The Savings group's "Emergency Fund" line is a fund line (Available column) — its backing jar now exists (deep jar-minting semantics → file 07 / jars file).
 - **Automated:** Partial (client/src/pages/DashboardPage.test.tsx — create-from-template POST; tests/AllotJar.Application.Tests/Application/BudgetTemplatesTests.cs — structure at zero planned; tests/AllotJar.IntegrationTests/SavingsForeignKeyTests.cs — template savings lines jar-backed)
 
-### DASH-011 - Jars note pluralises correctly on the create screen
-- **Priority:** P2
-- **Type:** Boundary
-- **Preconditions:** Household owns exactly 1 active jar; then repeat with 2.
+### DASH-011 - No jars note on the create screen
+- **Priority:** P3
+- **Type:** Regression
+- **Preconditions:** Household owns 1 or 2 active jars.
 - **Steps:**
-  1. View a no-budget month as a writer; read the note under the create buttons.
-- **Expected:**
-  - With 1 jar: "Your 1 existing jar is added to any new budget automatically, so it will have a few more lines than a template lists."
-  - With 2 jars: "Your 2 existing jars are added to any new budget automatically, …"
-  - With 0 jars the note is absent entirely.
-- **Automated:** No
+  1. View a no-budget month as a writer.
+- **Expected:** no note about jars (removed 27 October 2026, BUDG-029).
+- **Automated:** Yes (client/e2e-journey/budget-lifecycle.spec.ts)
 
 ### DASH-012 - Create failure surfaces the generic create error
 - **Priority:** P2
@@ -158,7 +155,7 @@
 - **Steps:**
   1. Load the create state.
 - **Expected:**
-  - "Or start from a template" section absent (templates state stays `[]`); Copy/blank buttons unaffected; no error strip for the template failure.
+  - "Or start from a template" section absent (templates state stays `[]`); Start/blank buttons unaffected; no error strip for the template failure.
 - **Automated:** No
 
 ## Hero & balanced states (PR #172)

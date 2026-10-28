@@ -12,6 +12,7 @@ import type {
   BudgetMonthSummaryDto,
   BudgetTemplateDto,
   JarDto,
+  MonthWrapUpDto,
 } from '../types'
 import {
   billAlerts,
@@ -19,7 +20,6 @@ import {
   categoryActual,
   fromDto,
   findItem,
-  isBalanced,
   isIncome,
   itemVersionIn,
   monthPlanned,
@@ -41,7 +41,7 @@ import {
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
-import { currencyNoun, currencySymbol, formatMoney, sumMinor, toAmount, type Minor } from '../lib/money'
+import { currencyNoun, currencySymbol, formatMoney, fromAmount, sumMinor, toAmount, type Minor } from '../lib/money'
 import { Button } from '../components/ui'
 import { Skeleton } from '../components/ui/skeleton'
 import { InfoHint } from '../components/InfoHint'
@@ -49,6 +49,7 @@ import { HeroBar, KpiRow, KpiTile } from '../components/KpiTile'
 import { StatusChip } from '../components/StatusChip'
 import { BudgetCard } from '../components/budget/BudgetCard'
 import { JarsCard } from '../components/budget/JarsCard'
+import { MonthWrapUp } from '../components/budget/MonthWrapUp'
 import { CARD_TITLE, DASH_CARD } from '../components/budget/card'
 import { JarFormModal } from '../components/JarFormModal'
 import { monthIso } from '../lib/jarForm'
@@ -244,11 +245,14 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   }, [])
 
   // A jar created here (from a Savings group or the checklist) plants its line in the
-  // month server-side: re-read the month so it appears, and refresh the shelf.
+  // month server-side: re-read the month so it appears, and refresh the shelf. What it set
+  // aside comes off the month's carry, so that is read again too.
+  const [wrapUpTick, setWrapUpTick] = useState(0)
   const onJarCreated = useCallback(() => {
     setJarFormOpen(false)
     void refreshMonth()
     refreshJars()
+    setWrapUpTick((n) => n + 1)
   }, [refreshMonth, refreshJars])
 
   // The most recent month strictly before the viewed one — what "copy" actually
@@ -260,6 +264,59 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         .sort((a, b) => b.year - a.year || b.month - a.month)[0] ?? null,
     [months, year, monthNum],
   )
+
+  // The month in actual money (rule 94, GET /budget/{y}/{m}/wrap-up). A month that exists reads
+  // its own: what it gives a job besides its income (the "From <month>" line under Income,
+  // counted in Remaining to budget). The card that starts a missing month reads the month before
+  // it, to show how that month went. Read once the month read has begun (one still ahead has
+  // nothing to tell yet). Each answer is kept with the month it is for, so a month never shows
+  // another's, and only the latest read lands, as with the jars.
+  const [wrapUp, setWrapUp] = useState<{ key: string; data: MonthWrapUpDto | null } | null>(null)
+  const wrapUpRead = useRef(0)
+  const before = monthNum === 1 ? { year: year - 1, month: 12 } : { year, month: monthNum - 1 }
+  const beforeKey = `${before.year}-${String(before.month).padStart(2, '0')}`
+  const hasMonth = month !== null
+  const wrapTarget = hasMonth ? { year, month: monthNum } : before
+  const wrapKey = `${wrapTarget.year}-${wrapTarget.month}`
+  const wantsWrapUp = hasMonth ? !isFutureMonth : prevBudget !== null && notFound && canWrite && beforeKey <= todayKey
+  useEffect(() => {
+    const read = ++wrapUpRead.current
+    if (!wantsWrapUp) return
+    api
+      .get<MonthWrapUpDto>(`/budget/${wrapTarget.year}/${wrapTarget.month}/wrap-up`)
+      .then(({ data }) => {
+        // Guarded like the jars: an answer without the figures counts as a failed read.
+        if (read !== wrapUpRead.current) return
+        const ok = typeof data?.leftOver === 'number' && typeof data?.toAllot === 'number'
+        setWrapUp({ key: wrapKey, data: ok ? data : null })
+      })
+      .catch(() => {
+        if (read === wrapUpRead.current) setWrapUp({ key: wrapKey, data: null })
+      })
+  }, [wantsWrapUp, wrapTarget.year, wrapTarget.month, wrapKey, wrapUpTick])
+  // This month's answer: undefined while it is on its way, null when it could not be read.
+  const wrapAnswer = wantsWrapUp && wrapUp?.key === wrapKey ? wrapUp.data : undefined
+  // The carry the viewed month shows. A month after another budget always shows it (the
+  // continuation); a first budget shows money already in the accounts once there is some. Until
+  // the figure is in, the line and Remaining to budget show none (never €0.00), and a month still
+  // ahead says the money arrives when it starts.
+  const carryFrom = prevBudget !== null ? MONTH_NAMES[before.month - 1] : null
+  const carryState: 'ahead' | 'loading' | 'failed' | undefined = !hasMonth
+    ? undefined
+    : isFutureMonth
+      ? 'ahead'
+      : wrapAnswer === undefined
+        ? 'loading'
+        : wrapAnswer === null
+          ? 'failed'
+          : undefined
+  const carryMinor = wrapAnswer ? fromAmount(wrapAnswer.toAllot) : null
+  const carry = !hasMonth || (carryFrom === null && (carryState === 'ahead' || carryState === 'loading' || carryMinor === 0))
+    ? undefined
+    : { from: carryFrom, month: MONTH_NAMES[monthNum - 1], minor: carryMinor, state: carryState }
+  // Remaining to budget is unknown while the carry is (a month that has begun); a month still
+  // ahead plans only its own income, as the carry has not arrived.
+  const carryKnown = carryState !== 'loading' && carryState !== 'failed'
 
   // Create the viewed month — copying the previous month's plan, or blank.
   const createMonth = useCallback(
@@ -735,7 +792,9 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // The checklist's steps and their done state, or null once all three are done.
   const checklist = useMemo(() => {
     const hasAccounts = accounts.length > 0
-    const hasMonth = month !== null
+    // Any budget at all: a later month with none yet is started from its own card, and the
+    // first-run checklist does not come back for it.
+    const hasMonth = month !== null || months.length > 0
     const hasJars = jars.length > 0
     if (hasAccounts && hasMonth && hasJars) return null
     const steps: { id: string; label: string; done: boolean; action: ReactNode }[] = [
@@ -796,11 +855,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       },
     ]
     return steps
-  }, [accounts.length, month, jars.length, openJarForm])
-
-  // Only a jar still planning gets a line in a new month: not an archived jar or a completed goal
-  // (rules 27, 55).
-  const planningJars = jars.filter((j) => !j.isArchived && !j.completedOn).length
+  }, [accounts.length, month, months.length, jars.length, openJarForm])
 
   return (
     <AppShell active="budget" title="Dashboard" month>
@@ -865,53 +920,64 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
               <p className="mt-1 text-sm text-slate-500">Ask an admin or the owner to set this month up.</p>
             ) : (
               <>
-                <div className="mt-5 flex flex-wrap justify-center gap-3">
-                  {prevBudget && (
-                    <Button onClick={() => createMonth(true)} disabled={creating}>
-                      Copy {MONTH_NAMES[prevBudget.month - 1]} {prevBudget.year}
-                    </Button>
-                  )}
-                  <Button
-                    id="start-blank-budget"
-                    variant={prevBudget ? 'secondary' : 'primary'}
-                    onClick={() => createMonth(false)}
-                    disabled={creating}
-                  >
-                    Start a blank budget
-                  </Button>
-                </div>
-                {planningJars > 0 && (
-                  <p className="mx-auto mt-3 max-w-md text-[13px] text-slate-500">
-                    Your {planningJars} existing {planningJars === 1 ? 'jar is' : 'jars are'} added to any new budget
-                    automatically, so it will have a few more lines than a template lists.
-                  </p>
-                )}
-                {templates.length > 0 && (
-                  <div className="mt-8 border-t border-line pt-6">
-                    <p className="text-[13px] font-medium text-slate-500">Or start from a template</p>
-                    <div className="mt-3 grid gap-3 text-left sm:grid-cols-3">
-                      {templates.map((t) => {
-                        const lineCount = t.groups.reduce((n, g) => n + g.lines.length, 0)
-                        return (
-                          <button
-                            key={t.key}
-                            type="button"
-                            onClick={() => createFromTemplate(t.key)}
-                            disabled={creating}
-                            className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
-                          >
-                            {/* The card's words all read inside its spoken name, after "Start from the template:". */}
-                            <span className="sr-only">Start from the template:</span>{' '}
-                            <span className="text-sm font-semibold text-slate-900">{t.name}</span>
-                            <span className="text-[13px] text-slate-500">{t.description}</span>
-                            <span className="mt-1 text-xs font-semibold text-slate-500 tabular-nums">
-                              {t.groups.length} groups · {lineCount} lines
-                            </span>
-                          </button>
-                        )
-                      })}
+                {prevBudget ? (
+                  // A household with a month before this one continues it (no blank or template:
+                  // that would drop its plan), with how the month before went in actual money.
+                  <>
+                    <div className="mt-5 flex justify-center">
+                      <Button onClick={() => createMonth(true)} disabled={creating}>
+                        Start {MONTH_NAMES[monthNum - 1]}
+                      </Button>
                     </div>
-                  </div>
+                    {wrapAnswer ? (
+                      <MonthWrapUp
+                        wrapUp={wrapAnswer}
+                        currency={budgetCurrency}
+                        next={MONTH_NAMES[monthNum - 1]}
+                        isOver={beforeKey < todayKey}
+                      />
+                    ) : (
+                      wrapAnswer === null && (
+                        <p className="mt-6 text-xs text-slate-500">Couldn't load how {MONTH_NAMES[before.month - 1]} went.</p>
+                      )
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="mt-5 flex flex-wrap justify-center gap-3">
+                      <Button id="start-blank-budget" onClick={() => createMonth(false)} disabled={creating}>
+                        Start a blank budget
+                      </Button>
+                    </div>
+                    {/* Templates are for a household's very first budget only. */}
+                    {months.length === 0 && templates.length > 0 && (
+                      <div className="mt-8 border-t border-line pt-6">
+                        <p className="text-[13px] font-medium text-slate-500">Or start from a template</p>
+                        <div className="mt-3 grid gap-3 text-left sm:grid-cols-3">
+                          {templates.map((t) => {
+                            const lineCount = t.groups.reduce((n, g) => n + g.lines.length, 0)
+                            return (
+                              <button
+                                key={t.key}
+                                type="button"
+                                onClick={() => createFromTemplate(t.key)}
+                                disabled={creating}
+                                className="flex flex-col gap-1 rounded-xl border border-slate-200 bg-surface p-4 text-left transition hover:border-brand-500 hover:bg-brand-50/40 hover:shadow-card disabled:opacity-50"
+                              >
+                                {/* The card's words all read inside its spoken name, after "Start from the template:". */}
+                                <span className="sr-only">Start from the template:</span>{' '}
+                                <span className="text-sm font-semibold text-slate-900">{t.name}</span>
+                                <span className="text-[13px] text-slate-500">{t.description}</span>
+                                <span className="mt-1 text-xs font-semibold text-slate-500 tabular-nums">
+                                  {t.groups.length} groups · {lineCount} lines
+                                </span>
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
@@ -920,14 +986,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
 
         {month && (() => {
           const incomeMinor = totalIncome(month)
+          // The carry is money to give a job, as income is (the "From" row under Income), but it
+          // is not income: the Income tile leaves it out. While it is unknown (on its way, or not
+          // read) so is Remaining to budget, so nothing says "balanced" or "over" on a guess.
+          const toPlanMinor = incomeMinor + (carryMinor ?? 0)
           const allottedMinor = monthPlanned(month)
-          const remainingMinor = remainingToBudget(month)
+          const remainingMinor = carryKnown ? remainingToBudget(month) + (carryMinor ?? 0) : null
           const money = (minor: Minor) => formatMoney(minor, month.currency)
-          // A month with no income and nothing planned has Remaining €0, but it
+          // A month with nothing to plan and nothing planned has Remaining €0, but it
           // isn't balanced — it's empty. Prompt for income instead of celebrating.
-          const empty = incomeMinor === 0 && allottedMinor === 0
-          const balanced = isBalanced(month)
-          const over = remainingMinor < 0
+          const empty = remainingMinor !== null && toPlanMinor === 0 && allottedMinor === 0
+          const balanced = remainingMinor !== null && toPlanMinor > 0 && remainingMinor === 0
+          const over = remainingMinor !== null && remainingMinor < 0
           const noun = currencyNoun(month.currency)
           const receivedMinor = sumMinor(month.categories.filter(isIncome).map(categoryActual))
           const allReceived = incomeMinor > 0 && receivedMinor >= incomeMinor
@@ -958,10 +1028,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                 hero
                 data-tour="remaining-banner"
                 label="Remaining to budget"
-                hint={`Income not given a job yet. Allot it in the budget below until this reaches ${money(0)}.`}
-                value={money(remainingMinor)}
-                valueLabel={`Remaining to budget: ${money(remainingMinor)}`}
-                extra={<HeroBar pct={incomeMinor > 0 ? (allottedMinor / incomeMinor) * 100 : 0} />}
+                hint={`Money not given a job yet: your income${carry ? (carry.from ? ` and what ${carry.from} left over` : ' and money already in your accounts') : ''}. Allot it in the budget below until this reaches ${money(0)}.`}
+                value={remainingMinor === null ? '—' : money(remainingMinor)}
+                valueLabel={`Remaining to budget: ${remainingMinor === null ? (carryState === 'failed' ? "couldn't load" : 'loading') : money(remainingMinor)}`}
+                extra={<HeroBar pct={toPlanMinor > 0 ? (allottedMinor / toPlanMinor) * 100 : 0} />}
                 sub={
                   balanced ? (
                     <span className="inline-flex items-center gap-2 font-semibold text-white">
@@ -1080,6 +1150,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
                     jars={jarsLoaded && !jarsFailed ? jars : null}
                     jarOrder={jars}
                     isPastMonth={isPastMonth}
+                    carry={carry}
                     onCommitItem={commitItem}
                     onSetItemMember={setItemMember}
                     onSetBill={setBill}
