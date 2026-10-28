@@ -23,7 +23,12 @@ public record ParsedStatementEntry(
 /// IBAN) are not read: AllotJar keeps no bank details.
 /// <see cref="ResolvedDateFormat"/> is set by the generic CSV importer when it had to auto-detect
 /// the file's date format — surfaced so the UI can show (and pin) what was actually applied.
+/// <see cref="UnreadLines"/> counts lines with an amount the generic CSV importer could not read
+/// as a transaction (no date, or text where the amount should be), so nothing is lost unseen.
 /// </summary>
 public record ParsedStatement(
     IReadOnlyList<ParsedStatementEntry> Entries,
-    string? ResolvedDateFormat = null);
+    string? ResolvedDateFormat = null)
+{
+    public int UnreadLines { get; init; }
+}

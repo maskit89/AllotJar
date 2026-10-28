@@ -1017,14 +1017,23 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Steps:**
   1. Choose **Bank CSV or PDF (auto-detect)**, upload the PDF and review.
   2. Open **Columns**.
-- **Expected:** The file strip says **PDF**. Every transaction in the statement is listed once, with the totals in and out matching the statement. The header reads as one line per column ("Transaction Date"), a second description line joins its row, the statement date above the table is not a row, and page 2's header is not a row. **Columns** shows the PDF's columns with the date, description and "Amount in EUR" chosen; they can be changed as for a CSV. Dates printed as "1 Sep 2026" are read too. The PDF is read in memory only and never stored. Importing the same PDF again skips every row as already imported.
-- **Automated:** Partial (PdfTableReaderTests.cs, ImportPage.test.tsx); checked by hand on a real APS card statement, 38 rows.
+- **Expected:** The file strip says **PDF**. Every transaction in the statement is listed once, with the totals in and out matching the statement. The header reads as one line per column ("Transaction Date"), a second description line joins its row, the statement date above the table is not a row, and page 2's header is not a row. **Columns** shows the PDF's columns with the date, description and "Amount in EUR" chosen; they can be changed as for a CSV. Dates printed as "1 Sep 2026" or "1/9/26" are read too. The PDF is read in memory only and never stored. Importing the same PDF again skips every row as already imported. Also with: a month with no money in (the empty Credit column is kept and every row is money out); the date printed once per day (the rows under it take it); amounts printed half a line lower than a two-line description; a long description running up to the amount column; a summary under the table ("Closing balance", "Minimum payment due"), which is not imported. A line with an amount that still cannot be read shows as **N not read** beside the file name.
+- **Automated:** Partial (PdfTableReaderTests.cs, GenericCsvColumnDetectionTests.cs, ImportPage.test.tsx); checked by hand on a real APS card statement, 38 rows.
 
 ### IMP-105 - PDFs that cannot be read say why
 - **Priority:** P2
 - **Type:** Negative
 - **Origin:** PDF import, 28 Oct 2026
-- **Preconditions:** A scanned (image-only) PDF; a password-protected PDF; a damaged file named .pdf; a PDF of more than 60 pages; a PDF with no dates in it; a PDF uploaded with the HSBC or CAMT.053 format chosen.
+- **Preconditions:** A scanned (image-only) PDF; a password-protected PDF; a damaged file named .pdf; a PDF of more than 60 pages; a PDF with no dates in it; a PDF uploaded with the HSBC or CAMT.053 format chosen; a small PDF that asks for a huge amount of drawing (millions of letters, pages sharing one heavy stream, a stream inflating to hundreds of megabytes); two PDFs uploaded at the same moment.
 - **Steps:** Upload each.
-- **Expected:** Scan: "This PDF has no text in it, so it may be a scan. Download the statement from your internet banking instead." Password: "This PDF is password-protected. Save it without a password and upload it again." Damaged: "This PDF could not be read." Too long: "This PDF has N pages, which is too long for a statement." No dates: "No transactions were found in this PDF." Wrong format: "A PDF statement is imported as Bank CSV or PDF." Nothing is saved in any case.
+- **Expected:** Scan: "This PDF has no text in it, so it may be a scan. Download the statement from your internet banking instead." Password: "This PDF is password-protected. Save it without a password and upload it again." Damaged: "This PDF could not be read." Too long: "This PDF has N pages, which is too long for a statement." No dates: "No transactions were found in this PDF." Wrong format: "A PDF statement is imported as Bank CSV or PDF." Too much drawing: "This PDF is too large to read as a statement.", within a second or two and without the server's memory growing by more than about 100 MB. Over 20 seconds: "This PDF took too long to read." The second of two at once waits up to 3 seconds, then: "Another PDF is being read. Try again in a moment." Nothing is saved in any case.
 - **Automated:** Partial (PdfTableReaderTests.cs)
+
+### IMP-106 - A CSV saved as UTF-16 imports
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** #405 review P2-3
+- **Preconditions:** A bank CSV saved as Excel "Unicode Text" (UTF-16 with a byte-order mark).
+- **Steps:** Upload it as **Bank CSV or PDF**.
+- **Expected:** The rows import as they would from a UTF-8 copy of the same file.
+- **Automated:** No

@@ -1,3 +1,5 @@
+using System.Diagnostics;
+using System.IO.Compression;
 using System.Text;
 using FluentAssertions;
 using AllotJar.Application.Common.Exceptions;
@@ -113,6 +115,259 @@ public class PdfTableReaderTests
             (new DateOnly(2026, 9, 1), false, 23.40m, "Supermarket"),
             (new DateOnly(2026, 9, 2), true, 2100.00m, "Salary"),
             (new DateOnly(2026, 9, 5), false, 50.00m, "Cash withdrawal"));
+    }
+
+    private static Text Header(double y) => new(y, (40, "Date"), (110, "Description"), (330, "Debit"), (400, "Credit"), (470, "Balance"));
+
+    private IReadOnlyList<(DateOnly Date, bool In, decimal Amount, string Payee)> Import(byte[] pdf)
+    {
+        var csv = _reader.ReadAsCsv(pdf, default);
+        var m = _importer.Detect(csv).Suggested;
+        return _importer.Parse(csv, m with { DefaultCurrency = "EUR" }).Entries
+            .Select(e => (e.BookingDate, e.IsCredit, e.Amount, e.Payee)).ToList();
+    }
+
+    [Fact]
+    public void A_statement_with_no_money_in_keeps_its_empty_credit_column()
+    {
+        // Review #405 P1-2: no row fills Credit, so its column comes from the header alone.
+        var entries = Import(Pdf([
+            Header(700),
+            new(685, (40, "01/09/2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+            new(670, (40, "02/09/2026"), (110, "Amazon"), (330, "40.00"), (470, "936.60")),
+            new(655, (40, "03/09/2026"), (110, "Hotel Roma"), (330, "100.00"), (470, "836.60")),
+        ]));
+
+        entries.Should().HaveCount(3).And.OnlyContain(e => !e.In);
+        entries.Sum(e => e.Amount).Should().Be(163.40m);
+    }
+
+    [Fact]
+    public void Rows_under_a_date_printed_once_per_day_take_that_date()
+    {
+        // Review #405 P1-3 (A1).
+        var entries = Import(Pdf([
+            Header(700),
+            new(685, (40, "01/09/2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+            new(670, (110, "Pharmacy"), (330, "12.00"), (470, "964.60")),
+            new(655, (110, "Coffee"), (330, "3.20"), (470, "961.40")),
+            new(640, (40, "02/09/2026"), (110, "Salary"), (400, "2,100.00"), (470, "3,061.40")),
+            new(580, (110, "Total"), (330, "38.60"), (400, "2,100.00")),
+        ]));
+
+        entries.Should().Equal(
+            (new DateOnly(2026, 9, 1), false, 23.40m, "Supermarket"),
+            (new DateOnly(2026, 9, 1), false, 12.00m, "Pharmacy"),
+            (new DateOnly(2026, 9, 1), false, 3.20m, "Coffee"),
+            (new DateOnly(2026, 9, 2), true, 2100.00m, "Salary"));
+    }
+
+    [Fact]
+    public void Amounts_printed_lower_than_the_rows_date_join_that_row()
+    {
+        // Review #405 P1-3 (A2): a two-line description with the amounts centred between the lines.
+        var entries = Import(Pdf([
+            Header(700),
+            new(685, (40, "01/09/2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+            new(670, (40, "02/09/2026"), (110, "Standing order to")),
+            new(665, (330, "500.00"), (470, "476.60")),
+            new(660, (110, "J Borg rent")),
+            new(645, (40, "03/09/2026"), (110, "Salary"), (400, "2,100.00"), (470, "2,576.60")),
+        ]));
+
+        entries.Should().Contain((new DateOnly(2026, 9, 2), false, 500.00m, "Standing order to J Borg rent"));
+        entries.Should().HaveCount(3);
+    }
+
+    [Fact]
+    public void A_description_running_up_to_the_amount_does_not_join_the_two_columns()
+    {
+        // Review #405 P2-1 (A3b).
+        var builder = new PdfDocumentBuilder();
+        var font = builder.AddStandard14Font(Standard14Font.Helvetica);
+        var page = builder.AddPage(PageSize.A4);
+        void T(double x, double y, string w) => page.AddText(w, 9, new PdfPoint(x, y), font);
+        foreach (var (x, w) in new[] { (40.0, "Date"), (110, "Description"), (330, "Debit"), (400, "Credit"), (470, "Balance") }) T(x, 700, w);
+        T(40, 685, "01/09/2026"); T(110, 685, "Supermarket"); T(335, 685, "23.40"); T(470, 685, "976.60");
+        T(40, 670, "02/09/2026");
+        var letters = page.AddText("AMAZON MKTPLACE PMTS AMZN.COM/BILL LU", 9, new PdfPoint(110, 670), font);
+        T(letters[^1].BoundingBox.Right + 5, 670, "40.00"); T(470, 670, "936.60");
+        T(40, 655, "03/09/2026"); T(110, 655, "Salary"); T(400, 655, "2,100.00"); T(470, 655, "3,036.60");
+
+        var entries = Import(builder.Build());
+
+        entries.Should().Equal(
+            (new DateOnly(2026, 9, 1), false, 23.40m, "Supermarket"),
+            (new DateOnly(2026, 9, 2), false, 40.00m, "AMAZON MKTPLACE PMTS AMZN.COM/BILL LU"),
+            (new DateOnly(2026, 9, 3), true, 2100.00m, "Salary"));
+    }
+
+    [Fact]
+    public void The_summary_under_the_table_is_not_imported()
+    {
+        // Review #405 P2-2 (A5).
+        var entries = Import(Pdf(
+            CardStatement[..^1],
+            [
+                new(700, (40, "Transaction"), (110, "Posting"), (420, "Amount")),
+                new(689, (40, "Date"), (110, "Date"), (200, "Detail"), (420, "in EUR")),
+                new(670, (40, "20/09/26"), (110, "21/09/26"), (200, "Bookshop"), (420, "-8.00")),
+                new(600, (40, "30/09/26"), (200, "Closing balance"), (420, "-447.50")),
+                new(585, (40, "15/10/26"), (200, "Minimum payment due"), (420, "25.00")),
+                new(560, (40, "Page 2 of 2")),
+            ]));
+
+        entries.Select(e => e.Payee).Should().Equal("Cafe Roma Valletta", "Online Shop Order for groceries", "Payment received", "Bookshop");
+    }
+
+    [Fact]
+    public void Dates_as_banks_print_them_are_found_wherever_they_line_up()
+    {
+        // Review #405 A8 and P3-1: right-aligned "1 Sep 2026", and d/M/yy.
+        Import(Pdf([
+            Header(700),
+            new(685, (44, "1"), (52, "Sep"), (70, "2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+            new(670, (39, "12"), (52, "Sep"), (70, "2026"), (110, "Salary"), (400, "2,100.00"), (470, "3,076.60")),
+        ])).Select(e => e.Date).Should().Equal(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 12));
+
+        Import(Pdf([
+            Header(700),
+            new(685, (40, "1/9/26"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+            new(670, (40, "12/9/26"), (110, "Cash"), (330, "50.00"), (470, "926.60")),
+        ])).Select(e => e.Date).Should().Equal(new DateOnly(2026, 9, 1), new DateOnly(2026, 9, 12));
+    }
+
+    [Fact]
+    public void An_account_block_close_above_the_header_is_not_header()
+    {
+        // Review #405 P3-2 (A10).
+        var csv = _reader.ReadAsCsv(Pdf([
+            new(722, (40, "Account"), (110, "40012345678"), (330, "Period"), (400, "01/09/2026"), (470, "30/09/2026")),
+            new(711, (40, "IBAN"), (110, "MT00XXXX0000000000000000000"), (330, "Opening"), (470, "1,000.00")),
+            Header(700),
+            new(685, (40, "01/09/2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
+            new(670, (40, "02/09/2026"), (110, "Salary"), (400, "2,100.00"), (470, "3,076.60")),
+        ]), default);
+
+        _importer.Detect(csv).Columns.Should().Equal("Date", "Description", "Debit", "Credit", "Balance");
+    }
+
+    // --- Heavy PDFs (review #405 P1-1) ---------------------------------------------------------
+
+    private static byte[] Raw(params string[] objects) => RawBytes([.. objects.Select(Encoding.Latin1.GetBytes)]);
+
+    private static byte[] RawBytes(params byte[][] objects)
+    {
+        var ms = new MemoryStream();
+        void W(string s) => ms.Write(Encoding.Latin1.GetBytes(s));
+        W("%PDF-1.7\n");
+        var offsets = new List<long>();
+        for (var i = 0; i < objects.Length; i++)
+        {
+            offsets.Add(ms.Position);
+            W($"{i + 1} 0 obj\n");
+            ms.Write(objects[i]);
+            W("\nendobj\n");
+        }
+        var xref = ms.Position;
+        W($"xref\n0 {objects.Length + 1}\n0000000000 65535 f \n");
+        foreach (var o in offsets) W($"{o:D10} 00000 n \n");
+        W($"trailer\n<< /Size {objects.Length + 1} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n");
+        return ms.ToArray();
+    }
+
+    private static byte[] Flate(byte[] data)
+    {
+        var compressed = new MemoryStream();
+        using (var z = new ZLibStream(compressed, CompressionLevel.SmallestSize, true)) z.Write(data);
+        var body = compressed.ToArray();
+        return [.. Encoding.Latin1.GetBytes($"<< /Length {body.Length} /Filter /FlateDecode >>\nstream\n"), .. body, .. Encoding.Latin1.GetBytes("\nendstream")];
+    }
+
+    private static string ManyLetters(int operators)
+    {
+        var sb = new StringBuilder("BT /F1 9 Tf 40 780 Td ");
+        for (var i = 0; i < operators; i++) sb.Append(i % 50 == 0 ? "0 -10 Td (01/09/2026 Shop 12.50) Tj " : "(AB) Tj ");
+        return sb.Append("ET").ToString();
+    }
+
+    private const string Catalog = "<< /Type /Catalog /Pages 2 0 R >>";
+    private const string Helvetica = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>";
+    private static string PageOf(int contents) =>
+        $"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents {contents} 0 R >>";
+
+    private void RefusedQuickly(byte[] pdf)
+    {
+        var watch = Stopwatch.StartNew();
+        var act = () => _reader.ReadAsCsv(pdf, default);
+        act.Should().Throw<StatementParseException>().WithMessage("This PDF is too large to read as a statement.");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Fact]
+    public void A_page_with_a_huge_amount_of_text_is_refused_before_it_is_drawn()
+    {
+        var content = Flate(Encoding.Latin1.GetBytes(ManyLetters(300_000)));
+        RefusedQuickly(RawBytes(
+            Encoding.Latin1.GetBytes(Catalog),
+            Encoding.Latin1.GetBytes("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+            Encoding.Latin1.GetBytes(PageOf(5)),
+            Encoding.Latin1.GetBytes(Helvetica),
+            content));
+    }
+
+    [Fact]
+    public void Pages_sharing_one_heavy_stream_are_counted_per_page()
+    {
+        // Each of 40 pages draws the same 100 KB stream: small on disk, 4 MB of drawing.
+        var objects = new List<byte[]>
+        {
+            Encoding.Latin1.GetBytes(Catalog),
+            Encoding.Latin1.GetBytes($"<< /Type /Pages /Kids [{string.Join(" ", Enumerable.Range(6, 40).Select(i => $"{i} 0 R"))}] /Count 40 >>"),
+            Encoding.Latin1.GetBytes("<< >>"),
+            Encoding.Latin1.GetBytes(Helvetica),
+            Flate(Encoding.Latin1.GetBytes(ManyLetters(12_000))),
+        };
+        objects.AddRange(Enumerable.Range(0, 40).Select(_ => Encoding.Latin1.GetBytes(PageOf(5))));
+
+        RefusedQuickly(RawBytes([.. objects]));
+    }
+
+    [Fact]
+    public void A_stream_that_inflates_beyond_reason_is_refused()
+    {
+        RefusedQuickly(RawBytes(
+            Encoding.Latin1.GetBytes(Catalog),
+            Encoding.Latin1.GetBytes("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+            Encoding.Latin1.GetBytes(PageOf(5)),
+            Encoding.Latin1.GetBytes(Helvetica),
+            Flate(Enumerable.Repeat((byte)' ', 40_000_000).ToArray())));
+    }
+
+    [Fact]
+    public void A_page_drawing_a_form_many_times_is_counted_for_each_time()
+    {
+        var form = Encoding.Latin1.GetBytes("BT /F1 9 Tf 40 700 Td " + string.Concat(Enumerable.Repeat("(ABCDEFGH) Tj ", 500)) + "ET");
+        RefusedQuickly(RawBytes(
+            Encoding.Latin1.GetBytes(Catalog),
+            Encoding.Latin1.GetBytes("<< /Type /Pages /Kids [3 0 R] /Count 1 >>"),
+            Encoding.Latin1.GetBytes("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> /XObject << /X1 6 0 R >> >> /Contents 5 0 R >>"),
+            Encoding.Latin1.GetBytes(Helvetica),
+            Flate(Encoding.Latin1.GetBytes(string.Concat(Enumerable.Repeat("/X1 Do ", 2000)))),
+            [.. Encoding.Latin1.GetBytes($"<< /Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Length {form.Length} >>\nstream\n"), .. form, .. Encoding.Latin1.GetBytes("\nendstream")]));
+    }
+
+    [Fact]
+    public void An_ordinary_statement_page_reads_well_within_the_limits()
+    {
+        var csv = _reader.ReadAsCsv(Raw(
+            Catalog,
+            "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+            PageOf(5),
+            Helvetica,
+            "<< /Length 80 >>\nstream\nBT /F1 9 Tf 40 700 Td (01/09/2026) Tj 100 0 Td (Shop) Tj 200 0 Td (12.50) Tj ET\nendstream"), default);
+
+        csv.Should().Be("01/09/2026,Shop,12.50\n");
     }
 
     [Fact]

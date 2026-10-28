@@ -502,6 +502,8 @@ export interface ImportPreviewResult {
    * file always yields the same payees and idempotency references.
    */
   detectedFormat?: string
+  /** Lines with an amount the server could not read as a transaction (no date, or text in the amount column). */
+  unreadLines?: number
 }
 
 /** One slice of a split import row sent to the commit endpoint. */

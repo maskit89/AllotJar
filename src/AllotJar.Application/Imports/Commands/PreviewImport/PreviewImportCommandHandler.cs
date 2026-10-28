@@ -217,7 +217,8 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             Debits: items.Count(i => !i.IsCredit),
             Items: items,
             Layout: layout,
-            DetectedFormat: detectedFormat.ToString());
+            DetectedFormat: detectedFormat.ToString(),
+            UnreadLines: statement.UnreadLines);
     }
 
     /// <summary>

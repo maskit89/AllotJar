@@ -126,6 +126,17 @@ builder.Services.AddRateLimiter(options =>
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
+    // A statement preview reads the whole file (a PDF takes up to a second); each column
+    // change on the review sends it again. A few a second is far more than a person makes.
+    options.AddPolicy("import", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ClientAddress.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 30,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
     options.AddPolicy(RefreshRateLimitPolicy, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: ClientAddress.PartitionKey(httpContext),

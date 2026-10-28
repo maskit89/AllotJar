@@ -458,4 +458,52 @@ public class GenericCsvColumnDetectionTests
         Assert.Equal(total, entries.Count);
         Assert.All(entries, e => Assert.False(e.IsCredit));
     }
+
+    // --- Review round 1 of #405 -----------------------------------------------------------------
+
+    [Fact]
+    public void Bare_amounts_beside_amounts_marked_CR_are_money_out()
+    {
+        var (_, entries) = Read("Date,Description,Amount\n01/09/2026,Cafe,12.50\n03/09/2026,Shop,40.00\n15/09/2026,Payment thank you,500.00 CR\n");
+
+        Assert.Equal([false, false, true], entries.Select(e => e.IsCredit));
+    }
+
+    [Fact]
+    public void Bare_amounts_stay_money_in_when_payments_out_carry_a_minus()
+    {
+        var (_, entries) = Read("Date,Description,Amount\n01/09/2026,Cafe,-12.50\n03/09/2026,Refund,4.00\n15/09/2026,Payment,500.00 CR\n");
+
+        Assert.Equal([false, true, true], entries.Select(e => e.IsCredit));
+    }
+
+    [Fact]
+    public void Summary_lines_are_not_transactions()
+    {
+        var (_, entries) = Read("Date,Description,Amount\n01/09/2026,Opening balance,1000.00\n02/09/2026,Shop,-12.50\n30/09/2026,Closing balance,987.50\n15/10/2026,Minimum payment due,25.00\n");
+
+        Assert.Equal(["Shop"], entries.Select(e => e.Payee));
+    }
+
+    [Fact]
+    public void Lines_with_an_amount_that_could_not_be_read_are_counted()
+    {
+        const string csv = "Date,Description,Amount\n01/09/2026,Shop,-12.50\n,Pharmacy,-3.20\n02/09/2026,Cafe,AMOUNT 4.50 X\n03/09/2026,Balance only,\n";
+        var m = _importer.Detect(csv).Suggested;
+        var parsed = _importer.Parse(csv, m with { DefaultCurrency = "EUR" });
+
+        Assert.Equal(["Shop"], parsed.Entries.Select(e => e.Payee));
+        Assert.Equal(2, parsed.UnreadLines);
+    }
+
+    [Fact]
+    public void The_currency_named_in_the_amount_header_is_the_rows_currency()
+    {
+        const string csv = "Date,Description,Amount in GBP\n01/09/2026,Shop,-12.50\n";
+        var m = _importer.Detect(csv).Suggested;
+
+        var entries = _importer.Parse(csv, m with { DefaultCurrency = "EUR" }).Entries;
+
+        Assert.Equal("GBP", entries[0].Currency);
+    }
 }

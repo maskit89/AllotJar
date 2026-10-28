@@ -616,6 +616,19 @@ describe('ImportPage', () => {
     expect(screen.getByRole('button', { name: 'Columns' })).toBeInTheDocument()
   })
 
+  it('says how many lines with an amount were not read', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...csvPreview(), detectedFormat: 'GenericCsv', unreadLines: 2 })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    expect(screen.getByText('2 not read')).toBeInTheDocument()
+    expect(await openHint(user, 'About lines not read')).toHaveTextContent(/2 lines with an amount could not be read/)
+  })
+
   it('shows real money sums (not counts) on the success screen', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     renderPage()

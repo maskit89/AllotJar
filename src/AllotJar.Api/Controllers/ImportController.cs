@@ -3,6 +3,7 @@ using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
@@ -38,6 +39,7 @@ public class ImportController : ControllerBase
     /// saved. The user categorises/attributes them, then posts the kept rows to <c>commit</c>.
     /// </summary>
     [HttpPost("preview")]
+    [EnableRateLimiting("import")]
     [RequestSizeLimit(10 * 1024 * 1024)] // 10 MB cap
     [ProducesResponseType(typeof(ImportPreviewResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -75,12 +77,10 @@ public class ImportController : ControllerBase
         }
         else
         {
-            // Read as UTF-8 so the masked-card bullets (• = U+2022) survive intact.
-            content = Encoding.UTF8.GetString(bytes);
-            if (content.Length > 0 && content[0] == '\uFEFF')
-            {
-                content = content[1..];
-            }
+            // UTF-8 unless a byte-order mark says otherwise (Excel's "Unicode Text" is UTF-16),
+            // so the masked-card bullets (• = U+2022) survive intact.
+            using var reader = new StreamReader(new MemoryStream(bytes), Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
+            content = await reader.ReadToEndAsync(ct);
         }
 
         // Generic CSV carries a user-confirmed column mapping (absent on the first upload → auto-detect).
