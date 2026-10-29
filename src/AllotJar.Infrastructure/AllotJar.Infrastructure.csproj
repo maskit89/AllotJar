@@ -6,17 +6,17 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Apis.Auth" Version="1.77.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.13" />
-    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.13" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.13" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.14" />
+    <PackageReference Include="Microsoft.AspNetCore.Identity.EntityFrameworkCore" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.Abstractions" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.14" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.14" />
     <!-- Restore-graph only: Microsoft.Data.SqlClient (via EF Core SqlServer) lists System.Security.Cryptography.Pkcs 9.0.11,
          which has known advisories (GHSA-846f-f764-76mx, GHSA-2fmv-rv2c-59x7). The published Api never contained a Pkcs dll;
          this pin only clears the NuGet audit warning. Remove it once Microsoft.Data.SqlClient depends on Pkcs 10.0.x or later. -->
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.13" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="10.0.14" />
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.23.0" />
     <!-- PDF statements: text and word positions only, in memory (Apache-2.0, managed code, no native parts). -->
     <PackageReference Include="PdfPig" Version="0.1.16" />
