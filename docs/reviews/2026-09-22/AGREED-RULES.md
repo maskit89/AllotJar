@@ -168,7 +168,7 @@ The user explicitly requested review of existing tests, coverage for new code an
 
 ## Still to discuss
 
-- Handwritten note 6 ("monthly or living category") is **deferred at the user's request**. The tentative interpretation is choosing a category when setting up a jar; the examples used in the household were Monthly/Savings and Living/Everyday spending. The original author does not currently recall the precise intent. Do not treat this interpretation as a confirmed category model or implement a change from it; revisit if she recalls.
+- Handwritten note 6 ("monthly or living category") is **closed (28 October 2026)**: Christopher said it is irrelevant, since the new-month approach (#403, rule 94) dropped that selection. Do not raise it or implement a category model from it.
 
 - Before-opening balance presentation is resolved by rule 67 (unavailable). Local development-data retention is resolved by rule 65: the user authorised a fresh database instead of carrying old ledgers forward.
 - Transfer matching criteria, reused references, corrections, returns and fees are agreed by rules 87–91; user resolution of ambiguous matches and linking both statement sides to one transfer by rules 50–51. Same-day import rows are judged on the day's closing balance, credits first (W07, under rule 74).
