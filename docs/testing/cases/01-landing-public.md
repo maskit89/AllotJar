@@ -60,8 +60,9 @@
   - Three features, the words and a picture side by side (alternating on desktop, stacked on a phone), each an eyebrow, a title and three ticked points: Budget, "Plan the month to zero" (Every euro gets a job; Leftovers carry into next month; See what's left at a glance); Jars, "Jars for the big bills" (Set a target and a due date; Know what to put aside each month; Replans itself when you pay); Together, "One budget for the household" (Invite your partner; Shared and private accounts; Pocket money for the kids).
   - Four small extras (their heading "Also in AllotJar" is visually hidden): Import statements, CSV or PDF from any bank; Reports, What each jar really cost; On your phone, Install it like an app; Private, No bank login. Never sold.
   - The green closing band "Ready to give every euro a job?" with both buttons and the note; then the footer. No FAQ, no testimonials, no invented user numbers.
-  - On a screen 1800px wide or more the whole page grows (`zoom` 1.25, and 1.5 from 2400px) instead of leaving a 1200px column in the middle.
-- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-004)
+  - On a screen 1800px wide or more the whole page grows (`zoom` 1.25, 1.5 from 2400px and 2 from 3200px, so the content keeps about 60% of a 4K screen) instead of leaving a 1200px column in the middle.
+  - The pictures use the app's own words: the one full jar (Insurance) carries the **Funded** chip, the others their monthly amount; the household picture's roles are Owner, Admin and Limited.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-004; client/e2e/wide-screen.spec.ts — the landing's content width at 1440, 1920, 2560 and 3840px)
 
 ## Euro always (the line never follows the locale)
 

@@ -13,6 +13,8 @@ import { hueColor, type CategoryHue } from '../lib/categoryColors'
  *  - the hero: the line "Give every euro a job.", one sentence, both buttons side by side
  *    (Create free account, Sign in) with the free-to-start note, and a slice of the app (the
  *    Remaining to budget tile at zero, a shelf of jars, two budget rows);
+ *  the figures, chips and roles in the pictures are the app's own words (Funded only on a full jar;
+ *  the roles Owner, Admin, Limited);
  *  - "Budgeting in three steps": money comes in, give it a job, spend without worry;
  *  - three features (budget, jars, together), each three short ticked points beside a picture;
  *  - four small extras (import, reports, on your phone, private);
@@ -50,17 +52,18 @@ function Ctas({ onGreen = false, center = false }: { onGreen?: boolean; center?:
   )
 }
 
-type ShelfJar = { name: string; amount: string; pct: number; hue: CategoryHue; sub?: string; ready?: boolean }
+type ShelfJar = { name: string; amount: string; pct: number; hue: CategoryHue; sub?: string; funded?: boolean }
 
 const JARS: ShelfJar[] = [
   { name: 'Holiday', amount: '€640', pct: 64, hue: 'teal', sub: '€80/mo' },
   { name: 'Car service', amount: '€210', pct: 42, hue: 'indigo', sub: '€35/mo' },
   { name: 'Christmas', amount: '€180', pct: 30, hue: 'rose', sub: '€40/mo' },
-  { name: 'Insurance', amount: '€420', pct: 84, hue: 'emerald', ready: true },
+  // Full: the one jar whose chip says Funded (the app's word, for a jar at its whole target).
+  { name: 'Insurance', amount: '€420', pct: 100, hue: 'emerald', funded: true },
 ]
 
 /** A row of glass jars on the plank, each with its name and amount (and, with `plans`, its monthly
- *  amount or Ready). The plank sits at the jars' feet: `--shelf-top` follows the jar's width. */
+ *  amount, or Funded for a full jar). The plank sits at the jars' feet: `--shelf-top` follows the jar's width. */
 function Shelf({ jars = JARS, width = 52, plans = false }: { jars?: ShelfJar[]; width?: number; plans?: boolean }) {
   const style = {
     gridTemplateColumns: `repeat(${jars.length}, minmax(0, 1fr))`,
@@ -73,7 +76,7 @@ function Shelf({ jars = JARS, width = 52, plans = false }: { jars?: ShelfJar[]; 
           <GlassJar pct={j.pct} hue={j.hue} width={width} />
           <span className="land-jar-name">{j.name}</span>
           <span className="land-jar-amt">{j.amount}</span>
-          {plans && (j.ready ? <Chip>Ready</Chip> : <span className="land-jar-sub">{j.sub}</span>)}
+          {plans && (j.funded ? <Chip>Funded</Chip> : <span className="land-jar-sub">{j.sub}</span>)}
         </div>
       ))}
     </div>
@@ -140,7 +143,7 @@ function AppSlice() {
       </div>
       <div className="land-rows">
         <Row name="Groceries" bar={{ pct: 58, hue: 'indigo' }} right={left('€180')} />
-        <Row name="Rent" chip="Paid" right="€1,450" />
+        <Row name="Rent" chip="Paid" right="€1,200" />
       </div>
     </div>
   )
@@ -181,7 +184,7 @@ function Steps() {
         <li className="land-step">
           <div className="land-pic land-pic-rows" aria-hidden>
             <Row name="Groceries" bar={{ pct: 58, hue: 'indigo' }} right={left('€180')} />
-            <Row name="Holiday" chip="Ready" right="€640" />
+            <Row name="Insurance" chip="Funded" right="€420" />
           </div>
           <h3>
             <span className="land-n" aria-hidden>
@@ -238,7 +241,7 @@ function Features() {
       <Feature eyebrow="Budget" title="Plan the month to zero" points={['Every euro gets a job', 'Leftovers carry into next month', 'See what’s left at a glance']}>
         <HeroTile label="Remaining to budget" value="€320.00" />
         <div className="land-rows">
-          <Row name="Rent" chip="Paid" right="€1,450" />
+          <Row name="Rent" chip="Paid" right="€1,200" />
           <Row name="Groceries" bar={{ pct: 58, hue: 'indigo' }} right={left('€180')} />
           <Row name="Transport" bar={{ pct: 30, hue: 'teal' }} right={left('€105')} />
         </div>
@@ -255,8 +258,8 @@ function Features() {
       <Feature eyebrow="Together" title="One budget for the household" points={['Invite your partner', 'Shared and private accounts', 'Pocket money for the kids']}>
         <div className="land-rows">
           <Person letter="A" name="Alex" role="Owner" hue="emerald" />
-          <Person letter="S" name="Sam" role="Member" hue="indigo" />
-          <Person letter="M" name="Mia" role="Pocket money" hue="rose" />
+          <Person letter="S" name="Sam" role="Admin" hue="indigo" />
+          <Person letter="M" name="Mia" role="Limited" hue="rose" />
         </div>
       </Feature>
     </div>

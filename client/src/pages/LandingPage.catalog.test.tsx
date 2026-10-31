@@ -255,6 +255,22 @@ describe('LandingPage — the product tour and the chrome', () => {
     expect(screen.queryByText(/frequently asked questions/i)).not.toBeInTheDocument()
   })
 
+  // #410 review P2-1 / P3-1: the pictures speak the app's words. Funded is the app's chip for a jar
+  // at its whole target (jarStatus.ts), so it sits only on a jar drawn full; the household's roles
+  // are the app's (Owner, Admin, Limited).
+  it('the pictures use the app’s words: Funded only on a full jar, the app’s roles', () => {
+    const { container } = render(<LandingPage />)
+    expect(screen.queryByText('Ready')).not.toBeInTheDocument()
+    const funded = screen.getAllByText('Funded')
+    expect(funded.length).toBeGreaterThan(0)
+    // Every jar on a shelf with a Funded chip is drawn full (its wave at the top of the glass, y 30).
+    container.querySelectorAll('.land-jar').forEach((jar) => {
+      if (jar.textContent?.includes('Funded')) expect(jar.querySelector('svg path[d^="M4 30.0"]')).not.toBeNull()
+    })
+    for (const role of ['Owner', 'Admin', 'Limited']) expect(screen.getByText(role)).toBeInTheDocument()
+    expect(screen.queryByText('Member')).not.toBeInTheDocument()
+  })
+
   // The theme button works on the public page: a press turns dark mode on (the `.dark` class on
   // <html>, persisted under zbb.theme) and the toggle reads pressed.
   it('the theme button switches the page to dark mode and back', async () => {
