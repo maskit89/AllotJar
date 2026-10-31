@@ -137,18 +137,84 @@ public class JarCycleTests
     public async Task Rule21_SeveralFundedCyclesPassedUnseen_EachRollsForward_InOrder()
     {
         await using var db = NewContext();
-        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: Today.AddYears(-3));
-        // Quarterly jar whose last three deadlines all passed with the target held.
-        var jar = SeedInsurance(db, account, due: Today.AddMonths(-6), target: 300m, recurMonths: 3);
-        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 300m, Today.AddMonths(-7));
+        // Quarterly jar whose last three deadlines all passed with the target held. The date is
+        // pinned: built from the real date, the anchor of six months before 31 October was
+        // 30 April, which rightly rolls to 30 July and 30 October, not to the 31st (rule 62:
+        // the anchor's own day is the 30th). Month-end anchors are covered below.
+        var today = new DateOnly(2026, 10, 31);
+        var anchor = new DateOnly(2026, 4, 30);
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: new DateOnly(2023, 10, 31));
+        var jar = SeedInsurance(db, account, due: anchor, target: 300m, recurMonths: 3);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 300m, new DateOnly(2026, 3, 31));
 
-        var dto = (await ListAsync(db)).Single();
+        var dto = (await new GetJarsQueryHandler(db, User(), new FixedClock(today))
+            .Handle(new GetJarsQuery(), CancellationToken.None)).Single();
 
         var cycles = await db.JarCycles.OrderBy(c => c.Deadline).ToListAsync();
-        cycles.Select(c => c.Deadline).Should().Equal(Today.AddMonths(-6), Today.AddMonths(-3), Today);
+        cycles.Select(c => c.Deadline).Should().Equal(anchor, new DateOnly(2026, 7, 30), new DateOnly(2026, 10, 30));
         cycles.Should().OnlyContain(c => c.Outcome == JarCycleOutcome.Funded && c.BalanceAtDeadline == 300m);
-        dto.Deadline.Should().Be(Today.AddMonths(3));
-        dto.LastCycle!.Deadline.Should().Be(Today);
+        dto.Deadline.Should().Be(new DateOnly(2027, 1, 30));
+        dto.LastCycle!.Deadline.Should().Be(new DateOnly(2026, 10, 30));
+    }
+
+    /// <summary>
+    /// Rule 62 through the rollover itself, with the date pinned rather than taken from the
+    /// clock: cycles that pass unseen are each stepped from the anchor, so a month-end deadline
+    /// clamps in a shorter month and comes back to its own day in the next longer one. It never
+    /// stays on the clamped day.
+    /// </summary>
+    [Theory]
+    // Quarterly from 31 January: April has 30 days, July and October are back on the 31st.
+    [InlineData("2026-01-31", 3, "2026-10-31", "2026-01-31,2026-04-30,2026-07-31,2026-10-31", "2027-01-31")]
+    // Quarterly from 30 November: February clamps to the 28th, May returns to the 30th.
+    [InlineData("2025-11-30", 3, "2026-08-30", "2025-11-30,2026-02-28,2026-05-30,2026-08-30", "2026-11-30")]
+    // Monthly from 31 January in a leap year: 29 February, then the 31st and 30th again.
+    [InlineData("2028-01-31", 1, "2028-05-31", "2028-01-31,2028-02-29,2028-03-31,2028-04-30,2028-05-31", "2028-06-30")]
+    // Monthly from 29 January in a common year: only February clamps.
+    [InlineData("2027-01-29", 1, "2027-04-29", "2027-01-29,2027-02-28,2027-03-29,2027-04-29", "2027-05-29")]
+    // Yearly from 29 February: 28 February in common years, 29 February again in 2032.
+    [InlineData("2028-02-29", 12, "2032-02-29", "2028-02-29,2029-02-28,2030-02-28,2031-02-28,2032-02-29", "2033-02-28")]
+    // Settled the day before a month-end deadline: that cycle stays open, on its own day.
+    [InlineData("2026-01-31", 3, "2026-10-30", "2026-01-31,2026-04-30,2026-07-31", "2026-10-31")]
+    public async Task Rule62_FundedCyclesPassedUnseen_AreSteppedFromTheAnchor_SoAMonthEndDeadlineNeverDrifts(
+        string anchorDate, int recurMonths, string settledOn, string closedDeadlines, string openDeadline)
+    {
+        await using var db = NewContext();
+        var anchor = DateOnly.ParseExact(anchorDate, "yyyy-MM-dd");
+        var today = DateOnly.ParseExact(settledOn, "yyyy-MM-dd");
+        var account = LedgerFixtures.SeedAccount(db, Owner, opening: 5000m, openingDate: anchor.AddYears(-1));
+        var jar = SeedInsurance(db, account, due: anchor, target: 300m, recurMonths: recurMonths);
+        LedgerFixtures.Allocate(db, Owner, account.Id, jar.Id, 300m, anchor.AddMonths(-1));
+
+        (await JarCycles.SettleAsync(db, Owner, today, CancellationToken.None)).Should().BeTrue();
+
+        var cycles = await db.JarCycles.OrderBy(c => c.Deadline).ToListAsync();
+        cycles.Select(c => c.Deadline.ToString("yyyy-MM-dd")).Should().Equal(closedDeadlines.Split(','));
+        cycles.Should().OnlyContain(c => c.Outcome == JarCycleOutcome.Funded && c.BalanceAtDeadline == 300m);
+        var saved = await db.Jars.SingleAsync();
+        saved.CycleDeadline.Should().Be(DateOnly.ParseExact(openDeadline, "yyyy-MM-dd"));
+        saved.TargetDate.Should().Be(anchor);
+    }
+
+    /// <summary>
+    /// The same rule when the user moves a month-end cycle on by hand: dismissing a missed
+    /// 30 April cycle of a jar anchored on 31 January opens 31 July, not 30 July. Dismissing
+    /// reads the real date, so the deadlines are years in the past and only their day matters.
+    /// </summary>
+    [Fact]
+    public async Task Rule62_DismissingAClampedCycle_OpensTheNextOnTheAnchorsDay()
+    {
+        await using var db = NewContext();
+        var account = LedgerFixtures.SeedAccount(db, Owner, openingDate: new DateOnly(2020, 1, 1));
+        var anchor = new DateOnly(2021, 1, 31);
+        var clamped = new DateOnly(2021, 4, 30);
+        var jar = SeedInsurance(db, account, due: clamped, target: 300m, recurMonths: 3, anchor: anchor);
+
+        var dto = await DismissAsync(db, jar, clamped);
+
+        dto.Deadline.Should().Be(new DateOnly(2021, 7, 31));
+        dto.TargetDate.Should().Be(anchor);
+        (await db.JarCycles.SingleAsync()).Deadline.Should().Be(clamped);
     }
 
     [Fact]

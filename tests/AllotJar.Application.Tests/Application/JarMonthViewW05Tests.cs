@@ -68,12 +68,16 @@ public class JarMonthViewW05Tests
         return items;
     }
 
-    /// <summary>The jar's figures for <paramref name="month"/> as the Budget page's shelf asks for them (today injected).</summary>
+    /// <summary>
+    /// The jar's figures for <paramref name="month"/> as the Budget page's shelf asks for them
+    /// (today injected, and the clock the read settles cycles on stopped at it too, so a deadline
+    /// "not yet arrived" stays so whatever the real date).
+    /// </summary>
     private static async Task<JarDto> ReadAsync(ApplicationDbContext db, DateOnly? month) =>
-        (await new GetJarsQueryHandler(db, User()).Handle(new GetJarsQuery(AsOf: Today, Month: month), CancellationToken.None)).Single();
+        (await ReadAllAsync(db, month)).Single();
 
     private static async Task<IReadOnlyList<JarDto>> ReadAllAsync(ApplicationDbContext db, DateOnly? month) =>
-        await new GetJarsQueryHandler(db, User()).Handle(new GetJarsQuery(AsOf: Today, Month: month), CancellationToken.None);
+        await new GetJarsQueryHandler(db, User(), new FixedClock(Today)).Handle(new GetJarsQuery(AsOf: Today, Month: month), CancellationToken.None);
 
     private static async Task<decimal?> GridAvailableAsync(ApplicationDbContext db, DateOnly month, Guid? jarId = null) =>
         (await new GetBudgetMonthQueryHandler(db, User()).Handle(new GetBudgetMonthQuery(month.Year, month.Month), CancellationToken.None))
