@@ -1,6 +1,6 @@
 # Landing & Public Pages
 
-**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public landing page at `/` (the sign-in pages' look since restyle PR 15: the green room, the line, one primary, the theme button, three quiet features, the quiet footer; euro always), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the staging banner + staging signup data-loss consent, and the (retired) coming-soon page expectations. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
+**ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public landing page at `/` (the "Product tour" since 31 Oct 2026: the header row, the line with Create free account and Sign in side by side and a slice of the app, three steps, three features, four extras, the green closing band, the quiet footer; euro always), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the staging banner + staging signup data-loss consent, and the (retired) coming-soon page expectations. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
 
 **Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, empty `localStorage` (no `zbb.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **production** deployment `www.allotjar.com`/apex (built with `VITE_APP_ENV=production`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and/or the **staging** deployment `staging.allotjar.com` (built with `VITE_APP_ENV=staging`, NO GA measurement ID — analytics disabled; reachable only from allowlisted IPs via a Cloudflare WAF rule), and to a **local/default** build (`VITE_APP_ENV` unset, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) The coming-soon page was RETIRED at the 2026-07 GA cutover (`www`/apex now serve the production app); its source remains archived in `marketing/coming-soon/`.
 
@@ -15,51 +15,54 @@
   2. Wait for the page to settle (the auth bootstrap 401s).
   3. Inspect the first screen.
 - **Expected:**
-  - The sign-in pages' green room across the top of the sage page (on a phone, the compact green band), the soft gold glow, and the shelf of four glass jars (two each side of the card on desktop, a small row of four in the band on a phone). The jars are decoration (no name, no figure, no percent text).
-  - Exactly one `<h1>`: "Give every euro a job." (euro always — see LAND-005).
-  - The short off-white card with the gold hairline in front of the shelf (decluttered 27 Oct 2026) holds, centred, one sentence "Zero-based budgeting for your household.", the page's one primary (green) button "Create your free account" and the muted note "Free to start · No card required" right under it. The only "Sign in" is the header's.
-  - No invented figure anywhere ("€2,480", "set aside across 3 jars" are gone), no eyebrow, no "crafted in Europe" copy.
-- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-001; client/e2e/landing.spec.ts — H1 "Give every euro a job." + axe, one primary on the first screen; client/e2e/mobile-layout.spec.ts — the line, the primary and the header's Sign in on a phone's first screen)
+  - The "Product tour" (31 Oct 2026, replacing the green room and short card of #398): the sage page with the header row, then the hero. On the left: exactly one `<h1>` "Give every euro a job." (euro always — see LAND-005; "euro" in brand green, gold in dark mode), one sentence "Zero-based budgeting for your household, with jars for the big bills.", the two buttons side by side "Create free account" (filled green) and "Sign in" (outlined), and the muted note "Free to start · No card required". On the right: a slice of the app (the green Remaining to budget tile at €0.00 with "Every euro has a job", a shelf of four jars with names and amounts, a Groceries row and a Paid Rent row).
+  - The pictures of the app are decoration (`aria-hidden`): a screen reader reads no amount anywhere on the page.
+  - On a phone the hero stacks: the line, the sentence, the two buttons full width one above the other and the note on the first screen, the picture under them.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-001; client/e2e/landing.spec.ts — H1 "Give every euro a job." + axe, both buttons side by side on the first screen; client/e2e/mobile-layout.spec.ts — the line and both buttons on a phone's first screen)
 
 ### LAND-002 - Header and footer chrome and links
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Anonymous visitor on `/` (landing rendered).
 - **Steps:**
-  1. Inspect the header (the room's top row): the wordmark link, the `nav` with `aria-label="Primary"`, the theme button.
+  1. Inspect the header row: the wordmark link, the `nav` with `aria-label="Primary"`, the theme button.
   2. Scroll to the footer (`nav` with `aria-label="Footer"`).
   3. Click the logo link.
 - **Expected:**
-  - Header logo link has `aria-label="AllotJar home"`, `href="/"`; wordmark reads "AllotJar" in the room's pale ink. The Primary nav holds one quiet link "Sign in" → `/login`; beside it the theme button (a toggle named "Dark mode", `aria-pressed`), as on the sign-in page. There is no filled "Get started" button in the header.
+  - Header logo link has `aria-label="AllotJar home"`, `href="/"`; the wordmark reads "AllotJar" in the page's ink (the legal pages' header row). The Primary nav holds one quiet link "Sign in" → `/login`; beside it the theme button (a toggle named "Dark mode", `aria-pressed`) with a hairline ring. There is no filled "Get started" button in the header.
   - Footer: one quiet line "© 2026 AllotJar · Privacy · Terms" (year = current year): "Privacy" → `/privacy`, "Terms" → `/terms`, nothing else (no sign-in or register links there).
-  - Clicking the logo goes back to `/` in place, with no reload. The landing's links are plain `<a href>` in the prerendered HTML and in-app links once the app is running (`PublicLink`), so "Sign in" and "Create your free account" also open the sign-in page without a reload or the boot splash.
+  - Clicking the logo goes back to `/` in place, with no reload. The landing's links are plain `<a href>` in the prerendered HTML and in-app links once the app is running (`PublicLink`), so "Sign in" and "Create free account" also open the sign-in page without a reload or the boot splash.
 - **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-002; client/e2e/landing.spec.ts — footer links, theme button)
 
-### LAND-003 - Every CTA lands on the correct login tab, one primary on the page
+### LAND-003 - Every CTA lands on the correct login tab; Sign in beside Create free account
 - **Priority:** P1
 - **Type:** Happy
 - **Preconditions:** Anonymous visitor on `/`.
 - **Steps:**
-  1. Click the card's "Create your free account".
-  2. Go back; click the header's "Sign in".
+  1. Click the hero's "Create free account".
+  2. Go back; click the hero's "Sign in", then the header's "Sign in".
+  3. Scroll to the closing band and repeat with its two buttons.
 - **Expected:**
-  - "Create your free account" goes to `/login?register=1` and LoginPage opens with the **Create account** tab of the segmented control "Sign in or create an account" selected.
+  - "Create free account" goes to `/login?register=1` and LoginPage opens with the **Create account** tab of the segmented control "Sign in or create an account" selected.
   - "Sign in" goes to `/login` with the **Sign in** tab selected.
   - No CTA requires JavaScript state — each is a plain `<a href>` (works middle-click/new-tab).
-  - One primary button on the whole page (the card's) and one "Sign in" (the header's, a link, never a button); no closing line repeats the button.
-- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-003; client/e2e/landing.spec.ts — the CTAs open the right tab, one primary in view)
+  - Christopher, 31 Oct 2026: Sign in must not hide in the corner. The hero and the green closing band ("Ready to give every euro a job?") each hold "Create free account" and "Sign in" side by side (one above the other on a phone); the header keeps its quiet "Sign in". Two "Create free account" links and three "Sign in" links on the page, all links, never buttons.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-003; client/e2e/landing.spec.ts — the CTAs open the right tab, both buttons side by side in view)
 
-### LAND-004 - Three quiet features
+### LAND-004 - Three steps, three features, four extras
 - **Priority:** P2
 - **Type:** Happy
 - **Preconditions:** Anonymous visitor on `/`.
 - **Steps:**
-  1. Scroll under the room.
+  1. Scroll under the hero to the footer.
 - **Expected:**
-  - Three features in a row with no boxes (stacked as rows on a phone), each one glyph in a tinted square, a short title and a few words: "Budget to zero" — "Plan each month to zero."; "Jars for big bills" — "Save a little each month."; "Budget together" — "One budget for the household." The section's heading "What AllotJar does" is visually hidden.
-  - Then the footer. The promises line ("In your currency… · Your data is never sold.") and the closing line "Ready to give every euro a job?" with its second button are gone (decluttered 27 Oct 2026).
-  - The old six-card grid, the three step cards and the five FAQ cards are gone, as are "Sinking-fund jars" and "Members" (the app's words are Jars and People).
-- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-004)
+  - "Budgeting in three steps": three cards with a small picture each and a numbered title: "Money comes in", "Give it a job", "Spend without worry" (the number is for the eye only).
+  - Three features, the words and a picture side by side (alternating on desktop, stacked on a phone), each an eyebrow, a title and three ticked points: Budget, "Plan the month to zero" (Every euro gets a job; Leftovers carry into next month; See what's left at a glance); Jars, "Jars for the big bills" (Set a target and a due date; Know what to put aside each month; Replans itself when you pay); Together, "One budget for the household" (Invite your partner; Shared and private accounts; Pocket money for the kids).
+  - Four small extras (their heading "Also in AllotJar" is visually hidden): Import statements, CSV or PDF from any bank; Reports, What each jar really cost; On your phone, Install it like an app; Private, No bank login. Never sold.
+  - The green closing band "Ready to give every euro a job?" with both buttons and the note; then the footer. No FAQ, no testimonials, no invented user numbers.
+  - On a screen 1800px wide or more the whole page grows (`zoom` 1.25, 1.5 from 2400px and 2 from 3200px, so the content keeps about 60% of a 4K screen) instead of leaving a 1200px column in the middle.
+  - The pictures use the app's own words: the one full jar (Insurance) carries the **Funded** chip, the others their monthly amount; the household picture's roles are Owner, Admin and Limited.
+- **Automated:** Yes (client/src/pages/LandingPage.catalog.test.tsx LAND-004; client/e2e/wide-screen.spec.ts — the landing's content width at 1440, 1920, 2560 and 3840px)
 
 ## Euro always (the line never follows the locale)
 
@@ -96,7 +99,7 @@
   2. Fetch `/` with JavaScript disabled (e.g. `curl -s https://www.allotjar.com/`) from any locale.
   3. Search the raw HTML for the H1 text.
 - **Expected:**
-  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers, plus the "Create your free account" link, the "Sign in" link, the theme button (`aria-label="Dark mode"`) and the three features. Crawler-visible copy is deterministic and on-brand (euro-first), and nothing changes after the SPA mounts. The static theme button is neutral (restyle PR 20, #351 P3-1): no `aria-pressed` and both icons, the moon `dark:hidden` and the sun `hidden dark:block`, so the page's `.dark` class (theme-init.js) shows the right one and a dark visitor's first paint never shows the light state; once mounted the button reads the theme (`aria-pressed`, one icon).
+  - The static markup inside `<div id="root">` contains "Give every euro a job." regardless of the fetching client's locale/headers, plus the "Create free account" and "Sign in" links, the theme button (`aria-label="Dark mode"`), the three steps and the three features. Crawler-visible copy is deterministic and on-brand (euro-first), and nothing changes after the SPA mounts. The static theme button is neutral (restyle PR 20, #351 P3-1): no `aria-pressed` and both icons, the moon `dark:hidden` and the sun `hidden dark:block`, so the page's `.dark` class (theme-init.js) shows the right one and a dark visitor's first paint never shows the light state; once mounted the button reads the theme (`aria-pressed`, one icon).
 - **Automated:** Partial (client/src/pages/LandingPage.catalog.test.tsx LAND-007 — `renderToStaticMarkup` holds the line, the CTAs, the theme button and the features, and equals a second render; "the theme button before mount" — the neutral static button, the same markup whatever the stored theme, and the mounted state; the build's console line and dist/index.html are checked by hand)
 
 ## Route `/` auth branching & catch-all
@@ -218,10 +221,10 @@
 - **Origin:** PR #117 (accent `text-brand-600` must pair `dark:text-brand-500` on the dark background) and PR #120 (legal footer muted text must be `slate-500`, not `slate-400` at 2.55:1)
 - **Preconditions:** Anonymous browser; ability to switch OS/emulated color scheme.
 - **Steps:**
-  1. Load `/` in dark mode; inspect the card's sentence and note, the primary, the features' lines and the footer.
+  1. Load `/` in dark mode; inspect the sentence and note, both buttons, the features' points, the extras' lines, the closing band and the footer.
   2. Load `/privacy` and `/terms` in dark mode; inspect the footer "© 2026 AllotJar" and "Last updated" muted text.
 - **Expected:**
-  - The landing rides the warm tokens (restyle PR 15): the card is the dark `--color-card`, the note and the features' muted lines `slate-500` of the inverted ramp; the room's pale ink ("Sign in", the wordmark) and the gold word clear AA/3:1 on the green in both modes.
+  - The landing rides the warm tokens: the cards are the dark `--color-card`, the note and the extras' muted lines `slate-500` of the inverted ramp; on the green closing band the white title, the outlined "Sign in" and the note clear AA, and the gold word clears 3:1, in both modes.
   - Legal muted text renders at slate-500 or better; an axe scan of both pages in both themes reports no A/AA contrast violations.
 - **Automated:** Yes (client/e2e/landing.spec.ts + client/e2e/legal.spec.ts — axe WCAG A/AA in light and dark)
 

@@ -144,26 +144,30 @@ beforeEach(() => {
 // =============================================================================
 // Landing page — anonymous visit (LAND-001..004)
 // =============================================================================
-describe('LandingPage — the room, the card and the chrome', () => {
+describe('LandingPage — the product tour and the chrome', () => {
   // LAND-001 — the hero for an anonymous visitor: exactly one H1 (the line, euro always), the
-  // one sentence, the free-to-start note, and the shelf's jars as decoration only (no figure,
-  // no labelled jars, no percent text: nothing on the page is an invented number).
-  it('LAND-001: renders the line, the sentence and the note; the jars are decoration', () => {
-    render(<LandingPage />)
+  // one sentence, the free-to-start note under both pairs of buttons. The pictures of the app are
+  // decoration: hidden from assistive tech (no img role, no figure read out).
+  it('LAND-001: renders the line, the sentence and the note; the pictures are decoration', () => {
+    const { container } = render(<LandingPage />)
 
     const headings = screen.getAllByRole('heading', { level: 1 })
     expect(headings).toHaveLength(1)
     expect(headings[0]).toHaveTextContent('Give every euro a job.')
 
-    expect(
-      screen.getByText('Zero-based budgeting for your household.'),
-    ).toBeInTheDocument()
-    expect(screen.getByText('Free to start · No card required')).toBeInTheDocument()
+    expect(screen.getByText('Zero-based budgeting for your household, with jars for the big bills.')).toBeInTheDocument()
+    // Under the hero's buttons and the closing band's.
+    expect(screen.getAllByText('Free to start · No card required')).toHaveLength(2)
 
-    // The old hero's figure and labelled jars are gone; the glass jars carry no name.
+    // Every picture of the app (the hero's, the three steps', the three features') is hidden.
+    const pictures = container.querySelectorAll('.land-shot, .land-pic')
+    expect(pictures).toHaveLength(7)
+    pictures.forEach((pic) => expect(pic).toHaveAttribute('aria-hidden', 'true'))
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
-    expect(screen.queryByText(/€\s?\d/)).not.toBeInTheDocument()
-    expect(screen.queryByText(/\d+%/)).not.toBeInTheDocument()
+    // No figure outside the pictures: what a screen reader reads holds no amount.
+    const read = container.cloneNode(true) as HTMLElement
+    read.querySelectorAll('[aria-hidden="true"]').forEach((el) => el.remove())
+    expect(read.textContent).not.toMatch(/€\s?\d/)
   })
 
   // LAND-002 — the header (the wordmark home link, the Primary nav's quiet "Sign in", the theme
@@ -191,58 +195,80 @@ describe('LandingPage — the room, the card and the chrome', () => {
     expect(within(nav).getAllByRole('link')).toHaveLength(2)
   })
 
-  // LAND-003 — every CTA is a plain anchor to today's targets: the one "Create your free account"
-  // (the hero's) → /login?register=1, the header's one "Sign in" → /login. The page has one
-  // primary button and one Sign in: no second Sign in beside the primary, no closing line.
-  it('LAND-003: the one register CTA and the one sign-in link are plain anchors to the login tabs', () => {
-    const { container } = render(<LandingPage />)
-
-    const registerCtas = screen.getAllByRole('link', { name: 'Create your free account' })
-    expect(registerCtas).toHaveLength(1)
-    expect(registerCtas[0]).toHaveAttribute('href', '/login?register=1')
-    expect(registerCtas[0].tagName).toBe('A')
-    expect(registerCtas[0].closest('.auth-card')).not.toBeNull()
-    expect(screen.queryByRole('link', { name: /^(get started|create account)$/i })).not.toBeInTheDocument()
-
-    const signIns = screen.getAllByRole('link', { name: 'Sign in' })
-    expect(signIns).toHaveLength(1)
-    expect(signIns[0]).toHaveAttribute('href', '/login')
-    expect(signIns[0].tagName).toBe('A')
-    expect(within(screen.getByRole('banner')).getByRole('link', { name: 'Sign in' })).toBe(signIns[0])
-
-    expect(container.querySelectorAll('.bg-brand-600')).toHaveLength(1)
-  })
-
-  // LAND-004 — the three features (one glyph, a short title, a few words each); the promises line,
-  // the closing line, the old six-card grid, the three steps and the FAQ are gone.
-  it('LAND-004: three quiet features; no promises line, no closing line, no steps, no FAQ', () => {
+  // LAND-003 — every CTA is a plain anchor to today's targets. Christopher, 31 Oct 2026: Sign in
+  // must not hide in the corner, so the hero and the closing band each hold both buttons side by
+  // side, "Create free account" → /login?register=1 and "Sign in" → /login; the header keeps
+  // its quiet Sign in.
+  it('LAND-003: Create free account and Sign in sit side by side in the hero and the closing band', () => {
     render(<LandingPage />)
 
-    const features = screen.getByRole('region', { name: 'What AllotJar does' })
-    const cards = within(features).getAllByRole('listitem')
-    expect(cards).toHaveLength(3)
-    const titles = ['Budget to zero', 'Jars for big bills', 'Budget together']
-    const lines = ['Plan each month to zero.', 'Save a little each month.', 'One budget for the household.']
-    cards.forEach((card, i) => {
-      expect(within(card).getByRole('heading', { level: 3, name: titles[i] })).toBeInTheDocument()
-      expect(within(card).getByText(lines[i])).toBeInTheDocument()
-      // One line each: the title and its line are the card's only text.
-      expect(card.textContent).toBe(titles[i] + lines[i])
-    })
-    expect(screen.queryByRole('heading', { level: 2, name: /ready to give every/i })).not.toBeInTheDocument()
-
-    for (const gone of [
-      'In your currency, the way you write it',
-      'Your data is never sold',
-      'Everything you need to budget with confidence',
-      'How AllotJar works',
-      'Frequently asked questions',
-      'Sinking-fund jars',
-      'crafted in Europe',
-    ]) {
-      expect(screen.queryByText(new RegExp(gone, 'i'))).not.toBeInTheDocument()
+    const hero = screen.getByRole('region', { name: 'Give every euro a job.' })
+    const close = screen.getByRole('region', { name: 'Ready to give every euro a job?' })
+    for (const part of [hero, close]) {
+      const links = within(part).getAllByRole('link')
+      expect(links.map((l) => l.textContent)).toEqual(['Create free account', 'Sign in'])
+      expect(links[0]).toHaveAttribute('href', '/login?register=1')
+      expect(links[1]).toHaveAttribute('href', '/login')
+      links.forEach((l) => expect(l.tagName).toBe('A'))
+      // The pair shares one row (one above the other on a phone, by CSS).
+      expect(links[0].parentElement).toBe(links[1].parentElement)
     }
-    expect(screen.queryByRole('list', { name: /faq/i })).not.toBeInTheDocument()
+
+    expect(screen.getAllByRole('link', { name: 'Create free account' })).toHaveLength(2)
+    const signIns = screen.getAllByRole('link', { name: 'Sign in' })
+    expect(signIns).toHaveLength(3)
+    signIns.forEach((l) => expect(l).toHaveAttribute('href', '/login'))
+    expect(screen.queryByRole('link', { name: /^(get started|create account)$/i })).not.toBeInTheDocument()
+  })
+
+  // LAND-004 — the tour: three steps, three features with three short points each, four extras.
+  it('LAND-004: three steps, three features of three points, four extras', () => {
+    render(<LandingPage />)
+
+    const steps = screen.getByRole('region', { name: 'Budgeting in three steps' })
+    const stepItems = within(steps).getAllByRole('listitem')
+    // The step's number is drawn for the eye only: the heading's name is the words.
+    expect(stepItems).toHaveLength(3)
+    ;['Money comes in', 'Give it a job', 'Spend without worry'].forEach((name, i) =>
+      expect(within(stepItems[i]).getByRole('heading', { level: 3, name })).toBeInTheDocument(),
+    )
+
+    const features = {
+      'Plan the month to zero': ['Every euro gets a job', 'Leftovers carry into next month', 'See what’s left at a glance'],
+      'Jars for the big bills': ['Set a target and a due date', 'Know what to put aside each month', 'Replans itself when you pay'],
+      'One budget for the household': ['Invite your partner', 'Shared and private accounts', 'Pocket money for the kids'],
+    }
+    for (const [title, points] of Object.entries(features)) {
+      const feature = screen.getByRole('region', { name: title })
+      expect(within(feature).getByRole('heading', { level: 2, name: title })).toBeInTheDocument()
+      expect(within(feature).getAllByRole('listitem').map((li) => li.textContent)).toEqual(points)
+    }
+
+    const extras = screen.getByRole('region', { name: 'Also in AllotJar' })
+    expect(within(extras).getAllByRole('heading', { level: 3 }).map((h) => h.textContent)).toEqual([
+      'Import statements',
+      'Reports',
+      'On your phone',
+      'Private',
+    ])
+
+    expect(screen.queryByText(/frequently asked questions/i)).not.toBeInTheDocument()
+  })
+
+  // #410 review P2-1 / P3-1: the pictures speak the app's words. Funded is the app's chip for a jar
+  // at its whole target (jarStatus.ts), so it sits only on a jar drawn full; the household's roles
+  // are the app's (Owner, Admin, Limited).
+  it('the pictures use the app’s words: Funded only on a full jar, the app’s roles', () => {
+    const { container } = render(<LandingPage />)
+    expect(screen.queryByText('Ready')).not.toBeInTheDocument()
+    const funded = screen.getAllByText('Funded')
+    expect(funded.length).toBeGreaterThan(0)
+    // Every jar on a shelf with a Funded chip is drawn full (its wave at the top of the glass, y 30).
+    container.querySelectorAll('.land-jar').forEach((jar) => {
+      if (jar.textContent?.includes('Funded')) expect(jar.querySelector('svg path[d^="M4 30.0"]')).not.toBeNull()
+    })
+    for (const role of ['Owner', 'Admin', 'Limited']) expect(screen.getByText(role)).toBeInTheDocument()
+    expect(screen.queryByText('Member')).not.toBeInTheDocument()
   })
 
   // The theme button works on the public page: a press turns dark mode on (the `.dark` class on
@@ -334,12 +360,13 @@ describe('LandingPage — SSR-safe prerender', () => {
     const spy = withLocale('en-US')
     try {
       const html = renderToStaticMarkup(<LandingPage />)
-      expect(html).toContain('Give every <span class="gold-number">euro</span> a job.')
+      expect(html).toContain('Give every <span>euro</span> a job.')
       expect(html).not.toMatch(/Give every (dollar|pound)/)
       expect(html).toContain('href="/login?register=1"')
       expect(html).toContain('href="/login"')
       expect(html).toContain('aria-label="Dark mode"')
-      expect(html).toContain('Jars for big bills')
+      expect(html).toContain('Jars for the big bills')
+      expect(html).toContain('Budgeting in three steps')
       // Nothing reads window, document or navigator during render: the static render is
       // the same as the client's first render.
       expect(html).toBe(renderToStaticMarkup(<LandingPage />))
@@ -496,9 +523,9 @@ describe('Route `/` — auth-state branching', () => {
     const langSpy = withLocale('en-GB')
     try {
       renderApp('/')
-      expect(await screen.findByText('Free to start · No card required', {}, { timeout: 5000 })).toBeInTheDocument()
+      expect(await screen.findAllByText('Free to start · No card required', {}, { timeout: 5000 })).toHaveLength(2)
       expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Give every euro a job.')
-      expect(screen.getAllByRole('link', { name: 'Create your free account' })).toHaveLength(1)
+      expect(screen.getAllByRole('link', { name: 'Create free account' })).toHaveLength(2)
       // Not the login form, not the dashboard.
       expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
       expect(screen.queryByRole('button', { name: /^Planned amount for Rent:/ })).not.toBeInTheDocument()
@@ -507,9 +534,9 @@ describe('Route `/` — auth-state branching', () => {
     }
   })
 
-  // Sign in and Create your free account switch to the sign-in page in place (router links once
+  // Sign in and Create free account switch to the sign-in page in place (router links once
   // the app runs; the prerendered HTML keeps plain hrefs, LAND-007): no reload, no boot splash.
-  it('Sign in and Create your free account open the sign-in page without a reload', { timeout: 15000 }, async () => {
+  it('Sign in and Create free account open the sign-in page without a reload', { timeout: 15000 }, async () => {
     authState.token = null
     const scroll = vi.spyOn(window, 'scrollTo').mockImplementation(() => {})
     try {
@@ -524,7 +551,7 @@ describe('Route `/` — auth-state branching', () => {
       unmount()
 
       renderApp('/')
-      await user.click((await screen.findAllByRole('link', { name: 'Create your free account' }, { timeout: 5000 }))[0])
+      await user.click((await screen.findAllByRole('link', { name: 'Create free account' }, { timeout: 5000 }))[0])
       // Register mode: the form's submit reads Create account.
       const buttons = await screen.findAllByRole('button', { name: 'Create account' })
       expect(buttons.some((b) => b.getAttribute('type') === 'submit')).toBe(true)
@@ -543,7 +570,7 @@ describe('Route `/` — auth-state branching', () => {
       await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 }),
     ).toBeInTheDocument()
     // No landing content at any point once authed.
-    expect(screen.queryByRole('link', { name: 'Create your free account' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Create free account' })).not.toBeInTheDocument()
     expect(
       screen.queryByRole('heading', { level: 1, name: /give every \w+ a job/i }),
     ).not.toBeInTheDocument()

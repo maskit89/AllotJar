@@ -100,31 +100,23 @@ Rendered inside `AppShell active="reports" title="Reports"`.
 
 Navigation is `PublicLink` (components/PublicHeader.tsx): a plain `<a href>` in the prerendered HTML (no router, required for SSR-safety) and a router `Link` once the app is running, so the sign-in page opens in place with no reload.
 
-- `StagingBanner` at top (only when `VITE_APP_ENV === 'staging'`): role="status", text
-  `Staging · test data, may be reset`
-- Header: logo link (aria-label `AllotJar home`, href `/`), nav (aria-label `Primary`): `Sign in`
-  -> `/login`; primary CTA `Get started` -> `/login?register=1`.
-- Hero: eyebrow `Zero-based budgeting · crafted in Europe, at home anywhere`; H1
-  `Give every {noun} a job.` - noun initialises to `euro` (SSR/prerender output) and a mount-only
-  effect swaps in the visitor's locale currency noun via `currencyNoun(detectLocaleDefaults().currency)`
-  (lines 149-152; e.g. en-US browser -> "dollar", unknown -> "unit"). CTAs:
-  `Create your free account` -> `/login?register=1`; `Sign in` -> `/login`. Sub-copy:
-  `Free to start · No card required`.
-- Hero right panel ("Your jars" shelf): `€2,480`, `set aside across 3 jars this year`, three
-  decorative jars - `Insurance` 90%, `Holiday` 70%, `New car` 40% - each with accessible label
-  `{label}: {pct}% funded`, no in-jar percent text (a11y contrast).
-- Features section (heading `Everything you need to budget with confidence`): 6 cards -
-  `Zero-based budgeting`, `Sinking-fund jars`, `All your accounts`, `Reports & trends`,
-  `Budget as a household`, `Private & secure`.
-- How-it-works (heading `How AllotJar works`, `Three simple steps, every month.`): `1 Plan the month`,
-  `2 Track as you spend`, `3 Adjust and save`.
-- FAQ (heading `Frequently asked questions`), 5 Q/As: `What is zero-based budgeting?`,
-  `Can I use AllotJar outside Europe?`, `What makes AllotJar different?`,
-  `Can I share my budget with my partner?`, `How much does AllotJar cost?`.
-- Closing CTA band: `Ready to give every {noun} a job?`, button `Create your free account`
-  -> `/login?register=1`.
-- Footer (nav aria-label `Footer`): `© {currentYear} AllotJar · Give every {noun} a job.`; links
-  `Privacy` -> `/privacy`, `Terms` -> `/terms`, `Sign in` -> `/login`, `Create account` -> `/login?register=1`.
+- `StagingBanner` at top (only when `VITE_APP_ENV === 'staging'`).
+- The "Product tour" (31 Oct 2026). Header row (PublicHeader, on the sage as the legal pages'):
+  logo link (aria-label `AllotJar home`, href `/`), nav (aria-label `Primary`): `Sign in` -> `/login`,
+  the `Dark mode` theme button.
+- Hero (region named by the H1): H1 `Give every euro a job.` (euro always, never the locale's noun);
+  `Zero-based budgeting for your household, with jars for the big bills.`; side by side
+  `Create free account` -> `/login?register=1` and `Sign in` -> `/login`; `Free to start · No card
+  required`. Right: an aria-hidden slice of the app (Remaining to budget €0.00, four jars, two rows).
+- `Budgeting in three steps`: `Money comes in`, `Give it a job`, `Spend without worry` (each an
+  aria-hidden picture and an h3).
+- Three features (regions named by their h2), three ticked points each: `Plan the month to zero`,
+  `Jars for the big bills`, `One budget for the household`; each beside an aria-hidden picture.
+- Extras (visually hidden h2 `Also in AllotJar`): `Import statements`, `Reports`, `On your phone`,
+  `Private`.
+- Closing band (region `Ready to give every euro a job?`): `Create free account` and `Sign in` again.
+- Footer (nav aria-label `Footer`): `© {currentYear} AllotJar`; links `Privacy` -> `/privacy`,
+  `Terms` -> `/terms`.
 
 ### 2.3 LegalLayout / PrivacyPage / TermsPage
 

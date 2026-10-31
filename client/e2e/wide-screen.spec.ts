@@ -235,3 +235,40 @@ test.describe('Reports on a 1428px-wide screen', () => {
     expect(hintRight).toBeLessThanOrEqual(iconLeft)
   })
 })
+
+/**
+ * The public landing (31 Oct 2026, #410 P2-2): its 1200px page grows with a big screen (zoom 1.25 from
+ * 1800px, 1.5 from 2400px, 2 from 3200px), so the content never sits as a narrow column in the
+ * middle of a 4K screen, and nothing scrolls sideways.
+ */
+test.describe('the landing on a wide screen', () => {
+  for (const { width, content } of [
+    { width: 1440, content: 1120 },
+    { width: 1920, content: 1400 }, // 1120 x 1.25
+    { width: 2560, content: 1680 }, // 1120 x 1.5
+    { width: 3840, content: 2240 }, // 1120 x 2
+  ]) {
+    test(`at ${width}px the content is ${content}px wide, centred`, async ({ page }) => {
+      await page.setViewportSize({ width, height: Math.round((width * 9) / 16) })
+      await page.route('**/api/**', mockApi)
+      await page.goto('/')
+      await page.getByRole('heading', { level: 1, name: 'Give every euro a job.' }).waitFor()
+      const m = await page.evaluate(() => {
+        const words = document.querySelector('.land-words')!.getBoundingClientRect()
+        const steps = document.querySelector('.land-steps')!.getBoundingClientRect()
+        return {
+          left: words.left,
+          steps: steps.width,
+          right: document.documentElement.clientWidth - steps.right,
+          scrollW: document.documentElement.scrollWidth,
+          clientW: document.documentElement.clientWidth,
+        }
+      })
+      expect(Math.abs(m.steps - content)).toBeLessThanOrEqual(2)
+      expect(Math.abs(m.left - (width - content) / 2)).toBeLessThanOrEqual(2)
+      expect(Math.abs(m.right - (width - content) / 2)).toBeLessThanOrEqual(2)
+      expect(m.scrollW).toBeLessThanOrEqual(m.clientW + 1)
+      if (width >= 1920) expect(m.steps / width).toBeGreaterThanOrEqual(0.58)
+    })
+  }
+})
