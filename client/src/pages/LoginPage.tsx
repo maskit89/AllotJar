@@ -20,7 +20,7 @@ export function LoginPage() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
 
-  // Deep links from the landing page ("Create your free account" → /login?register=1)
+  // Deep links from the landing page ("Create free account" → /login?register=1)
   // open straight on the registration tab.
   const [mode, setMode] = useState<'login' | 'register'>(
     searchParams.has('register') ? 'register' : 'login',

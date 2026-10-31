@@ -1698,10 +1698,14 @@ html {
 }
 
 /* ============================================================================================
-   The public landing page (restyle PR 15): the sign-in pages' room, band and card (the `auth-*`
-   rules above, unchanged) around the page's own parts. Prefixed `land-`, used by LandingPage only.
-   The header row's right side and the footer are shared with the legal pages (PublicHeader.tsx,
-   restyle PR 16): prefixed `pub-`.
+   The public landing page (31 Oct 2026, the "Product tour"): the sage page with the legal pages'
+   header row (PublicHeader), a hero with the line, one sentence, both buttons side by side
+   (Create free account, Sign in) and a slice of the app; how it works in three steps; three
+   features, each a few short points beside a picture of the app; four small extras; a green
+   closing band with both buttons again; the footer. The pictures are drawn with the app's own
+   pieces (the hero tile, the glass jars, rows) and are decoration (aria-hidden). Prefixed `land-`,
+   used by LandingPage only. The header row's right side and the footer are shared with the legal
+   pages (PublicHeader.tsx, restyle PR 16): prefixed `pub-`.
    ============================================================================================ */
 /* The room's right side: a quiet "Sign in" beside the theme button, in the room's pale ink. */
 .pub-right {
@@ -1723,88 +1727,552 @@ html {
   color: #fff;
   background: rgb(255 255 255 / 0.07);
 }
-/* The card holds the page's one primary: one short sentence, the pill and the note under it,
-   centred. It ends under its content (no sign-in card's minimum height), still standing on the shelf
-   between the jars; the features follow on the sage under the room. */
-.land .auth-main {
-  gap: 0;
+.land {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
-@media (min-width: 700px) {
-  .land .auth-card {
-    min-height: 0;
-  }
+/* One measure for every part of the page: 1200px with 40px sides (1120px of content). */
+.land-top,
+.land-hero,
+.land-sec,
+.land-feats {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding-left: 40px;
+  padding-right: 40px;
 }
-.land .auth-card {
+.land-top {
+  position: relative;
+  z-index: 3;
+}
+.land-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 520px);
   align-items: center;
-  text-align: center;
+  gap: 72px;
+  padding-top: 40px;
+  padding-bottom: 104px;
+  min-height: calc(100vh - 90px);
+  min-height: calc(100dvh - 90px);
+  background: radial-gradient(40% 50% at 80% 45%, color-mix(in srgb, var(--color-background) 80%, #1f6b4d), transparent 70%);
 }
-.land .auth-card > * + * {
-  margin-top: 18px;
+.land-words {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
 }
-.land-lead {
-  font-size: 17px;
-  line-height: 1.45;
+.land-h1 {
+  margin: 0;
+  font-size: 64px;
+  line-height: 1.02;
+  font-weight: 750;
+  letter-spacing: -0.035em;
   text-wrap: balance;
   color: var(--color-foreground);
 }
-.land-pill {
-  width: auto;
-  padding: 0 26px;
-  white-space: nowrap;
+.land-h1 span {
+  color: var(--color-brand-600);
 }
-.land .auth-card > .land-note {
-  margin-top: 12px;
+.dark .land-h1 span {
+  color: #e7c160;
+}
+.land-lead {
+  margin: 0 0 8px;
+  max-width: 30ch;
+  font-size: 19px;
+  line-height: 1.45;
+  color: var(--color-slate-600);
+}
+
+/* The two buttons and the note under them. */
+.land-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.land-btns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.land-pill,
+.land-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 48px;
+  padding: 0 28px;
+  border-radius: 999px;
+  font-size: 16px;
+  font-weight: 650;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+.land-pill {
+  color: #fff;
+  background: var(--color-brand-600);
+  box-shadow: 0 12px 24px -14px rgb(31 107 77 / 0.9);
+}
+.land-pill:hover {
+  background: var(--color-brand-700);
+}
+.dark .land-pill {
+  background: var(--color-primary);
+  box-shadow: none;
+}
+.dark .land-pill:hover {
+  background: var(--color-brand-600);
+}
+.land-ghost {
+  color: var(--color-brand-700);
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--color-brand-600) 55%, transparent);
+}
+.land-ghost:hover {
+  background: var(--color-accent);
+}
+.dark .land-ghost {
+  color: #cfe7d9;
+  box-shadow: inset 0 0 0 1.5px rgb(207 231 217 / 0.4);
+}
+.dark .land-ghost:hover {
+  background: rgb(207 231 217 / 0.08);
+}
+.land-note {
+  margin: 0;
   font-size: 13px;
   color: var(--color-slate-500);
 }
-/* Three quiet features: a tinted glyph, a short title and a few words; no boxes. They start well
-   under the room's foot. */
-.land-features {
-  width: 100%;
-  max-width: 880px;
-  margin-top: 120px;
+.land-center {
+  align-items: center;
+  text-align: center;
 }
-.land-cards {
+.land-center .land-btns {
+  justify-content: center;
+}
+/* On the green band: an off-white pill with green ink, a white outline, pale ink for the note. */
+.land-on-green .land-pill,
+.dark .land-on-green .land-pill {
+  color: #134a32;
+  background: #f6f3e6;
+  box-shadow: 0 0 0 1px rgb(244 219 142 / 0.6), 0 14px 30px -16px rgb(0 0 0 / 0.6);
+}
+.land-on-green .land-pill:hover,
+.dark .land-on-green .land-pill:hover {
+  background: #fff;
+}
+.land-on-green .land-ghost,
+.dark .land-on-green .land-ghost {
+  color: #fff;
+  box-shadow: inset 0 0 0 1.5px rgb(255 255 255 / 0.55);
+}
+.land-on-green .land-ghost:hover,
+.dark .land-on-green .land-ghost:hover {
+  background: rgb(255 255 255 / 0.1);
+}
+.land-on-green .land-note {
+  color: rgb(255 255 255 / 0.88);
+}
+.land-on-green :focus-visible {
+  outline-color: #f4db8e;
+}
+
+/* The pictures: a frosted tray holding the app's pieces. */
+.land-shot {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px;
+  border-radius: 28px;
+  background: color-mix(in srgb, var(--color-card) 55%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-border) 80%, transparent), 0 40px 80px -40px rgb(22 44 32 / 0.45);
+}
+.dark .land-shot {
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.06), 0 40px 80px -40px rgb(0 0 0 / 0.8);
+}
+.land-tile {
+  border-radius: 18px;
+  padding: 20px 22px 18px;
+}
+.land-tile-label {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 550;
+  color: rgb(255 255 255 / 0.85);
+}
+.land-tile-num {
+  margin: 4px 0 12px;
+  font-size: 40px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+}
+.land-tile-bar {
+  height: 6px;
+  border-radius: 6px;
+  background: rgb(255 255 255 / 0.16);
+}
+.land-tile-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+  background: linear-gradient(90deg, #e5be5e, #f4db8e);
+}
+.land-tile-done {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 12px 0 0;
+  font-size: 13px;
+  color: rgb(255 255 255 / 0.88);
+}
+.land-card,
+.land-rows {
+  border-radius: 18px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-frame);
+}
+.land-card {
+  padding: 16px 18px 18px;
+}
+.land-card-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 15px;
+  font-weight: 700;
+}
+.land-card-head span + span {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-slate-500);
+}
+.land-muted {
+  color: var(--color-slate-500);
+}
+/* A row of glass jars on the gold-edged plank, each with its name and amount under it. */
+.land-shelf {
+  position: relative;
+  display: grid;
+  margin-top: 12px;
+}
+.land-shelf::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  top: var(--shelf-top, 66px);
+  height: 5px;
+  border-radius: 2px 2px 4px 4px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--color-gold) 40%, var(--color-card)) 0 1.5px,
+    color-mix(in srgb, var(--color-gold) 30%, var(--color-border)) 1.5px
+  );
+  box-shadow: 0 5px 8px -5px rgb(22 44 32 / 0.35);
+}
+.land-jar {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  text-align: center;
+}
+.land-jar > svg {
+  margin-bottom: 10px;
+}
+.land-jar-name {
+  font-size: 12px;
+  color: var(--color-slate-500);
+  white-space: nowrap;
+}
+.land-jar-amt {
+  font-size: 14px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.land-jar-sub {
+  font-size: 12px;
+  color: var(--color-slate-500);
+}
+.land-rows {
+  padding: 6px 18px;
+}
+.land-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0;
+  font-size: 14px;
+  font-weight: 550;
+}
+.land-row + .land-row {
+  border-top: 1px solid var(--color-line);
+}
+.land-row > :last-child {
+  justify-self: end;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.land-bar {
+  height: 6px;
+  border-radius: 6px;
+  background: var(--color-track);
+  overflow: hidden;
+}
+.land-bar i {
+  display: block;
+  height: 100%;
+  border-radius: 6px;
+}
+.land-chip {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-ok);
+  background: var(--color-ok-bg);
+}
+.land-jar .land-chip {
+  margin-top: 2px;
+}
+.land-row-person {
+  grid-template-columns: 36px minmax(0, 1fr) auto;
+}
+.land-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+/* How it works: three pictures, each with its number and a few words. */
+.land-sec {
+  padding-bottom: 112px;
+}
+.land-sec-h {
+  margin: 0 0 36px;
+  text-align: center;
+  font-size: 36px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  color: var(--color-foreground);
+}
+.land-steps {
   list-style: none;
   margin: 0;
   padding: 0;
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 32px;
+  gap: 24px;
 }
-.land-f {
+.land-step {
   display: flex;
   flex-direction: column;
+  gap: 18px;
+}
+.land-step h3 {
+  display: flex;
   align-items: center;
-  gap: 8px;
-  text-align: center;
+  gap: 10px;
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--color-foreground);
+}
+.land-n {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-brand-600);
+  background: var(--color-brand-50);
+}
+.dark .land-n {
+  color: var(--color-brand-500);
+  background: rgb(127 211 166 / 0.12);
+}
+.land-pic {
+  height: 190px;
+  border-radius: 22px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-frame);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.land-pic > * {
+  width: 100%;
+}
+.land-pic .land-shelf {
+  margin: 0;
+}
+.land-pic-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 22px 24px;
+  border-radius: 16px;
+}
+.land-pic-tile .land-tile-num {
+  margin: 0;
+}
+.land-pic-rows {
+  flex-direction: column;
+  padding: 16px 22px;
+}
+
+/* The features: the words on one side (an eyebrow, a title, three ticked points), the picture on
+   the other, alternating. */
+.land-feats {
+  display: flex;
+  flex-direction: column;
+  gap: 112px;
+  padding-bottom: 96px;
+}
+.land-feat {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 80px;
+}
+.land-flip .land-feat-words {
+  order: 2;
+}
+.land-eyebrow {
+  margin: 0 0 10px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-brand-600);
+}
+.dark .land-eyebrow {
+  color: var(--color-brand-500);
+}
+.land-feat h2 {
+  margin: 0 0 24px;
+  font-size: 40px;
+  line-height: 1.08;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  color: var(--color-foreground);
+}
+.land-points {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  font-size: 18px;
+  color: var(--color-slate-600);
+}
+.land-points li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.land-tick {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  color: var(--color-ok);
+  background: var(--color-ok-bg);
+}
+
+/* The extras: four small cards, a glyph, a title and a few words. */
+.land-extras {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 20px;
+}
+.land-extras li {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 20px;
+  border-radius: 18px;
+  background: var(--color-card);
+  box-shadow: var(--shadow-frame);
 }
 .land-glyph {
   display: grid;
   place-items: center;
+  flex: none;
   width: 40px;
   height: 40px;
-  margin-bottom: 4px;
   border-radius: 12px;
+  color: var(--color-brand-600);
+  background: var(--color-brand-50);
+}
+.dark .land-glyph {
+  color: var(--color-brand-500);
+  background: rgb(127 211 166 / 0.12);
 }
 .land-glyph svg {
   width: 19px;
   height: 19px;
 }
-.land-f h3 {
+.land-extras h3 {
   margin: 0;
   font-size: 16px;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  line-height: 1.25;
   color: var(--color-foreground);
 }
-.land-f p {
-  margin: 0;
+.land-extras p {
+  margin: 4px 0 0;
   font-size: 14px;
   line-height: 1.45;
   color: var(--color-slate-500);
 }
+
+/* The closing band: the hero tile's green, gold hairline and glow, with both buttons again. */
+.land-close {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 28px;
+  width: calc(100% - 80px);
+  max-width: 1120px;
+  margin: 0 auto 32px;
+  padding: 64px 40px;
+  border-radius: 28px;
+  text-align: center;
+}
+.land-close h2 {
+  margin: 0;
+  font-size: 40px;
+  font-weight: 750;
+  letter-spacing: -0.03em;
+  text-wrap: balance;
+  color: #fff;
+}
+.land-close h2 .gold-number {
+  background-image: linear-gradient(170deg, #f7e3a3 8%, #efcd72 48%, #e7c160);
+}
+
 /* The quiet footer of the public pages: the year, Privacy and Terms. */
 .pub-foot {
   position: relative;
@@ -1830,63 +2298,137 @@ html {
 .pub-foot a:hover {
   color: var(--color-foreground);
 }
-/* Phone: the band and the small shelf as on the sign-in page; the card hangs from the band's foot as
-   a card (not the form's sheet to the bottom of the screen: the page goes on under it), with the
-   full gold hairline; the features stack as rows. */
-@media (max-width: 699.98px) {
-  .land .auth-top {
-    padding-right: 8px;
+
+/* A big screen (a 4K monitor, a wide desktop): the whole page grows with it, as the app's pages use
+   the width (#359), instead of a 1200px column lost in the middle. `zoom` scales the viewport units
+   too, so the hero's first-screen height divides by the same factor. */
+@media (min-width: 1800px) {
+  .land {
+    zoom: 1.25;
   }
+  .land-hero {
+    min-height: calc((100dvh - 90px * 1.25) / 1.25);
+  }
+}
+@media (min-width: 2400px) {
+  .land {
+    zoom: 1.5;
+  }
+  .land-hero {
+    min-height: calc((100dvh - 90px * 1.5) / 1.5);
+  }
+}
+/* A narrower screen: the hero and the features stack (the words first), the extras go two by two. */
+@media (max-width: 999.98px) {
+  .land-hero {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 48px;
+    min-height: 0;
+    padding-bottom: 80px;
+  }
+  .land-hero .land-shot {
+    max-width: 560px;
+  }
+  .land-feat {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .land-flip .land-feat-words {
+    order: 0;
+  }
+  .land-feat .land-shot {
+    max-width: 560px;
+  }
+  .land-extras {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 859.98px) {
+  .land-steps {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 480px;
+    margin: 0 auto;
+  }
+}
+/* Phone: 18px sides, smaller type, the buttons full width one above the other. */
+@media (max-width: 699.98px) {
   .pub-top-link {
     padding: 0 10px;
   }
-  .land .auth-main {
-    padding: 0 16px 24px;
+  .land-top,
+  .land-hero,
+  .land-sec,
+  .land-feats {
+    padding-left: 18px;
+    padding-right: 18px;
   }
-  .land .auth-card,
-  .dark .land .auth-card {
-    flex: none;
-    width: auto;
-    padding: 24px 20px;
-    border-radius: 22px;
-    background: var(--color-card);
+  .land .land-top .auth-top {
+    height: 64px;
+    margin-top: 4px;
   }
-  .land .auth-card {
-    box-shadow: 0 2px 6px rgb(22 44 32 / 0.08), 0 30px 60px -28px rgb(22 44 32 / 0.5);
+  .land-hero {
+    gap: 36px;
+    padding-top: 16px;
+    padding-bottom: 64px;
   }
-  .dark .land .auth-card {
-    box-shadow: 0 2px 6px rgb(0 0 0 / 0.4), 0 24px 48px -26px rgb(0 0 0 / 0.75);
+  .land-h1 {
+    font-size: 44px;
   }
-  .land .auth-card::after,
-  .dark .land .auth-card::after {
-    border-radius: 22px;
-    padding: 1px;
+  .land-lead {
+    font-size: 17px;
   }
-  .land .auth-card::after {
-    background: linear-gradient(135deg, rgb(236 200 110 / 0.95), rgb(229 190 94 / 0.28) 32%, rgb(229 190 94 / 0.28) 68%, rgb(236 200 110 / 0.85));
+  .land-cta,
+  .land-btns {
+    width: 100%;
   }
-  .dark .land .auth-card::after {
-    background: linear-gradient(135deg, rgb(236 200 110 / 0.75), rgb(229 190 94 / 0.14) 32%, rgb(229 190 94 / 0.14) 68%, rgb(236 200 110 / 0.6));
+  .land-btns {
+    flex-direction: column;
   }
-  .land-features {
-    margin-top: 32px;
+  .land-shot {
+    padding: 12px;
+    border-radius: 24px;
   }
-  .land-cards {
+  .land-hero .land-jar > svg,
+  .land-feat .land-jar > svg {
+    width: 44px;
+    height: 58px;
+  }
+  .land-hero .land-shelf::before,
+  .land-feat .land-shelf::before {
+    top: 56px;
+  }
+  .land-sec {
+    padding-bottom: 64px;
+  }
+  .land-sec-h {
+    margin-bottom: 24px;
+    font-size: 28px;
+  }
+  .land-feats {
+    gap: 64px;
+    padding-bottom: 64px;
+  }
+  .land-feat {
+    gap: 24px;
+  }
+  .land-feat h2 {
+    margin-bottom: 18px;
+    font-size: 30px;
+  }
+  .land-points {
+    font-size: 16px;
+  }
+  .land-extras {
     grid-template-columns: minmax(0, 1fr);
-    gap: 18px;
-    padding: 0 8px;
+    gap: 12px;
   }
-  /* A row: the glyph at the left, the title and its line beside it. */
-  .land-f {
-    display: grid;
-    grid-template-columns: 40px minmax(0, 1fr);
-    align-items: center;
-    gap: 0 14px;
-    text-align: left;
+  .land-close {
+    width: auto;
+    margin: 0 12px 24px;
+    padding: 44px 20px;
   }
-  .land-glyph {
-    grid-row: 1 / 3;
-    margin: 0;
+  .land-close h2 {
+    font-size: 30px;
   }
   .pub-foot {
     padding: 0 16px 24px;
@@ -1896,7 +2438,8 @@ html {
 /* ============================================================================================
    The public legal pages (restyle PR 16): the landing's header row on the sage page (a document
    page: no green room, so its ink is the page's and the theme button wears a hairline ring), one
-   off-white card with the gold hairline at a reading measure, the landing's footer under it.
+   off-white card with the gold hairline at a reading measure, the landing's footer under it. The
+   header row's rules also dress the landing's (`.land`, on the same sage since 31 Oct 2026).
    Prefixed `legal-`, used by LegalLayout only (`.legal-prose` is above, with the page's prose).
    ============================================================================================ */
 .legal-top {
@@ -1907,46 +2450,46 @@ html {
   margin: 0 auto;
   padding: 0 24px;
 }
-.legal .auth-top {
+:is(.legal, .land) .auth-top {
   height: 80px;
   margin: 10px 0 0;
   padding: 0;
   color: var(--color-foreground);
 }
-.legal .auth-brand {
+:is(.legal, .land) .auth-brand {
   --accent: var(--color-brand-600);
 }
-.dark .legal .auth-brand {
+.dark :is(.legal, .land) .auth-brand {
   --accent: var(--color-brand-500);
 }
-.legal .auth-brand-name {
+:is(.legal, .land) .auth-brand-name {
   color: var(--color-foreground);
 }
-.legal .auth-brand-name span {
+:is(.legal, .land) .auth-brand-name span {
   color: var(--color-brand-600);
 }
-.dark .legal .auth-brand-name span {
+.dark :is(.legal, .land) .auth-brand-name span {
   color: var(--color-brand-500);
 }
-.legal .pub-top-link {
+:is(.legal, .land) .pub-top-link {
   color: var(--color-slate-600);
 }
-.legal .pub-top-link:hover {
+:is(.legal, .land) .pub-top-link:hover {
   color: var(--color-foreground);
   background: color-mix(in srgb, currentColor 8%, transparent);
 }
-.legal .auth-theme {
+:is(.legal, .land) .auth-theme {
   color: var(--color-slate-500);
   background: var(--color-card);
   box-shadow: inset 0 0 0 1px var(--color-slate-200);
 }
-.legal .auth-theme:hover {
+:is(.legal, .land) .auth-theme:hover {
   color: var(--color-foreground);
   background: var(--color-card);
 }
 /* Dark: the hairline ring of the light page all but vanishes on the dark sage (about 1.5:1), so the
    ring takes the fields' edge, softened, and reads at 3:1 or more (#352 P3-3). */
-.dark .legal .auth-theme {
+.dark :is(.legal, .land) .auth-theme {
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-input) 70%, transparent);
 }
 .legal-main {

@@ -1,91 +1,291 @@
-import type { ReactNode } from 'react'
-import { Target, Users } from 'lucide-react'
-import { BandShelf, RoomShelf } from '../components/AuthFrame'
-import { JarNavIcon } from '../components/icons'
+import type { CSSProperties, ReactNode } from 'react'
+import { BarChart3, Check, FileUp, Lock, Smartphone } from 'lucide-react'
+import { GlassJar } from '../components/GlassJar'
 import { PublicFooter, PublicHeader, PublicLink } from '../components/PublicHeader'
 import { StagingBanner } from '../components/StagingBanner'
 import { hueColor, type CategoryHue } from '../lib/categoryColors'
 
 /**
  * The public landing page, the front door at `allotjar.com/` for anonymous visitors (signed-in
- * users get the dashboard instead; see App.tsx). Restyle PR 15, decluttered on 27 Oct 2026: the
- * sign-in pages' look (AuthFrame, restyle PR 9). The green room runs across the top of the sage page
- * with the wordmark, a quiet "Sign in" and the theme button; the line "Give every euro a job." under
- * the gold glow; the shelf of glass jars, two each side of a short off-white card with the gold
- * hairline, which holds one short sentence, the page's one primary button ("Create your free
- * account") and the free-to-start note. Under the room: three quiet features (a glyph, a title, a few
- * words, no boxes) and the footer. No second "Sign in", no promises line, no closing line. On a phone
- * the room is the compact band with the small shelf and the card hangs from its foot. The room, band
- * and card are the `auth-*` rules in index.css; the page's own parts are the `land-*` rules there.
- * The header row and the footer are the public pages' shared pieces (PublicHeader.tsx, restyle PR 16:
- * the legal pages draw the same ones).
+ * users get the dashboard instead; see App.tsx). Since 31 Oct 2026 the "Product tour" Christopher
+ * picked (after #398's short card left Sign in hidden in the corner and said nothing of what the
+ * app does): the legal pages' header row on the sage page, then
+ *  - the hero: the line "Give every euro a job.", one sentence, both buttons side by side
+ *    (Create free account, Sign in) with the free-to-start note, and a slice of the app (the
+ *    Remaining to budget tile at zero, a shelf of jars, two budget rows);
+ *  - "Budgeting in three steps": money comes in, give it a job, spend without worry;
+ *  - three features (budget, jars, together), each three short ticked points beside a picture;
+ *  - four small extras (import, reports, on your phone, private);
+ *  - the green closing band with both buttons again; the footer.
+ * The pictures are drawn with the app's own pieces (the hero tile, GlassJar, rows and chips) and are
+ * decoration: hidden from assistive tech, their words are said by the points beside them. The page's
+ * parts are the `land-*` rules in index.css; the header row and the footer are the public pages'
+ * shared pieces (PublicHeader.tsx).
  *
  * It is **self-contained and SSR-safe**: it renders to static HTML at build time
  * (scripts/prerender.mjs → renderToStaticMarkup), so nothing it renders may read `window`,
  * `document` or `navigator` during render, or read router state. Its links are `PublicLink`s: plain
- * `<a>` links to /login in the static HTML, in-app links (no reload) once the app is running. The line always says "euro" (the app is euro-first), so the prerendered
- * HTML never changes after the SPA mounts. The theme button's hook has a server snapshot (light),
- * and the theme itself is applied before paint by /theme-init.js.
+ * `<a>` links to /login in the static HTML, in-app links (no reload) once the app is running. The
+ * line always says "euro" (the app is euro-first), so the prerendered HTML never changes after the
+ * SPA mounts. The theme button's hook has a server snapshot (light), and the theme itself is applied
+ * before paint by /theme-init.js.
  */
 
 const REGISTER = '/login?register=1'
 
-/** The page's one primary: the sign-in form's green pill, as a link. */
-function CreateAccount() {
+/** The two buttons side by side (one above the other on a phone) and the note under them. */
+function Ctas({ onGreen = false, center = false }: { onGreen?: boolean; center?: boolean }) {
   return (
-    <PublicLink
-      to={REGISTER}
-      className="auth-pill land-pill inline-flex items-center justify-center rounded-lg bg-brand-600 font-semibold text-white transition hover:bg-brand-700 dark:bg-primary dark:hover:bg-brand-600"
-    >
-      Create your free account
-    </PublicLink>
+    <div className={`land-cta${center ? ' land-center' : ''}${onGreen ? ' land-on-green' : ''}`}>
+      <div className="land-btns">
+        <PublicLink to={REGISTER} className="land-pill">
+          Create free account
+        </PublicLink>
+        <PublicLink to="/login" className="land-ghost">
+          Sign in
+        </PublicLink>
+      </div>
+      <p className="land-note">Free to start · No card required</p>
+    </div>
   )
 }
 
-/** The three things the app does: a glyph in the hue's tint, a short title and a few words. */
-const FEATURES: { title: string; line: string; hue: CategoryHue; icon: ReactNode }[] = [
-  {
-    title: 'Budget to zero',
-    line: 'Plan each month to zero.',
-    hue: 'emerald',
-    icon: <Target strokeWidth={1.8} aria-hidden />,
-  },
-  {
-    title: 'Jars for big bills',
-    line: 'Save a little each month.',
-    hue: 'teal',
-    icon: <JarNavIcon strokeWidth={1.8} aria-hidden />,
-  },
-  {
-    title: 'Budget together',
-    line: 'One budget for the household.',
-    hue: 'indigo',
-    icon: <Users strokeWidth={1.8} aria-hidden />,
-  },
+type ShelfJar = { name: string; amount: string; pct: number; hue: CategoryHue; sub?: string; ready?: boolean }
+
+const JARS: ShelfJar[] = [
+  { name: 'Holiday', amount: '€640', pct: 64, hue: 'teal', sub: '€80/mo' },
+  { name: 'Car service', amount: '€210', pct: 42, hue: 'indigo', sub: '€35/mo' },
+  { name: 'Christmas', amount: '€180', pct: 30, hue: 'rose', sub: '€40/mo' },
+  { name: 'Insurance', amount: '€420', pct: 84, hue: 'emerald', ready: true },
 ]
 
-/** The features under the room: no boxes, no closing line, no second button. */
+/** A row of glass jars on the plank, each with its name and amount (and, with `plans`, its monthly
+ *  amount or Ready). The plank sits at the jars' feet: `--shelf-top` follows the jar's width. */
+function Shelf({ jars = JARS, width = 52, plans = false }: { jars?: ShelfJar[]; width?: number; plans?: boolean }) {
+  const style = {
+    gridTemplateColumns: `repeat(${jars.length}, minmax(0, 1fr))`,
+    '--shelf-top': `${Math.round((width * 84) / 64) - 2}px`,
+  } as CSSProperties
+  return (
+    <div className="land-shelf" style={style}>
+      {jars.map((j) => (
+        <div key={j.name} className="land-jar">
+          <GlassJar pct={j.pct} hue={j.hue} width={width} />
+          <span className="land-jar-name">{j.name}</span>
+          <span className="land-jar-amt">{j.amount}</span>
+          {plans && (j.ready ? <Chip>Ready</Chip> : <span className="land-jar-sub">{j.sub}</span>)}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function Chip({ children }: { children: ReactNode }) {
+  return (
+    <span className="land-chip">
+      <Check size={12} strokeWidth={2.6} aria-hidden />
+      {children}
+    </span>
+  )
+}
+
+/** A budget row: the name, a bar (or a chip) and the figure at the right. */
+function Row({ name, right, bar, chip }: { name: string; right: ReactNode; bar?: { pct: number; hue: CategoryHue }; chip?: string }) {
+  return (
+    <div className="land-row">
+      <span>{name}</span>
+      {chip ? (
+        <Chip>{chip}</Chip>
+      ) : (
+        <span className="land-bar">
+          <i style={{ width: `${bar?.pct ?? 0}%`, background: hueColor(bar?.hue ?? 'indigo') }} />
+        </span>
+      )}
+      <span>{right}</span>
+    </div>
+  )
+}
+
+const left = (amount: string) => <span className="land-muted">{amount} left</span>
+
+/** The Dashboard's green hero tile with its gold number and a full bar. */
+function HeroTile({ label, value, done }: { label: string; value: string; done?: string }) {
+  return (
+    <div className="land-tile kpi-hero">
+      <p className="land-tile-label">{label}</p>
+      <p className="land-tile-num gold-number">{value}</p>
+      <div className="land-tile-bar">
+        <span style={{ width: '100%' }} />
+      </div>
+      {done && (
+        <p className="land-tile-done">
+          <Check size={14} strokeWidth={2.4} aria-hidden /> {done}
+        </p>
+      )}
+    </div>
+  )
+}
+
+/** The hero's picture: the month at zero, the jars, two rows. */
+function AppSlice() {
+  return (
+    <div className="land-shot" aria-hidden>
+      <HeroTile label="Remaining to budget" value="€0.00" done="Every euro has a job" />
+      <div className="land-card">
+        <div className="land-card-head">
+          <span>Jars</span>
+          <span>€1,450 saved</span>
+        </div>
+        <Shelf />
+      </div>
+      <div className="land-rows">
+        <Row name="Groceries" bar={{ pct: 58, hue: 'indigo' }} right={left('€180')} />
+        <Row name="Rent" chip="Paid" right="€1,450" />
+      </div>
+    </div>
+  )
+}
+
+function Steps() {
+  return (
+    <section className="land-sec" aria-labelledby="land-steps-h">
+      <h2 id="land-steps-h" className="land-sec-h">
+        Budgeting in three steps
+      </h2>
+      <ol className="land-steps">
+        <li className="land-step">
+          <div className="land-pic" aria-hidden>
+            <div className="land-pic-tile kpi-hero">
+              <span className="land-tile-label">Income</span>
+              <span className="land-tile-num gold-number">€2,600</span>
+            </div>
+          </div>
+          <h3>
+            <span className="land-n" aria-hidden>
+              1
+            </span>
+            Money comes in
+          </h3>
+        </li>
+        <li className="land-step">
+          <div className="land-pic" aria-hidden>
+            <Shelf jars={JARS.slice(0, 3)} width={46} />
+          </div>
+          <h3>
+            <span className="land-n" aria-hidden>
+              2
+            </span>
+            Give it a job
+          </h3>
+        </li>
+        <li className="land-step">
+          <div className="land-pic land-pic-rows" aria-hidden>
+            <Row name="Groceries" bar={{ pct: 58, hue: 'indigo' }} right={left('€180')} />
+            <Row name="Holiday" chip="Ready" right="€640" />
+          </div>
+          <h3>
+            <span className="land-n" aria-hidden>
+              3
+            </span>
+            Spend without worry
+          </h3>
+        </li>
+      </ol>
+    </section>
+  )
+}
+
+/** One feature: the eyebrow, the title and three ticked points, beside its picture. */
+function Feature({ eyebrow, title, points, flip = false, children }: { eyebrow: string; title: string; points: string[]; flip?: boolean; children: ReactNode }) {
+  return (
+    <section className={`land-feat${flip ? ' land-flip' : ''}`} aria-label={title}>
+      <div className="land-feat-words">
+        <p className="land-eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+        <ul className="land-points">
+          {points.map((p) => (
+            <li key={p}>
+              <span className="land-tick" aria-hidden>
+                <Check size={13} strokeWidth={2.8} />
+              </span>
+              {p}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="land-shot" aria-hidden>
+        {children}
+      </div>
+    </section>
+  )
+}
+
+function Person({ letter, name, role, hue }: { letter: string; name: string; role: string; hue: CategoryHue }) {
+  return (
+    <div className="land-row land-row-person">
+      <span className="land-avatar" style={{ background: `color-mix(in srgb, ${hueColor(hue)} 18%, var(--color-card))`, color: hueColor(hue) }}>
+        {letter}
+      </span>
+      <span>{name}</span>
+      <span className="land-muted">{role}</span>
+    </div>
+  )
+}
+
 function Features() {
   return (
-    <section className="land-features" aria-labelledby="land-features-h">
-      <h2 id="land-features-h" className="sr-only">
-        What AllotJar does
+    <div className="land-feats">
+      <Feature eyebrow="Budget" title="Plan the month to zero" points={['Every euro gets a job', 'Leftovers carry into next month', 'See what’s left at a glance']}>
+        <HeroTile label="Remaining to budget" value="€320.00" />
+        <div className="land-rows">
+          <Row name="Rent" chip="Paid" right="€1,450" />
+          <Row name="Groceries" bar={{ pct: 58, hue: 'indigo' }} right={left('€180')} />
+          <Row name="Transport" bar={{ pct: 30, hue: 'teal' }} right={left('€105')} />
+        </div>
+      </Feature>
+      <Feature flip eyebrow="Jars" title="Jars for the big bills" points={['Set a target and a due date', 'Know what to put aside each month', 'Replans itself when you pay']}>
+        <div className="land-card">
+          <div className="land-card-head">
+            <span>Jars</span>
+            <span>€1,450 saved</span>
+          </div>
+          <Shelf plans />
+        </div>
+      </Feature>
+      <Feature eyebrow="Together" title="One budget for the household" points={['Invite your partner', 'Shared and private accounts', 'Pocket money for the kids']}>
+        <div className="land-rows">
+          <Person letter="A" name="Alex" role="Owner" hue="emerald" />
+          <Person letter="S" name="Sam" role="Member" hue="indigo" />
+          <Person letter="M" name="Mia" role="Pocket money" hue="rose" />
+        </div>
+      </Feature>
+    </div>
+  )
+}
+
+const EXTRAS: { title: string; line: string; icon: ReactNode }[] = [
+  { title: 'Import statements', line: 'CSV or PDF from any bank', icon: <FileUp strokeWidth={1.8} /> },
+  { title: 'Reports', line: 'What each jar really cost', icon: <BarChart3 strokeWidth={1.8} /> },
+  { title: 'On your phone', line: 'Install it like an app', icon: <Smartphone strokeWidth={1.8} /> },
+  { title: 'Private', line: 'No bank login. Never sold.', icon: <Lock strokeWidth={1.8} /> },
+]
+
+function Extras() {
+  return (
+    <section className="land-sec" aria-labelledby="land-extras-h">
+      <h2 id="land-extras-h" className="sr-only">
+        Also in AllotJar
       </h2>
-      <ul className="land-cards">
-        {FEATURES.map((f) => (
-          <li key={f.title} className="land-f">
-            <span
-              aria-hidden
-              className="land-glyph"
-              style={{
-                background: `color-mix(in srgb, ${hueColor(f.hue)} 13%, var(--color-card))`,
-                color: hueColor(f.hue),
-              }}
-            >
-              {f.icon}
+      <ul className="land-extras">
+        {EXTRAS.map((e) => (
+          <li key={e.title}>
+            <span className="land-glyph" aria-hidden>
+              {e.icon}
             </span>
-            <h3>{f.title}</h3>
-            <p>{f.line}</p>
+            <div>
+              <h3>{e.title}</h3>
+              <p>{e.line}</p>
+            </div>
           </li>
         ))}
       </ul>
@@ -95,7 +295,7 @@ function Features() {
 
 export function LandingPage() {
   return (
-    <div className="auth-page land">
+    <div className="land">
       {/* Bypass Blocks (2.4.1): the keyboard skip link, as the app frame's. */}
       <a
         href="#main-content"
@@ -104,33 +304,34 @@ export function LandingPage() {
         Skip to main content
       </a>
       <StagingBanner />
-      <div className="auth">
-        {/* Both shelves are drawn; the CSS shows the room's on a desktop and the band's on a phone, so
-            the static HTML is the same whatever the screen. */}
-        <RoomShelf />
+      <header className="land-top">
+        <PublicHeader />
+      </header>
 
-        <header className="auth-band">
-          <PublicHeader />
-          <div className="auth-hero">
-            <h1 className="auth-line">
-              Give every <span className="gold-number">euro</span> a job.
+      {/* tabIndex -1: the skip link's target is programmatically focusable (as AppShell's main). */}
+      <main id="main-content" tabIndex={-1} className="focus:outline-none">
+        <section className="land-hero" aria-labelledby="land-h1">
+          <div className="land-words">
+            <h1 id="land-h1" className="land-h1">
+              Give every <span>euro</span> a job.
             </h1>
-            <BandShelf />
+            <p className="land-lead">Zero-based budgeting for your household, with jars for the big bills.</p>
+            <Ctas />
           </div>
-        </header>
+          <AppSlice />
+        </section>
+        <Steps />
+        <Features />
+        <Extras />
+        <section className="land-close kpi-hero" aria-labelledby="land-close-h">
+          <h2 id="land-close-h">
+            Ready to give every <span className="gold-number">euro</span> a job?
+          </h2>
+          <Ctas onGreen center />
+        </section>
+      </main>
 
-        {/* tabIndex -1: the skip link's target is programmatically focusable (as AppShell's main). */}
-        <main id="main-content" tabIndex={-1} className="auth-main focus:outline-none">
-          <div className="auth-card">
-            <p className="land-lead">Zero-based budgeting for your household.</p>
-            <CreateAccount />
-            <p className="land-note">Free to start · No card required</p>
-          </div>
-          <Features />
-        </main>
-
-        <PublicFooter />
-      </div>
+      <PublicFooter />
     </div>
   )
 }
