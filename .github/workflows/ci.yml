@@ -252,7 +252,8 @@ jobs:
     # free minutes a month), so they run on main and on hand-started runs, not on PRs.
     if: github.event_name != 'pull_request'
     runs-on: ${{ vars.CI_RUNS_ON || 'ubuntu-latest' }}
-    timeout-minutes: 10
+    # The axe suite alone takes about 9 minutes (Nov 2026), so 10 left no margin.
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: client

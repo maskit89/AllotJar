@@ -247,25 +247,29 @@ test.describe('signed-out pages on a phone', () => {
     })
   }
 
-  // The landing (restyle PR 15, decluttered): the band, the line, the card's one primary and the
-  // header's "Sign in" are on the first screen of a 390x844 phone.
-  test('the landing shows the line and the primary on the first screen', async ({ page }) => {
+  // The landing's hero (31 Oct 2026): the line, Create free account and Sign in (one above the
+  // other, full width) are on the first screen of a 390x844 phone.
+  test('the landing shows the line and both buttons on the first screen', async ({ page }) => {
     await page.route('**/api/**', mockApi)
     await page.goto('/')
-    const line = page.getByRole('banner').getByRole('heading', { level: 1, name: 'Give every euro a job.' })
+    const hero = page.getByRole('region', { name: 'Give every euro a job.' })
+    const line = hero.getByRole('heading', { level: 1, name: 'Give every euro a job.' })
     await line.waitFor()
     await page.waitForLoadState('networkidle')
     await page.evaluate(() => document.fonts.ready)
-    for (const el of [line, page.getByRole('link', { name: 'Create your free account' }), page.getByRole('link', { name: 'Sign in' })]) {
+    const create = hero.getByRole('link', { name: 'Create free account' })
+    const signIn = hero.getByRole('link', { name: 'Sign in' })
+    for (const el of [line, create, signIn]) {
       const box = await el.boundingBox()
       expect(box, 'on the page').not.toBeNull()
       expect(box!.y + box!.height).toBeLessThanOrEqual(844)
     }
-    // The hero's button is the only filled green button on the first screen.
-    const inView = await page.locator('.bg-brand-600').evaluateAll((els) =>
-      els.filter((el) => el.getBoundingClientRect().top < window.innerHeight).length,
-    )
-    expect(inView).toBe(1)
+    // One above the other, each the width of the column.
+    const c = (await create.boundingBox())!
+    const s = (await signIn.boundingBox())!
+    expect(s.y).toBeGreaterThan(c.y + c.height)
+    expect(Math.abs(c.width - s.width)).toBeLessThan(1)
+    expect(c.width).toBeGreaterThan(390 - 2 * 18 - 2)
   })
 
   test('the Sign in form fits the first screen, the expired notice included', async ({ page }) => {
