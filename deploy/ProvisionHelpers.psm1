@@ -586,4 +586,35 @@ function Get-ScheduledTaskXmlCommands {
     return ,@($out)
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed, Get-AppPoolSid, Get-AllotJarNameMap, Convert-ZeroBudgetNames, Get-ZeroBudgetLineNumbers, Convert-ScheduledTaskXml, Get-ScheduledTaskXmlCommands
+<#
+.SYNOPSIS
+    A daily trigger's StartBoundary for -TimeUtc ("HH:mm", UTC), written with a trailing Z: the next
+    occurrence of that time more than five minutes after -Now, so registering never counts as a
+    missed run. A start time ending in Z makes Task Scheduler keep the trigger in UTC
+    ("synchronize across time zones"), so the VPS clock's own summer/winter change (US Pacific)
+    can no longer move the nightly backup. Pure, so a test can drive it.
+#>
+function Get-UtcDailyStartBoundary {
+    param(
+        [Parameter(Mandatory)][ValidatePattern('^([01]\d|2[0-3]):[0-5]\d$')][string]$TimeUtc,
+        [datetime]$Now = (Get-Date).ToUniversalTime()
+    )
+    $nowUtc = if ($Now.Kind -eq [DateTimeKind]::Local) { $Now.ToUniversalTime() } else { $Now }
+    $next = [datetime]::ParseExact($nowUtc.ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) + ' ' + $TimeUtc, 'yyyy-MM-dd HH:mm', [Globalization.CultureInfo]::InvariantCulture)
+    if ($next -le $nowUtc.AddMinutes(5)) { $next = $next.AddDays(1) }
+    return $next.ToString('yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture) + 'Z'
+}
+
+<#
+.SYNOPSIS
+    True when a stored trigger StartBoundary (Task Scheduler writes a UTC start as local time plus
+    offset, e.g. 2026-11-01T18:00:00-08:00) is pinned to an offset and falls at -TimeUtc.
+#>
+function Test-UtcPinnedStartBoundary {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$StartBoundary, [Parameter(Mandatory)][string]$TimeUtc)
+    if ($StartBoundary -notmatch '(Z|[+-]\d\d:\d\d)$') { return $false }
+    $utc = [datetimeoffset]::Parse($StartBoundary, [Globalization.CultureInfo]::InvariantCulture).UtcDateTime
+    return ($utc.ToString('HH:mm', [Globalization.CultureInfo]::InvariantCulture) -eq $TimeUtc)
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed, Get-AppPoolSid, Get-AllotJarNameMap, Convert-ZeroBudgetNames, Get-ZeroBudgetLineNumbers, Convert-ScheduledTaskXml, Get-ScheduledTaskXmlCommands, Get-UtcDailyStartBoundary, Test-UtcPinnedStartBoundary

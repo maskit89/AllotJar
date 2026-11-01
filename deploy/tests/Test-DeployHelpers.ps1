@@ -341,6 +341,16 @@ Assert-True ($newXml -match '<StartBoundary>2026-11-01T19:00:00</StartBoundary>'
 $oldCmds = Get-ScheduledTaskXmlCommands -Xml $taskXml
 Assert-True ((Convert-ZeroBudgetNames -Text $oldCmds[0]) -eq $cmds[0]) 'the new command line is the old one with the names changed and nothing else'
 
+Write-Host '== Get-UtcDailyStartBoundary / Test-UtcPinnedStartBoundary (backup times pinned to UTC) =='
+$now = [datetime]::SpecifyKind([datetime]'2026-11-01 11:00:00', [DateTimeKind]::Utc)
+Assert-True ((Get-UtcDailyStartBoundary -TimeUtc '02:00' -Now $now) -eq '2026-11-02T02:00:00Z') 'a time already passed today starts tomorrow, in UTC'
+Assert-True ((Get-UtcDailyStartBoundary -TimeUtc '23:30' -Now $now) -eq '2026-11-01T23:30:00Z') 'a time still ahead today starts today'
+Assert-True ((Get-UtcDailyStartBoundary -TimeUtc '11:03' -Now $now) -eq '2026-11-02T11:03:00Z') 'a time within five minutes waits a day, so no run counts as missed'
+Assert-True (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-01T18:00:00-08:00' -TimeUtc '02:00') 'a stored local time with offset names 02:00 UTC'
+Assert-True (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-02T02:45:00Z' -TimeUtc '02:45') 'a stored Z time is pinned'
+Assert-True (-not (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-01T02:30:00' -TimeUtc '02:30')) 'a local time with no offset is not pinned'
+Assert-True (-not (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-01T18:00:00-07:00' -TimeUtc '02:00')) 'the wrong instant is refused'
+
 Write-Host '== Every deploy script parses =='
 # The server scripts run only on Windows, so this is the one place CI sees a syntax error in them.
 foreach ($f in @(Get-ChildItem -Path (Split-Path $PSScriptRoot -Parent) -Include '*.ps1', '*.psm1' -Recurse -File)) {

@@ -9,13 +9,18 @@
     task (local-only); Provision-Production.ps1 registers the production task
     (AllotJar-Prod-DbBackup, database AllotJarProd, shipped to R2). Re-run this script to change
     the schedule/retention or to pick up an updated backup script.
+
+    -TimeUtc is in UTC and the trigger is pinned to UTC, so the VPS clock (US Pacific, with its own
+    summer/winter change) cannot move it. Defaults: 02:00 UTC for a production database (*Prod*),
+    02:45 UTC otherwise (staging), i.e. 03:00 and 03:45 in Malta in winter, never contending.
 #>
 [CmdletBinding()]
 param(
     [string]$BackupScript,    # default: Backup-Database.ps1 beside this script (set below)
     [string]$UploadScript,    # default: Upload-BackupToR2.ps1 beside this script (set below)
     [string]$InstallDir    = 'C:\deploy',
-    [string]$Time          = '02:30',
+    [ValidatePattern('^$|^([01]\d|2[0-3]):[0-5]\d$')]
+    [string]$TimeUtc,
     [string]$Server        = '.\SQLEXPRESS',
     [string]$Database      = 'AllotJarStaging',
     [string]$BackupDir     = 'C:\deploy\backups',
@@ -49,6 +54,7 @@ $ErrorActionPreference = 'Stop'
 if (-not $BackupScript) { $BackupScript = Join-Path $PSScriptRoot 'Backup-Database.ps1' }
 if (-not $UploadScript) { $UploadScript = Join-Path $PSScriptRoot 'Upload-BackupToR2.ps1' }
 Import-Module (Join-Path $PSScriptRoot 'ProvisionHelpers.psm1') -Force
+if (-not $TimeUtc) { $TimeUtc = if ($Database -like '*Prod*') { '02:00' } else { '02:45' } }
 
 if (-not (Test-Path $BackupScript)) { throw "Backup script not found: $BackupScript" }
 New-Item -ItemType Directory -Force -Path $InstallDir, $BackupDir | Out-Null
@@ -90,7 +96,9 @@ if (-not $SkipSqlLogin) {
 }
 
 $action    = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $argLine
-$trigger   = New-ScheduledTaskTrigger -Daily -At $Time
+$trigger   = New-ScheduledTaskTrigger -Daily -At '00:00'
+# Pinned to UTC: a start time ending in Z (see Get-UtcDailyStartBoundary).
+$trigger.StartBoundary = Get-UtcDailyStartBoundary -TimeUtc $TimeUtc
 $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType ServiceAccount -RunLevel Highest
 $settings  = New-ScheduledTaskSettingsSet -StartWhenAvailable
 
@@ -104,8 +112,12 @@ $storedArgs = ($stored.Actions | Select-Object -First 1).Arguments
 if ($R2Bucket -and -not (Get-R2BucketFromArgumentLine -ArgumentLine $storedArgs)) {
     throw "Task '$TaskName' was registered WITHOUT the R2 arguments: $storedArgs"
 }
+$storedStart = [string](@($stored.Triggers)[0].StartBoundary)
+if (@($stored.Triggers).Count -ne 1 -or -not (Test-UtcPinnedStartBoundary -StartBoundary $storedStart -TimeUtc $TimeUtc)) {
+    throw "Task '$TaskName' was not stored with one daily trigger pinned to $TimeUtc UTC (stored: $storedStart)."
+}
 
-Write-Host "Scheduled task '$TaskName' registered: daily at $Time as SYSTEM." -ForegroundColor Green
+Write-Host "Scheduled task '$TaskName' registered: daily at $TimeUtc UTC (pinned to UTC) as SYSTEM." -ForegroundColor Green
 if ($R2Bucket) {
     Write-Host "Off-host copy: each verified backup is encrypted (rclone remote r2crypt) and shipped to R2 bucket '$R2Bucket'." -ForegroundColor Green
 }

@@ -26,7 +26,7 @@ Every server-side name carries its environment, so nothing of staging's is calle
 | `ASPNETCORE_ENVIRONMENT` (pinned by `Deploy.ps1` in the API's `web.config`) | `Staging` | `Production` |
 | Settings file (server-only, gitignored) | `appsettings.Staging.json` | `appsettings.Production.json` |
 | Database | `AllotJarStaging` | `AllotJarProd` |
-| Backup task | `AllotJar-Staging-DbBackup` (local only, 03:30 server time) | `AllotJar-Prod-DbBackup` (shipped to R2, 02:30) |
+| Backup task | `AllotJar-Staging-DbBackup` (local only, 02:45 UTC) | `AllotJar-Prod-DbBackup` (shipped to R2, 02:00 UTC) |
 | DataProtection key folder (`DataProtection:KeysPath`) | `C:\inetpub\allotjar-staging-dp-keys` | `C:\inetpub\allotjar-prod-dp-keys` |
 | Origin inside emailed links (`Email:AppBaseUrl`; staging must set it, the built-in default is production's) | `https://staging.allotjar.com` | `https://www.allotjar.com` (or the apex `https://allotjar.com`) |
 | Release unpacked in | `C:\deploy\release-staging` (from `C:\deploy\incoming-staging`) | `C:\deploy\release-production` (from `C:\deploy\incoming-production`) |
@@ -176,7 +176,7 @@ target DB explicitly:
 powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1 -Database AllotJarProd -TaskName AllotJar-Prod-DbBackup
 # verify:  Start-ScheduledTask -TaskName AllotJar-Prod-DbBackup ; Get-ChildItem C:\deploy\backups
 ```
-`.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time/retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
+`.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time (`-TimeUtc HH:mm`, in UTC; the trigger is pinned to UTC so the server clock's summer/winter change cannot move it; defaults 02:00 for a `*Prod*` database, 02:45 otherwise) or the retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
 
 ### Off-host backups (Cloudflare R2, encrypted)
 

@@ -374,14 +374,14 @@ if (Test-Path $registerScript) {
     }
 
     Info 'Registering daily backup tasks (staging local-only by design; prod ships to R2)'
-    # Staging backs up an hour after production so the two never contend for the Express instance.
-    & $registerScript -Server $SqlServer -Database $StagingDatabase -TaskName $StagingTaskName -Time '03:30'
-    & $registerScript -Server $SqlServer -Database $ProdDatabase    -TaskName $prodTaskName `
+    # Both pinned to UTC; staging 45 minutes after production so the two never contend for the Express instance.
+    & $registerScript -Server $SqlServer -Database $StagingDatabase -TaskName $StagingTaskName -TimeUtc '02:45'
+    & $registerScript -Server $SqlServer -Database $ProdDatabase    -TaskName $prodTaskName -TimeUtc '02:00' `
         -R2Bucket $effectiveR2Bucket -Rclone $Rclone -RcloneConf $RcloneConf `
         -R2Remote $R2Remote -R2Prefix $R2Prefix
 
     # Script-level assertion: read the task BACK from the scheduler and require the R2
-    # arguments on its action — the guarantee is about what will actually run at 02:30,
+    # arguments on its action — the guarantee is about what will actually run at 02:00 UTC,
     # not about what we intended to register.
     $registered = Get-ScheduledTask -TaskName $prodTaskName -ErrorAction Stop
     $registeredArgs = ($registered.Actions | Select-Object -First 1).Arguments
