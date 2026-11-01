@@ -213,7 +213,7 @@ describe('LoginPage in the green-banner frame', () => {
     await user.click(dark)
     expect(dark).toHaveAttribute('aria-pressed', 'true')
     expect(document.documentElement).toHaveClass('dark')
-    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+    expect(localStorage.getItem('allotjar.theme')).toBe('dark')
   })
 
   it('the room holds the wordmark and the one line; its shelf of jars is decoration', () => {

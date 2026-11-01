@@ -248,7 +248,7 @@
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** PR #157 (single-flight refresh) / PR #169 (cross-tab sign-out broadcast, dead-session prompt) / PR #171 (30s refresh-replay grace window)
-- **Preconditions:** One user with three app tabs open (T1, T2, T3), all authenticated; browser about to be restored from cold so the access token is memory-only and each tab must bootstrap from the shared `zbb_rt` cookie.
+- **Preconditions:** One user with three app tabs open (T1, T2, T3), all authenticated; browser about to be restored from cold so the access token is memory-only and each tab must bootstrap from the shared `allotjar_rt` cookie.
 - **Steps:**
   1. Simulate a browser session-restore: reload T1 and T2 near-simultaneously so both race `POST /auth/refresh` with the same just-rotated cookie from the shared jar.
   2. Confirm both tabs end up signed in and usable.
@@ -260,7 +260,7 @@
 - **Expected:**
   - CP1-CP2: one tab wins the race (200 + rotated cookie); the loser gets a **401 `Superseded` within the 30s grace window with NO Set-Cookie** — the shared cookie is NOT cleared and no family burn occurs (PR #171); the loser retries off the winner's fresh cookie and both tabs are signed in. Each tab issues exactly one `/auth/refresh` (single-flight under StrictMode, PR #157).
   - CP3: the idle tab's focus/visibility revalidation sees the lapsed token, silently refreshes, and re-arms — no prompt for a still-live session.
-  - CP4-CP5: `logout()` revokes the refresh token + rotates the security stamp + broadcasts `'signed-out'` on `BroadcastChannel('zbb.auth')`; T2 and T3 receive the broadcast and clear state (receiver only acts `if (getToken())`, no loops), landing signed-out.
+  - CP4-CP5: `logout()` revokes the refresh token + rotates the security stamp + broadcasts `'signed-out'` on `BroadcastChannel('allotjar.auth')`; T2 and T3 receive the broadcast and clear state (receiver only acts `if (getToken())`, no loops), landing signed-out.
   - CP6: T4 cold-loads, its refresh 401s (token revoked) → lands on the landing/login, no zombie authed UI.
   - CP7: the genuinely-revoked SPA tab's next request 401s, silent refresh fails, and it bounces to `/login?reason=expired&returnUrl=…` — a real re-prompt, not a silent dead-end (interceptor exemption is a LIST, PR #169).
 - **Automated:** Partial (`client/e2e-journey/concurrent-refresh.spec.ts` covers the same-cookie refresh race grace — origin/main only; `session-expiry.spec.ts` covers the revoked-tab prompt; cross-tab logout pinned in `AuthContext.test.tsx`)

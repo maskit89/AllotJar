@@ -4,7 +4,7 @@ import { mockApi } from './mocks'
 
 /** Signed out, in `theme`: the cookie-bootstrap refresh fails (mockApi → 401), so `/` is the landing. */
 async function signedOut(page: Page, theme: 'light' | 'dark') {
-  await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+  await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
   await page.route('**/api/**', mockApi)
 }
 
@@ -64,7 +64,7 @@ test.describe('public landing page', () => {
 
   test('the theme button turns dark mode on and keeps it across a reload', async ({ page }) => {
     // Light from the OS (not a stored pick, which the reload would re-seed): the press stores the
-    // pick under zbb.theme, and theme-init.js reads it back before the first paint.
+    // pick under allotjar.theme, and theme-init.js reads it back before the first paint.
     await page.emulateMedia({ colorScheme: 'light' })
     await page.route('**/api/**', mockApi)
     await page.goto('/')

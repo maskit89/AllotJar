@@ -6,7 +6,7 @@
 // unavailable (it needs a secure context). So we prefer SHA-256 when we can, and fall
 // back to a deterministic non-crypto hash otherwise — either way the email is not sent.
 
-const PEPPER = 'zbb.analytics.v1'
+const PEPPER = 'allotjar.analytics.v1'
 
 function toHex(bytes: Uint8Array): string {
   let s = ''

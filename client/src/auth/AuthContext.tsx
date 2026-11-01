@@ -152,10 +152,10 @@ function toStep(data: SecondStepResponse): SecondStep {
 
 // Who is signed in (email, name, role) is never kept in the browser's storage: it is read from the
 // server on load (D2, client P3-8). These keys held it in older versions and are cleared on start.
-const LEGACY_IDENTITY_KEYS = ['zbb.email', 'zbb.role', 'zbb.displayName']
-const CURRENCY_KEY = 'zbb.currency'
-const BUDGET_CURRENCY_KEY = 'zbb.budgetCurrency'
-const FORMAT_KEY = 'zbb.numberFormat'
+const LEGACY_IDENTITY_KEYS = ['allotjar.email', 'allotjar.role', 'allotjar.displayName']
+const CURRENCY_KEY = 'allotjar.currency'
+const BUDGET_CURRENCY_KEY = 'allotjar.budgetCurrency'
+const FORMAT_KEY = 'allotjar.numberFormat'
 
 // The app-wide neutral fallbacks, shared with the backend default and the sign-up
 // form (see lib/money.ts). Only used when a user has no stored preference — every

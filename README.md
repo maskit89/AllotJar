@@ -48,9 +48,9 @@ calculators (`BudgetActuals`, `AccountBalances`).
 
 > The GitHub repo is `maskit89/AllotJar`. The server names (IIS sites, app pools,
 > folders, databases `AllotJarStaging` / `AllotJarProd`, scheduled tasks) and the JWT
-> issuer say AllotJar since November 2026 (`deploy/Rename-ToAllotJar.ps1`). The
-> `zbb_rt` cookie and `zbb.*` client keys keep their short prefix on purpose: renaming
-> them would sign everyone out and reset saved preferences for no gain.
+> issuer say AllotJar since November 2026 (`deploy/Rename-ToAllotJar.ps1`), as do the
+> refresh cookie (`allotjar_rt`) and the browser storage keys (`allotjar.*`), renamed before
+> the beta while nobody was signed in.
 
 ### Dependency rule (clean architecture)
 
@@ -440,7 +440,7 @@ Both suites — plus an **axe accessibility** check — run in CI on every push 
 - Every budgeting endpoint is `[Authorize]`d; handlers additionally scope all
   reads/writes to the active household's `OwnerId` (defence in depth — no IDOR).
 - **Tokens:** login/register returns a short-lived (15-min) access token held **in
-  memory** by the SPA, plus a rotating **HttpOnly refresh cookie** (`zbb_rt`, `Secure`
+  memory** by the SPA, plus a rotating **HttpOnly refresh cookie** (`allotjar_rt`, `Secure`
   in prod, `SameSite=Strict`, scoped to `/api/auth`) that the client silently exchanges
   for a fresh access token. JWTs are **revocable** via the Identity security stamp, so a
   password change or forced sign-out invalidates outstanding tokens.

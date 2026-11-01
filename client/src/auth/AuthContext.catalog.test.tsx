@@ -100,20 +100,20 @@ describe('SESS: AuthContext session lifecycle', () => {
   // (email, name, role) isn't kept there either (D2): only the money-display prefs are.
   it('SESS-006: the access token and the identity are memory-only — localStorage holds only pref hints', async () => {
     // An older version left the identity behind; starting up clears it.
-    localStorage.setItem('zbb.email', 'old@x.com')
-    localStorage.setItem('zbb.role', '0')
-    localStorage.setItem('zbb.displayName', 'Old')
+    localStorage.setItem('allotjar.email', 'old@x.com')
+    localStorage.setItem('allotjar.role', '0')
+    localStorage.setItem('allotjar.displayName', 'Old')
     await renderSignedIn(standardAdapter)
-    await waitFor(() => expect(localStorage.getItem('zbb.currency')).toBe('GBP'), { timeout: 5000 })
+    await waitFor(() => expect(localStorage.getItem('allotjar.currency')).toBe('GBP'), { timeout: 5000 })
 
     expect(getToken()).toBe('boot-jwt')
     const stored: string[] = []
     for (let i = 0; i < localStorage.length; i++) stored.push(localStorage.getItem(localStorage.key(i)!) as string)
     expect(stored).not.toContain('boot-jwt') // the JWT appears NOWHERE in storage
 
-    expect(localStorage.getItem('zbb.email')).toBeNull()
-    expect(localStorage.getItem('zbb.role')).toBeNull()
-    expect(localStorage.getItem('zbb.displayName')).toBeNull()
+    expect(localStorage.getItem('allotjar.email')).toBeNull()
+    expect(localStorage.getItem('allotjar.role')).toBeNull()
+    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
     expect(stored.join(' ')).not.toContain('dev@x.com')
   })
 
@@ -195,7 +195,7 @@ describe('SESS: AuthContext session lifecycle', () => {
       }
       return ok(url.includes('/auth/me') ? ME : {}, config)
     })
-    await waitFor(() => expect(localStorage.getItem('zbb.currency')).toBe('GBP'), { timeout: 5000 })
+    await waitFor(() => expect(localStorage.getItem('allotjar.currency')).toBe('GBP'), { timeout: 5000 })
 
     const user = userEvent.setup()
     await user.click(screen.getByText('signout'))
@@ -203,12 +203,12 @@ describe('SESS: AuthContext session lifecycle', () => {
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'), { timeout: 5000 })
     expect(logoutPosts).toBe(1)
     expect(getToken()).toBeNull()
-    expect(localStorage.getItem('zbb.email')).toBeNull()
-    expect(localStorage.getItem('zbb.role')).toBeNull()
-    expect(localStorage.getItem('zbb.displayName')).toBeNull()
+    expect(localStorage.getItem('allotjar.email')).toBeNull()
+    expect(localStorage.getItem('allotjar.role')).toBeNull()
+    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
     // Money prefs snap back to the neutral fallbacks.
-    expect(localStorage.getItem('zbb.currency')).toBe('EUR')
-    expect(localStorage.getItem('zbb.numberFormat')).toBe('comma-dot')
+    expect(localStorage.getItem('allotjar.currency')).toBe('EUR')
+    expect(localStorage.getItem('allotjar.numberFormat')).toBe('comma-dot')
   })
 
   // SESS-038 — logout is fire-and-forget: even when POST /auth/logout fails (offline),
@@ -220,14 +220,14 @@ describe('SESS: AuthContext session lifecycle', () => {
       if (url.includes('/auth/logout')) return Promise.reject(new Error('offline'))
       return ok(url.includes('/auth/me') ? ME : {}, config)
     })
-    await waitFor(() => expect(localStorage.getItem('zbb.currency')).toBe('GBP'), { timeout: 5000 })
+    await waitFor(() => expect(localStorage.getItem('allotjar.currency')).toBe('GBP'), { timeout: 5000 })
 
     const user = userEvent.setup()
     await user.click(screen.getByText('signout'))
 
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'), { timeout: 5000 })
     expect(getToken()).toBeNull()
-    expect(localStorage.getItem('zbb.currency')).toBe('EUR')
+    expect(localStorage.getItem('allotjar.currency')).toBe('EUR')
   })
 
   // SESS-013 — an interceptor-driven refresh re-syncs AuthContext: because the refresh
@@ -286,7 +286,7 @@ describe('SESS: AuthContext session lifecycle', () => {
   // converge on the sign-in prompt instead of lingering as zombies.
   it('SESS-025: a session dying in this tab broadcasts a sign-out to the other tabs', async () => {
     const otherTab = vi.fn()
-    const unsubscribe = onSignOutBroadcast(otherTab) // a second "tab" listening on zbb.auth
+    const unsubscribe = onSignOutBroadcast(otherTab) // a second "tab" listening on allotjar.auth
     const assign = vi.spyOn(navigation, 'assign').mockImplementation(() => {})
     let sessionDead = false
     try {

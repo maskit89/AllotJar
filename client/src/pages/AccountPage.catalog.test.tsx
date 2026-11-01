@@ -148,7 +148,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     // The details card "Name" and the user chip re-render to the recomposed display name
     // without a reload; the next cold load reads it from /auth/me, not from storage.
     await waitFor(() => expect(screen.getAllByText('Christopher Borg').length).toBeGreaterThanOrEqual(1), { timeout: 5000 })
-    expect(localStorage.getItem('zbb.displayName')).toBeNull()
+    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
   })
 
   // PREF-012 — The Currency select offers exactly the curated 24-currency list and the
@@ -177,7 +177,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   })
 
   // PREF-011 — Changing the preferred currency re-labels (never converts): the chip reads
-  // the new code, localStorage['zbb.currency'] updates, and the PUT keeps names/format as-is.
+  // the new code, localStorage['allotjar.currency'] updates, and the PUT keeps names/format as-is.
   it('PREF-011: changing the currency re-labels the chip and stores it, untouched names/format', async () => {
     mockPut.mockResolvedValue({
       data: { firstName: null, lastName: null, displayName: 'Alex', preferredCurrency: 'USD', numberFormat: 'comma-dot' },
@@ -206,7 +206,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     await screen.findByText(/preferences have been saved/, {}, { timeout: 5000 })
 
     await waitFor(() => expect(screen.getAllByText(chipShows('USD')).length).toBeGreaterThanOrEqual(1), { timeout: 5000 })
-    expect(localStorage.getItem('zbb.currency')).toBe('USD')
+    expect(localStorage.getItem('allotjar.currency')).toBe('USD')
   })
 
   // PREF-013 — A zero-decimal currency (JPY) re-labels the chip and drops decimals: the
@@ -259,7 +259,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
 
     // After: setMoneyFormat swapped the active locale — consumers now render de-DE grouping.
     expect(formatMoney(fromAmount(1234.56), 'EUR')).toContain('1.234,56')
-    expect(localStorage.getItem('zbb.numberFormat')).toBe('dot-comma')
+    expect(localStorage.getItem('allotjar.numberFormat')).toBe('dot-comma')
     expect(mockPut).toHaveBeenCalledWith('/auth/preferences', {
       firstName: '',
       lastName: '',
@@ -288,7 +288,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     expect(formatMoney(fromAmount(1234.56), 'EUR')).toContain('1,234.56')
     expect(fmt.value).toBe('dot-comma')
     // The stored preference is still the hydrated baseline — the failed save persisted nothing.
-    expect(localStorage.getItem('zbb.numberFormat')).toBe('comma-dot')
+    expect(localStorage.getItem('allotjar.numberFormat')).toBe('comma-dot')
   })
 
   // PREF-022 — A successful change clears all three fields and keeps THIS device signed in
@@ -492,7 +492,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
   })
 
   // PREF-036 — An explicit theme pick applies instantly (the <html> gains/loses `dark`),
-  // reflects aria-pressed, and persists to localStorage['zbb.theme'] on this device. The
+  // reflects aria-pressed, and persists to localStorage['allotjar.theme'] on this device. The
   // control is the top bar's Dark mode toggle.
   it('PREF-036: picking a theme applies it instantly and persists on this device', async () => {
     const user = userEvent.setup()
@@ -507,12 +507,12 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     await user.click(darkBtn)
     expect(document.documentElement).toHaveClass('dark')
     expect(darkBtn).toHaveAttribute('aria-pressed', 'true')
-    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+    expect(localStorage.getItem('allotjar.theme')).toBe('dark')
 
     await user.click(darkBtn)
     expect(document.documentElement).not.toHaveClass('dark')
     expect(darkBtn).toHaveAttribute('aria-pressed', 'false')
-    expect(localStorage.getItem('zbb.theme')).toBe('light')
+    expect(localStorage.getItem('allotjar.theme')).toBe('light')
   })
 
   // PREF-040 — a Google-created (passwordless) login sees no change-password form; instead the

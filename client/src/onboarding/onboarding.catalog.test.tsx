@@ -122,7 +122,7 @@ function ReplayTrigger() {
   )
 }
 
-const KEY = 'zbb.onboarding:u-me'
+const KEY = 'allotjar.onboarding:u-me'
 
 /**
  * The welcome dialog, once its effects have run. It can be in the DOM before then (it opens after
@@ -560,7 +560,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   // ONBD-004 — the currency noun threads through the welcome line, tour step 3, checklist step 3
   // and the all-done line (USD → "dollar").
   it('ONBD-004: the currency noun (USD → "dollar") threads through welcome, tour, checklist and all-done', { timeout: 15000 }, async () => {
-    localStorage.setItem('zbb.currency', 'USD')
+    localStorage.setItem('allotjar.currency', 'USD')
     meData = { ...ME, preferredCurrency: 'USD' }
     monthsData = [summary()]
     currentMonth = BALANCED_MONTH
@@ -590,7 +590,7 @@ describe('Onboarding — catalog (ONBD)', () => {
   // ONBD-004 (fallback) — an unknown/blank preferred currency falls back to the neutral "unit"
   // noun — no crash, no empty string — in the welcome line and on tour step 3.
   it('ONBD-004: an unknown currency falls back to the "unit" noun', { timeout: 15000 }, async () => {
-    localStorage.setItem('zbb.currency', 'XYZ')
+    localStorage.setItem('allotjar.currency', 'XYZ')
     meData = { ...ME, preferredCurrency: 'XYZ' }
     renderOnboarding()
     const dialog = await findDialog()

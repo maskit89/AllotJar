@@ -198,7 +198,7 @@
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** PR #171 — a browser restoring several app tabs fires simultaneous `/auth/refresh` with the SAME cookie (the client single-flight is per-tab); the loser's 401 must **not** clear the shared cookie or burn the session family.
-- **Preconditions:** One login (Alex), several tabs of the app, all cold-loaded at once so each posts `/auth/refresh` presenting the same `zbb_rt` cookie value.
+- **Preconditions:** One login (Alex), several tabs of the app, all cold-loaded at once so each posts `/auth/refresh` presenting the same `allotjar_rt` cookie value.
 - **Steps:**
   1. Tab 1 wins: `RotateAsync` succeeds, the cookie rotates to a fresh value, response 200.
   2. Tabs 2..n present the now-rotated (revoked-with-replacement) cookie milliseconds later.
@@ -229,7 +229,7 @@
 ### CONC-021 - Cross-tab sign-out: logout in one tab clears the other tab's in-memory token
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #169 — `authChannel.ts` BroadcastChannel `zbb.auth`; without it, another tab keeps a working in-memory access token for up to 15 min after sign-out.
+- **Origin:** PR #169 — `authChannel.ts` BroadcastChannel `allotjar.auth`; without it, another tab keeps a working in-memory access token for up to 15 min after sign-out.
 - **Preconditions:** One login (Alex), tabs A and B both signed in and on app pages.
 - **Steps:**
   1. Alex signs out in tab A (or tab A's session dies → `sessionExpired()`), which calls `broadcastSignOut()` posting `"signed-out"`.
