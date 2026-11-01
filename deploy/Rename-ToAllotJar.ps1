@@ -39,7 +39,8 @@
 
     The stack is offline for a minute or two (its pools are stopped). The other stack is never
     changed: the script refuses to start unless the other stack answers /health/ready, and checks
-    it again at the end. Production's health ping may send one "down" email during its run.
+    it again at the end. The stack's health ping is paused during the run, which can outlast the
+    check's grace period, so one "down" email followed by "up" may come.
 
     Idempotent: each step looks at what exists and skips what is done, so a failed run can be
     re-run after fixing the cause. -Check reports the state and every problem that would stop the
@@ -631,7 +632,10 @@ foreach ($tp in $taskPlans) {
     }
     $stored = Get-ScheduledTask -TaskName $tp.NewName -TaskPath $tp.Path
     $storedCmds = @($stored.Actions | ForEach-Object { ('{0} {1}' -f $_.Execute, $_.Arguments).Trim() })
-    if (($storedCmds -join "`n") -ne ($tp.Commands -join "`n")) { throw "Task $($tp.NewName) was stored with a different command line; the old task $($tp.OldName) is kept (paused)." }
+    if (($storedCmds -join "`n") -ne ($tp.Commands -join "`n")) {
+        Unregister-ScheduledTask -TaskName $tp.NewName -TaskPath $tp.Path -Confirm:$false
+        throw "Task $($tp.NewName) was stored with a different command line, so it was removed again; the old task $($tp.OldName) is kept."
+    }
     if ([bool]$stored.Settings.Enabled -ne $tp.Enabled) { if ($tp.Enabled) { Enable-ScheduledTask -TaskName $tp.NewName -TaskPath $tp.Path | Out-Null } else { Disable-ScheduledTask -TaskName $tp.NewName -TaskPath $tp.Path | Out-Null } }
     Unregister-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path -Confirm:$false
     Done "$($tp.OldName) -> $($tp.NewName) (same trigger, settings and account)"
@@ -698,13 +702,24 @@ if ($Stack -eq 'production') {
     $err = $_
     Write-Host "`nSTOPPED: $($err.Exception.Message)" -ForegroundColor Red
     if (-not $tasksDone) {
+        # The old backup task backs up the OLD database. Once the settings name the new one, switching
+        # it back on would ship a frozen copy every night with nothing alerting, so it stays paused then:
+        # a missed night makes healthchecks.io email, which is loud.
+        $settingsNow = ''
+        foreach ($sp in @((Join-Path $New.Root "api\$($Cfg.Settings)"), (Join-Path $Old.Root "api\$($Cfg.Settings)"))) {
+            if (Test-Path -LiteralPath $sp) { try { $settingsNow = (Read-Settings $sp).Database } catch { }; break }
+        }
         foreach ($tp in $taskPlans) {
-            if ($tp.Enabled -and (Get-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path -ErrorAction SilentlyContinue)) {
-                try { Enable-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path | Out-Null; Write-Host "    switched $($tp.OldName) back on" } catch { }
+            if (-not ($tp.Enabled -and (Get-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path -ErrorAction SilentlyContinue))) { continue }
+            if ($tp.OldName -like '*-DbBackup' -and $settingsNow -ine $Old.Database) {
+                Write-Host ("    NIGHTLY BACKUP PAUSED: {0} still backs up {1}, but the settings now name {2}. Run this block again before 02:00 UTC." -f $tp.OldName, $Old.Database, $(if ($settingsNow) { $settingsNow } else { 'an unknown database' })) -ForegroundColor Red
+                continue
             }
+            try { Enable-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path | Out-Null; Write-Host "    switched $($tp.OldName) back on" } catch { }
         }
     }
-    # Bring back whatever exists, under either name, so the stack is not left down while you are away.
+    # Bring back whatever exists, under either name. A stop between the IIS rename and the SQL login
+    # can still leave the API failing until the same block is run again.
     try {
         $sm = New-Object Microsoft.Web.Administration.ServerManager
         foreach ($pool in @($New.ApiPool, $New.WebPool, $Old.ApiPool, $Old.WebPool)) {
