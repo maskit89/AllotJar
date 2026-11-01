@@ -46,11 +46,11 @@ The `Application` project is organised by feature — `Budgets`, `Transactions`,
 `HouseholdAccess` — each holding its commands, queries, DTOs and the read-time
 calculators (`BudgetActuals`, `AccountBalances`).
 
-> The GitHub repo is `maskit89/AllotJar`. A handful of internal identifiers still
-> carry the original **ZeroBudget** name by design — the physical database name,
-> the IIS/pool/deploy paths under `deploy/**`, the JWT issuer, the `zbb_rt` cookie
-> and `zbb.*` client keys. These are stable infrastructure names, not a rename we
-> left half-done.
+> The GitHub repo is `maskit89/AllotJar`. The server names (IIS sites, app pools,
+> folders, databases `AllotJarStaging` / `AllotJarProd`, scheduled tasks) and the JWT
+> issuer say AllotJar since November 2026 (`deploy/Rename-ToAllotJar.ps1`). The
+> `zbb_rt` cookie and `zbb.*` client keys keep their short prefix on purpose: renaming
+> them would sign everyone out and reset saved preferences for no gain.
 
 ### Dependency rule (clean architecture)
 
@@ -485,5 +485,5 @@ staging/production split.
 - **`provision-production.yml`** is the manual infra workflow that
   stood up (and can re-shape) the production IIS/SQL stack on the VPS.
 - Both stacks share one VPS: separate IIS sites/pools, API on `:5000` (staging) and
-  `:5001` (production), separate SQL databases (`ZeroBudget` / `ZeroBudgetProd`).
+  `:5001` (production), separate SQL databases (`AllotJarStaging` / `AllotJarProd`).
 - The `deploy/` folder holds the PowerShell bootstrap/setup/deploy/backup scripts.

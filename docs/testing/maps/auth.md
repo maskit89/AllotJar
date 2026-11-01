@@ -99,7 +99,7 @@ No per-role gating on any auth endpoint — role is resolved per request by `Hou
 
 Refresh cookie (`AuthController.cs:446-465`): name `zbb_rt`, HttpOnly, `SameSite=Strict`, `Path=/api/auth`, expires +30 days, `Secure = !Development`, IsEssential.
 
-JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106-172`): HS256 only (`ValidAlgorithms` pinned), issuer `ZeroBudget`, audience `ZeroBudgetClient`, **ExpiryMinutes 15** (appsettings.json:17; class default is 60 if unset — prod template doesn't override), ClockSkew 30s, claims: `sub`, `nameidentifier`, `email`, `jti`, `sstamp` (security stamp). `OnTokenValidated` re-checks `sstamp` against `Users.SecurityStamp` every request: no-stamp legacy token → allowed; DB error → **fail open**; definite mismatch → 401 "This session has been revoked." Key must be ≥32 bytes or startup throws.
+JWT (`Infrastructure/Identity/JwtTokenGenerator.cs`, `DependencyInjection.cs:106-172`): HS256 only (`ValidAlgorithms` pinned), issuer `AllotJar`, audience `AllotJarClient`, **ExpiryMinutes 15** (appsettings.json:17; class default is 60 if unset — prod template doesn't override), ClockSkew 30s, claims: `sub`, `nameidentifier`, `email`, `jti`, `sstamp` (security stamp). `OnTokenValidated` re-checks `sstamp` against `Users.SecurityStamp` every request: no-stamp legacy token → allowed; DB error → **fail open**; definite mismatch → 401 "This session has been revoked." Key must be ≥32 bytes or startup throws.
 
 ---
 

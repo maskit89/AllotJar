@@ -7,7 +7,7 @@
     Copies Backup-Database.ps1 to a stable location (so the deploy's release-folder
     churn can't break the task), then schedules it daily. The defaults are the staging
     task (local-only); Provision-Production.ps1 registers the production task
-    (ZeroBudget-Prod-DbBackup, database ZeroBudgetProd, shipped to R2). Re-run this script to change
+    (AllotJar-Prod-DbBackup, database AllotJarProd, shipped to R2). Re-run this script to change
     the schedule/retention or to pick up an updated backup script.
 #>
 [CmdletBinding()]
@@ -17,10 +17,10 @@ param(
     [string]$InstallDir    = 'C:\deploy',
     [string]$Time          = '02:30',
     [string]$Server        = '.\SQLEXPRESS',
-    [string]$Database      = 'ZeroBudgetStaging',
+    [string]$Database      = 'AllotJarStaging',
     [string]$BackupDir     = 'C:\deploy\backups',
     [int]   $RetentionDays = 14,
-    [string]$TaskName      = 'ZeroBudget-Staging-DbBackup',
+    [string]$TaskName      = 'AllotJar-Staging-DbBackup',
 
     # Set -R2Bucket to have the daily task also ship each verified backup off-host to
     # Cloudflare R2. Leave empty for a local-only backup task (e.g. staging).

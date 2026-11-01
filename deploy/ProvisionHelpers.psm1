@@ -228,7 +228,7 @@ IF IS_ROLEMEMBER(N'db_backupoperator', N'$q') <> 1
     DIFFERENT database on the SAME instance never points at the source database's live files.
 
 .DESCRIPTION
-    A .bak carries the SOURCE database's physical file names (ZeroBudgetProd.mdf, ...). Restoring
+    A .bak carries the SOURCE database's physical file names (AllotJarProd.mdf, ...). Restoring
     it onto another database with "MOVE ... TO <default data folder>\<same leaf>" targets the files
     the live source database is using, and SQL Server refuses (error 1834/3156). So:
       - when the target database exists and has the same number of data and log files as the
@@ -311,7 +311,7 @@ function Get-StackSettingsProblems {
         [Parameter(Mandatory)][AllowEmptyString()][string]$SettingsText,
         [Parameter(Mandatory)][ValidateSet('Staging', 'Production')][string]$AspNetEnvironment,
         # The stack's own values; the defaults are the names in docs/deployment/staging-prod.md.
-        [string]$ExpectedDatabase = $(if ($AspNetEnvironment -eq 'Staging') { 'ZeroBudgetStaging' } else { 'ZeroBudgetProd' }),
+        [string]$ExpectedDatabase = $(if ($AspNetEnvironment -eq 'Staging') { 'AllotJarStaging' } else { 'AllotJarProd' }),
         # Production is public at both www.allotjar.com and the apex, so either origin fits it.
         [string[]]$ExpectedAppBaseUrl = $(if ($AspNetEnvironment -eq 'Staging') { @('https://staging.allotjar.com') } else { @('https://www.allotjar.com', 'https://allotjar.com') })
     )
@@ -473,4 +473,117 @@ function Get-RcloneRevealed {
     return (($out -join "`n") -replace "(\r?\n)+$", '')
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed
+<#
+.SYNOPSIS
+    The SID of an IIS application pool identity (IIS AppPool\<Name>), computed without asking
+    Windows: S-1-5-82- followed by the SHA-1 of the LOWER-CASED pool name (UTF-16LE) read as five
+    little-endian 32-bit numbers. Windows can translate the name only while the pool exists, but
+    a renamed pool's old identity still appears (as a bare SID) on files and SQL logins, so
+    Rename-ToAllotJar.ps1 needs the old SID after the pool is gone. The script cross-checks this
+    value against Windows for every pool that exists before relying on it.
+#>
+function Get-AppPoolSid {
+    param([Parameter(Mandatory)][string]$Name)
+    $sha = [System.Security.Cryptography.SHA1]::Create()
+    try { $hash = $sha.ComputeHash([System.Text.Encoding]::Unicode.GetBytes($Name.ToLowerInvariant())) } finally { $sha.Dispose() }
+    $parts = for ($i = 0; $i -lt 20; $i += 4) { [BitConverter]::ToUInt32($hash, $i) }
+    return 'S-1-5-82-' + ($parts -join '-')
+}
+
+<#
+.SYNOPSIS
+    Old ZeroBudget server names and their AllotJar names, longest first, so that a name that
+    contains another (ZeroBudget-Prod-Api contains ZeroBudget-Prod) is replaced whole. Only full
+    names are listed: a bare "ZeroBudget" is never replaced, so an unrelated value that happens to
+    contain the word (an email address, a key) is left alone.
+#>
+function Get-AllotJarNameMap {
+    return @(
+        @('ZeroBudget-Staging-Api',      'AllotJar-Staging-Api'),
+        @('ZeroBudget-Staging-Web',      'AllotJar-Staging-Web'),
+        @('ZeroBudget-Prod-Api',         'AllotJar-Prod-Api'),
+        @('ZeroBudget-Prod-Web',         'AllotJar-Prod-Web'),
+        @('ZeroBudget-Staging-DbBackup', 'AllotJar-Staging-DbBackup'),
+        @('ZeroBudget-Prod-DbBackup',    'AllotJar-Prod-DbBackup'),
+        @('ZeroBudget-Staging-HealthPing', 'AllotJar-Staging-HealthPing'),
+        @('ZeroBudget-Prod-HealthPing',  'AllotJar-Prod-HealthPing'),
+        @('ZeroBudget-Staging',          'AllotJar-Staging'),
+        @('ZeroBudget-Prod',             'AllotJar-Prod'),
+        @('ZeroBudgetStaging',           'AllotJarStaging'),
+        @('ZeroBudgetProd',              'AllotJarProd'),
+        @('zerobudget-staging-dp-keys',  'allotjar-staging-dp-keys'),
+        @('zerobudget-dp-keys',          'allotjar-prod-dp-keys'),
+        @('zerobudget-staging',          'allotjar-staging'),
+        @('zerobudget-prod',             'allotjar-prod')
+    )
+}
+
+<#
+.SYNOPSIS
+    Text with every full old server name (Get-AllotJarNameMap) replaced by its AllotJar name.
+    Case-sensitive, as the names are written; JSON-escaped paths (C:\\inetpub\\zerobudget-prod)
+    change the same way as plain ones.
+#>
+function Convert-ZeroBudgetNames {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    foreach ($pair in (Get-AllotJarNameMap)) { $Text = $Text.Replace($pair[0], $pair[1]) }
+    return $Text
+}
+
+<#
+.SYNOPSIS
+    1-based numbers of the lines that still mention "zerobudget" in any case. Lets a script say
+    where an old name is left without printing the line (a settings line can hold a secret).
+#>
+function Get-ZeroBudgetLineNumbers {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    $lines = $Text -split "\r?\n"
+    $hits = for ($i = 0; $i -lt $lines.Count; $i++) { if ($lines[$i] -match '(?i)zerobudget') { $i + 1 } }
+    return ,@($hits)
+}
+
+<#
+.SYNOPSIS
+    A scheduled task's exported XML (Export-ScheduledTask) made ready to register under a new
+    name: old server names in each action's command, arguments and working folder become AllotJar
+    names (Convert-ZeroBudgetNames) and RegistrationInfo/URI names the new task. Triggers,
+    settings (time limit, multiple-instance rule), principal and enabled state are kept exactly.
+#>
+function Convert-ScheduledTaskXml {
+    param(
+        [Parameter(Mandatory)][string]$Xml,
+        [Parameter(Mandatory)][string]$NewTaskName,
+        [string]$TaskPath = '\'
+    )
+    $doc = New-Object System.Xml.XmlDocument
+    $doc.PreserveWhitespace = $true
+    $doc.LoadXml($Xml)
+    $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+    $ns.AddNamespace('t', 'http://schemas.microsoft.com/windows/2004/02/mit/task')
+    foreach ($node in @($doc.SelectNodes('/t:Task/t:Actions/t:Exec/t:Command | /t:Task/t:Actions/t:Exec/t:Arguments | /t:Task/t:Actions/t:Exec/t:WorkingDirectory', $ns))) {
+        $node.InnerText = Convert-ZeroBudgetNames -Text $node.InnerText
+    }
+    $uri = $doc.SelectSingleNode('/t:Task/t:RegistrationInfo/t:URI', $ns)
+    if ($uri) { $uri.InnerText = $TaskPath + $NewTaskName }
+    return $doc.OuterXml
+}
+
+<#
+.SYNOPSIS
+    The command line of every Exec action in a scheduled task's XML, one string per action
+    ("<command> <arguments>"), so a script can compare what a task will run before and after.
+#>
+function Get-ScheduledTaskXmlCommands {
+    param([Parameter(Mandatory)][string]$Xml)
+    $doc = New-Object System.Xml.XmlDocument
+    $doc.LoadXml($Xml)
+    $ns = New-Object System.Xml.XmlNamespaceManager($doc.NameTable)
+    $ns.AddNamespace('t', 'http://schemas.microsoft.com/windows/2004/02/mit/task')
+    $out = foreach ($exec in @($doc.SelectNodes('/t:Task/t:Actions/t:Exec', $ns))) {
+        $cmd = $exec.SelectSingleNode('t:Command', $ns); $arg = $exec.SelectSingleNode('t:Arguments', $ns)
+        (('{0} {1}' -f $(if ($cmd) { $cmd.InnerText } else { '' }), $(if ($arg) { $arg.InnerText } else { '' })).Trim())
+    }
+    return ,@($out)
+}
+
+Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed, Get-AppPoolSid, Get-AllotJarNameMap, Convert-ZeroBudgetNames, Get-ZeroBudgetLineNumbers, Convert-ScheduledTaskXml, Get-ScheduledTaskXmlCommands

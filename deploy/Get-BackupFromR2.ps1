@@ -24,7 +24,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Bucket,
     [string]$Name        = 'latest',
-    [string]$Database    = 'ZeroBudgetProd',
+    [string]$Database    = 'AllotJarProd',
     [string]$OutDir      = 'C:\deploy\restore-test',
     [string]$SqlInstance = '.\SQLEXPRESS',
     [string]$Rclone      = 'C:\deploy\rclone\rclone.exe',
@@ -48,7 +48,7 @@ if ($Name -eq 'latest') {
     $names = @(& $Rclone lsf --config $RcloneConf "${CryptRemote}:" --files-only --s3-no-check-bucket)
     if ($LASTEXITCODE -ne 0) { throw "Could not list ${CryptRemote}: (exit $LASTEXITCODE)." }
     $Name = $names | Where-Object { $_ -like "$($Database)_*.bak" } | Sort-Object | Select-Object -Last 1
-    if (-not $Name) { throw "No $($Database)_*.bak in r2:${Bucket}/${Prefix}/." }
+    if (-not $Name) { throw "No $($Database)_*.bak in r2:${Bucket}/${Prefix}/. Backups taken before the November 2026 rename are named ZeroBudgetProd_* (or ZeroBudgetStaging_*): pass -Database with that name to fetch one." }
 }
 if ($Name -notmatch '^[\w.-]+\.bak$') { throw "Unexpected backup name '$Name'." }
 

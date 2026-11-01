@@ -49,12 +49,12 @@ Assert-True ((Get-SslBindingAction -ExistingThumbprint 'CCDD' -DesiredThumbprint
 
 Write-Host '== New-BackupTaskArgumentLine / Get-R2BucketFromArgumentLine (R2 round-trip) =='
 $local = New-BackupTaskArgumentLine -ScriptPath 'C:\deploy\Backup-Database.ps1' -Server '.\SQLEXPRESS' `
-    -Database 'ZeroBudgetStaging' -BackupDir 'C:\deploy\backups' -RetentionDays 14
+    -Database 'AllotJarStaging' -BackupDir 'C:\deploy\backups' -RetentionDays 14
 Assert-True ($local -notmatch '-R2Bucket') 'local-only line carries no R2 arguments'
 Assert-True ($null -eq (Get-R2BucketFromArgumentLine -ArgumentLine $local)) 'no bucket parsed from a local-only line'
 
 $prod = New-BackupTaskArgumentLine -ScriptPath 'C:\deploy\Backup-Database.ps1' -Server '.\SQLEXPRESS' `
-    -Database 'ZeroBudgetProd' -BackupDir 'C:\deploy\backups' -RetentionDays 14 `
+    -Database 'AllotJarProd' -BackupDir 'C:\deploy\backups' -RetentionDays 14 `
     -R2Bucket 'allotjar-db-backups' -Rclone 'C:\deploy\rclone\rclone.exe' `
     -RcloneConf 'C:\deploy\rclone.conf' -R2Remote 'r2' -R2Prefix 'db-backups-enc'
 Assert-True ($prod -match '-R2Bucket "allotjar-db-backups"') 'production line carries the R2 bucket'
@@ -98,9 +98,9 @@ foreach ($script in 'Register-BackupTask.ps1', 'Export-DevData.ps1', 'Backup-Dat
 }
 
 Write-Host '== Set-ConnectionStringDatabase (settings rewrite keeps everything but the database) =='
-$cs = 'Server=localhost\SQLEXPRESS;Database=ZeroBudget;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true'
-$renamed = Set-ConnectionStringDatabase -ConnectionString $cs -Database 'ZeroBudgetStaging'
-Assert-True ($renamed -eq ($cs -replace 'Database=ZeroBudget;', 'Database=ZeroBudgetStaging;')) 'only the Database= value changes'
+$cs = 'Server=localhost\SQLEXPRESS;Database=AllotJar;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true'
+$renamed = Set-ConnectionStringDatabase -ConnectionString $cs -Database 'AllotJarStaging'
+Assert-True ($renamed -eq ($cs -replace 'Database=AllotJar;', 'Database=AllotJarStaging;')) 'only the Database= value changes'
 Assert-True ((Set-ConnectionStringDatabase -ConnectionString 'Server=.;Initial Catalog=A;Integrated Security=True' -Database 'B') -eq 'Server=.;Initial Catalog=B;Integrated Security=True') 'Initial Catalog= is handled too'
 $threw = $false; try { [void](Set-ConnectionStringDatabase -ConnectionString 'Server=.;Integrated Security=True' -Database 'B') } catch { $threw = $true }
 Assert-True $threw 'a connection string without a database throws instead of being left pointing at the default database'
@@ -143,7 +143,7 @@ Write-Host '== Staging is called staging (no stack component of staging is left 
 $deployDir = Split-Path $PSScriptRoot -Parent
 $deployScript = Get-Content (Join-Path $deployDir 'Deploy.ps1') -Raw
 Assert-True ($deployScript -match 'appsettings\.Staging\.json' -and $deployScript -match 'appsettings\.Production\.json') 'Deploy.ps1 preserves the settings files of both environments across the robocopy mirror'
-Assert-True ($deployScript -notmatch "'C:\\inetpub\\zerobudget\\") 'Deploy.ps1 no longer defaults to the unsuffixed (pre-rename) staging folders'
+Assert-True ($deployScript -notmatch "'C:\\inetpub\\allotjar\\") 'Deploy.ps1 no longer defaults to the unsuffixed (pre-rename) staging folders'
 $workflow = Get-Content (Join-Path (Split-Path $deployDir -Parent) '.github/workflows/deploy.yml') -Raw
 Assert-True ($workflow -notmatch 'staging-prod\b' -and $workflow -notmatch 'incoming-prod\b') 'deploy.yml does not unpack production in a folder called staging-prod'
 Assert-True ($workflow -match '-AspNetEnvironment Staging' -and $workflow -match '-AspNetEnvironment Production') 'deploy.yml pins the ASP.NET Core environment of each stack'
@@ -151,41 +151,41 @@ Assert-True ($workflow -match '-AspNetEnvironment Staging' -and $workflow -match
 Write-Host '== Get-RestoreFileMoves (restoring one database''s backup onto another on the same instance) =='
 $data = 'C:\SQL\DATA\'
 $prodBak = @(
-    [pscustomobject]@{ LogicalName = 'ZeroBudgetProd';     PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd.mdf';     Type = 'D' },
-    [pscustomobject]@{ LogicalName = 'ZeroBudgetProd_log'; PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf'; Type = 'L' }
+    [pscustomobject]@{ LogicalName = 'AllotJarProd';     PhysicalName = 'C:\SQL\DATA\AllotJarProd.mdf';     Type = 'D' },
+    [pscustomobject]@{ LogicalName = 'AllotJarProd_log'; PhysicalName = 'C:\SQL\DATA\AllotJarProd_log.ldf'; Type = 'L' }
 )
 $stagingFiles = @(
-    [pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudget.mdf' },
-    [pscustomobject]@{ type_desc = 'LOG';  physical_name = 'C:\SQL\DATA\ZeroBudget_log.ldf' }
+    [pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\AllotJarStaging.mdf' },
+    [pscustomobject]@{ type_desc = 'LOG';  physical_name = 'C:\SQL\DATA\AllotJarStaging_log.ldf' }
 )
 $prodFiles = @(
-    [pscustomobject]@{ db = 'ZeroBudgetProd'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' },
-    [pscustomobject]@{ db = 'ZeroBudgetProd'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' }
+    [pscustomobject]@{ db = 'AllotJarProd'; physical_name = 'C:\SQL\DATA\AllotJarProd.mdf' },
+    [pscustomobject]@{ db = 'AllotJarProd'; physical_name = 'C:\SQL\DATA\AllotJarProd_log.ldf' }
 )
 # The restore test: production's nightly .bak onto the (renamed) staging database, which keeps its own files.
-$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
+$plan = Get-RestoreFileMoves -Database AllotJarStaging -BackupFiles $prodBak -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
 Assert-True $plan.ReusedTargetFiles 'an existing target with matching file counts keeps its own files'
-Assert-True ($plan.Moves[0] -eq "MOVE N'ZeroBudgetProd' TO N'C:\SQL\DATA\ZeroBudget.mdf'") 'the data file lands on the target''s own .mdf'
-Assert-True ($plan.Moves[1] -eq "MOVE N'ZeroBudgetProd_log' TO N'C:\SQL\DATA\ZeroBudget_log.ldf'") 'the log file lands on the target''s own .ldf'
-Assert-True (-not ($plan.Targets -contains 'C:\SQL\DATA\ZeroBudgetProd.mdf')) 'production''s live .mdf is never a destination'
+Assert-True ($plan.Moves[0] -eq "MOVE N'AllotJarProd' TO N'C:\SQL\DATA\AllotJarStaging.mdf'") 'the data file lands on the target''s own .mdf'
+Assert-True ($plan.Moves[1] -eq "MOVE N'AllotJarProd_log' TO N'C:\SQL\DATA\AllotJarStaging_log.ldf'") 'the log file lands on the target''s own .ldf'
+Assert-True (-not ($plan.Targets -contains 'C:\SQL\DATA\AllotJarProd.mdf')) 'production''s live .mdf is never a destination'
 # A target that does not exist yet gets its own names, never the backup's leaf names.
-$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -OtherFiles $prodFiles -DataDir $data -LogDir 'C:\SQL\LOG\'
+$plan = Get-RestoreFileMoves -Database AllotJarStaging -BackupFiles $prodBak -OtherFiles $prodFiles -DataDir $data -LogDir 'C:\SQL\LOG\'
 Assert-True (-not $plan.ReusedTargetFiles) 'a missing target does not reuse files'
-Assert-True ($plan.Targets[0] -eq 'C:\SQL\DATA\ZeroBudgetStaging.mdf') 'a missing target gets <Database>.mdf in the data folder'
-Assert-True ($plan.Targets[1] -eq 'C:\SQL\LOG\ZeroBudgetStaging_log.ldf') 'a missing target gets <Database>_log.ldf in the log folder'
+Assert-True ($plan.Targets[0] -eq 'C:\SQL\DATA\AllotJarStaging.mdf') 'a missing target gets <Database>.mdf in the data folder'
+Assert-True ($plan.Targets[1] -eq 'C:\SQL\LOG\AllotJarStaging_log.ldf') 'a missing target gets <Database>_log.ldf in the log folder'
 # The old behaviour (default folder + the backup's own leaf names) is exactly what must be refused.
-$collide = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' })
+$collide = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\AllotJarProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\AllotJarProd_log.ldf' })
 $threw = $false
-try { Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $prodBak -TargetFiles $collide -OtherFiles $prodFiles -DataDir $data | Out-Null } catch { $threw = $_.Exception.Message -match 'ZeroBudgetProd' }
+try { Get-RestoreFileMoves -Database AllotJarStaging -BackupFiles $prodBak -TargetFiles $collide -OtherFiles $prodFiles -DataDir $data | Out-Null } catch { $threw = $_.Exception.Message -match 'AllotJarProd' }
 Assert-True $threw 'a destination that is another database''s live file is refused, naming that database'
 # Restoring production's own backup over production (rollback) still reuses production's files.
-$prodOwn = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\ZeroBudgetProd_log.ldf' })
-$plan = Get-RestoreFileMoves -Database ZeroBudgetProd -BackupFiles $prodBak -TargetFiles $prodOwn -OtherFiles @() -DataDir $data
-Assert-True ($plan.ReusedTargetFiles -and $plan.Targets[0] -eq 'C:\SQL\DATA\ZeroBudgetProd.mdf') 'restoring a database over itself keeps its files'
+$prodOwn = @([pscustomobject]@{ type_desc = 'ROWS'; physical_name = 'C:\SQL\DATA\AllotJarProd.mdf' }, [pscustomobject]@{ type_desc = 'LOG'; physical_name = 'C:\SQL\DATA\AllotJarProd_log.ldf' })
+$plan = Get-RestoreFileMoves -Database AllotJarProd -BackupFiles $prodBak -TargetFiles $prodOwn -OtherFiles @() -DataDir $data
+Assert-True ($plan.ReusedTargetFiles -and $plan.Targets[0] -eq 'C:\SQL\DATA\AllotJarProd.mdf') 'restoring a database over itself keeps its files'
 # A file count mismatch falls back to fresh names rather than guessing a pairing.
-$twoData = $prodBak + @([pscustomobject]@{ LogicalName = 'ZeroBudgetProd_2'; PhysicalName = 'C:\SQL\DATA\ZeroBudgetProd_2.ndf'; Type = 'D' })
-$plan = Get-RestoreFileMoves -Database ZeroBudgetStaging -BackupFiles $twoData -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
-Assert-True ((-not $plan.ReusedTargetFiles) -and $plan.Targets[1] -eq 'C:\SQL\DATA\ZeroBudgetStaging_1.ndf') 'a file-count mismatch uses fresh <Database>_n.ndf names'
+$twoData = $prodBak + @([pscustomobject]@{ LogicalName = 'AllotJarProd_2'; PhysicalName = 'C:\SQL\DATA\AllotJarProd_2.ndf'; Type = 'D' })
+$plan = Get-RestoreFileMoves -Database AllotJarStaging -BackupFiles $twoData -TargetFiles $stagingFiles -OtherFiles $prodFiles -DataDir $data
+Assert-True ((-not $plan.ReusedTargetFiles) -and $plan.Targets[1] -eq 'C:\SQL\DATA\AllotJarStaging_1.ndf') 'a file-count mismatch uses fresh <Database>_n.ndf names'
 
 Write-Host '== Get-StackSettingsProblems (a settings file must fit its stack) =='
 # Staging's real file shape: // comments, a "//" key, the staging database, no AppBaseUrl.
@@ -195,8 +195,8 @@ $stagingNoUrl = @'
 {
   // server-only settings
   "ConnectionStrings": {
-    "//": "Database is ZeroBudgetStaging for staging.",
-    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ZeroBudgetStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+    "//": "Database is AllotJarStaging for staging.",
+    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=AllotJarStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },
   "Email": {
     "Provider": "cloudflare",
@@ -206,7 +206,7 @@ $stagingNoUrl = @'
 '@
 $p = Get-StackSettingsProblems -SettingsText $stagingNoUrl -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'AppBaseUrl is missing' -and $p[0] -match 'https://staging\.allotjar\.com') 'staging without Email:AppBaseUrl is refused, naming the staging origin'
-$p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace 'ZeroBudgetStaging', 'ZeroBudgetProd') -AspNetEnvironment Production
+$p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace 'AllotJarStaging', 'AllotJarProd') -AspNetEnvironment Production
 Assert-True ($p.Count -eq 0) 'production may omit Email:AppBaseUrl (the built-in default is its own origin)'
 
 $stagingOk = $stagingNoUrl -replace '"Provider": "cloudflare",', '"Provider": "cloudflare", "AppBaseUrl": "https://staging.allotjar.com",'
@@ -218,14 +218,14 @@ $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://stagi
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://www\.allotjar\.com') 'staging pointing emailed links at production is refused'
 $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'staging.allotjar.com') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'not an absolute http') 'a schemeless AppBaseUrl is refused'
-$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=ZeroBudgetStaging', 'Database=ZeroBudgetProd') -AspNetEnvironment Staging
-Assert-True ($p.Count -eq 1 -and $p[0] -match 'Database=ZeroBudgetProd' -and $p[0] -match 'ZeroBudgetStaging') 'staging naming the production database is refused'
-$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=ZeroBudgetStaging;', '') -AspNetEnvironment Staging
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=AllotJarStaging', 'Database=AllotJarProd') -AspNetEnvironment Staging
+Assert-True ($p.Count -eq 1 -and $p[0] -match 'Database=AllotJarProd' -and $p[0] -match 'AllotJarStaging') 'staging naming the production database is refused'
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'Database=AllotJarStaging;', '') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'names no database') 'a connection string without a database is refused'
 $p = Get-StackSettingsProblems -SettingsText '{ "Jwt": { "Key": "x" } }' -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 2 -and $p[0] -match 'DefaultConnection is missing') 'a file without a connection string reports every problem'
 # Both wrong at once: the staging stack reading a copy of production's file.
-$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'staging\.allotjar', 'www.allotjar') -AspNetEnvironment Staging
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'AllotJarStaging', 'AllotJarProd' -replace 'staging\.allotjar', 'www.allotjar') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 2) 'a production file under the staging name reports the database and the origin'
 # A commented-out line neither satisfies nor fails a check.
 $p = Get-StackSettingsProblems -SettingsText ($stagingNoUrl -replace '"Provider": "cloudflare",', "`"Provider`": `"cloudflare`",`n    // `"AppBaseUrl`": `"https://staging.allotjar.com`",") -AspNetEnvironment Staging
@@ -233,16 +233,16 @@ Assert-True ($p.Count -eq 1 -and $p[0] -match 'AppBaseUrl is missing') 'a commen
 $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace '"Email": \{', '"Email": { "AppBaseUrl": "https://staging.allotjar.com",') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'appears 2 times') 'two AppBaseUrl entries are refused rather than guessed between'
 # Production is public at the apex as well as www: both fit, and only those two.
-$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Production
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'AllotJarStaging', 'AllotJarProd' -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Production
 Assert-True ($p.Count -eq 0) 'production naming the apex origin passes'
-$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://www.allotjar.com') -AspNetEnvironment Production
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'AllotJarStaging', 'AllotJarProd' -replace 'https://staging\.allotjar\.com', 'https://www.allotjar.com') -AspNetEnvironment Production
 Assert-True ($p.Count -eq 0) 'production naming the www origin passes'
-$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd' -replace 'https://staging\.allotjar\.com', 'https://app.allotjar.com') -AspNetEnvironment Production
+$p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'AllotJarStaging', 'AllotJarProd' -replace 'https://staging\.allotjar\.com', 'https://app.allotjar.com') -AspNetEnvironment Production
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'https://www\.allotjar\.com or https://allotjar\.com') 'production naming another host is refused, listing both accepted origins'
 $p = Get-StackSettingsProblems -SettingsText ($stagingOk -replace 'https://staging\.allotjar\.com', 'https://allotjar.com') -AspNetEnvironment Staging
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://allotjar\.com') 'staging pointing emailed links at the apex is refused'
 # Production must never name staging.
-$prodWrong = $stagingOk -replace 'ZeroBudgetStaging', 'ZeroBudgetProd'
+$prodWrong = $stagingOk -replace 'AllotJarStaging', 'AllotJarProd'
 $p = Get-StackSettingsProblems -SettingsText $prodWrong -AspNetEnvironment Production
 Assert-True ($p.Count -eq 1 -and $p[0] -match 'would open https://staging\.allotjar\.com') 'production pointing emailed links at staging is refused'
 # The expected values can be overridden (another domain, another database name).
@@ -281,6 +281,73 @@ Assert-True ((Get-UrlOrigin -Url 'http://127.0.0.1:5000/') -eq 'http://127.0.0.1
 Assert-True ($null -eq (Get-UrlOrigin -Url 'www.allotjar.com')) 'a bare host is not an origin'
 Assert-True ($null -eq (Get-UrlOrigin -Url 'ftp://allotjar.com')) 'a non-http scheme is not an origin'
 Assert-True ($null -eq (Get-UrlOrigin -Url '')) 'empty is not an origin'
+
+Write-Host '== Get-AppPoolSid (IIS AppPool identity SIDs) =='
+# The well-known SID of IIS AppPool\DefaultAppPool proves the algorithm (lower-cased name, SHA-1).
+Assert-True ((Get-AppPoolSid -Name 'DefaultAppPool') -eq 'S-1-5-82-3006700770-424185619-1745488364-794895919-4004696415') 'DefaultAppPool has its well-known SID'
+Assert-True ((Get-AppPoolSid -Name 'DEFAULTAPPPOOL') -eq (Get-AppPoolSid -Name 'defaultapppool')) 'the pool name is case-insensitive'
+Assert-True ((Get-AppPoolSid -Name 'ZeroBudget-Prod-Api') -ne (Get-AppPoolSid -Name 'AllotJar-Prod-Api')) 'a renamed pool has a new SID'
+
+Write-Host '== Convert-ZeroBudgetNames (old server names -> AllotJar) =='
+$cs = 'Server=localhost\\SQLEXPRESS;Database=ZeroBudgetProd;Trusted_Connection=True'
+Assert-True ((Convert-ZeroBudgetNames -Text $cs) -eq 'Server=localhost\\SQLEXPRESS;Database=AllotJarProd;Trusted_Connection=True') 'the production database name changes'
+Assert-True ((Convert-ZeroBudgetNames -Text 'Database=ZeroBudgetStaging;') -eq 'Database=AllotJarStaging;') 'the staging database name changes'
+Assert-True ((Convert-ZeroBudgetNames -Text '"KeysPath": "C:\\inetpub\\zerobudget-dp-keys"') -eq '"KeysPath": "C:\\inetpub\\allotjar-prod-dp-keys"') 'production''s key folder gets prod in its name'
+Assert-True ((Convert-ZeroBudgetNames -Text 'C:\inetpub\zerobudget-staging-dp-keys') -eq 'C:\inetpub\allotjar-staging-dp-keys') 'staging''s key folder changes'
+Assert-True ((Convert-ZeroBudgetNames -Text 'IIS APPPOOL\ZeroBudget-Prod-Api and ZeroBudget-Prod') -eq 'IIS APPPOOL\AllotJar-Prod-Api and AllotJar-Prod') 'pool and site names change whole'
+Assert-True ((Convert-ZeroBudgetNames -Text 'C:\inetpub\zerobudget-prod\api') -eq 'C:\inetpub\allotjar-prod\api') 'the stack folder changes'
+Assert-True ((Convert-ZeroBudgetNames -Text '-Database "ZeroBudgetProd" -PingUrl "https://hc-ping.com/x"') -eq '-Database "AllotJarProd" -PingUrl "https://hc-ping.com/x"') 'a backup task argument changes, the ping URL does not'
+Assert-True ((Convert-ZeroBudgetNames -Text '"Issuer": "ZeroBudget", "Recipient": "zerobudget.alerts@example.com"') -eq '"Issuer": "ZeroBudget", "Recipient": "zerobudget.alerts@example.com"') 'a bare ZeroBudget and unrelated values are left alone'
+Assert-True ((Convert-ZeroBudgetNames -Text 'AllotJarProd') -eq 'AllotJarProd') 'an already renamed name stays as it is'
+
+Write-Host '== Get-ZeroBudgetLineNumbers =='
+$lines = Get-ZeroBudgetLineNumbers -Text "{`r`n  `"a`": `"ZEROBUDGET`",`r`n  `"b`": 1,`r`n  `"c`": `"zerobudget-x`"`r`n}"
+Assert-True (($lines -join ',') -eq '2,4') 'lines mentioning the old name in any case are listed'
+Assert-True ((Get-ZeroBudgetLineNumbers -Text 'AllotJar').Count -eq 0) 'no mention, no lines'
+
+Write-Host '== Convert-ScheduledTaskXml (re-register a task under its AllotJar name) =='
+$taskXml = @'
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <URI>\ZeroBudget-Prod-DbBackup</URI>
+  </RegistrationInfo>
+  <Triggers>
+    <CalendarTrigger>
+      <StartBoundary>2026-11-01T19:00:00</StartBoundary>
+      <ScheduleByDay><DaysInterval>1</DaysInterval></ScheduleByDay>
+    </CalendarTrigger>
+  </Triggers>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <ExecutionTimeLimit>PT1H</ExecutionTimeLimit>
+    <Enabled>true</Enabled>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>powershell.exe</Command>
+      <Arguments>-NoProfile -ExecutionPolicy Bypass -File "C:\deploy\Backup-Database.ps1" -Server ".\SQLEXPRESS" -Database "ZeroBudgetProd" -BackupDir "C:\deploy\backups" -RetentionDays 14 -R2Bucket "allotjar" -PingUrl "https://hc-ping.com/abc"</Arguments>
+    </Exec>
+  </Actions>
+</Task>
+'@
+$newXml = Convert-ScheduledTaskXml -Xml $taskXml -NewTaskName 'AllotJar-Prod-DbBackup'
+$cmds = Get-ScheduledTaskXmlCommands -Xml $newXml
+Assert-True ($cmds.Count -eq 1 -and $cmds[0] -match '-Database "AllotJarProd"') 'the backup task backs up the renamed database'
+Assert-True ($cmds[0] -match '-R2Bucket "allotjar"' -and $cmds[0] -match 'hc-ping\.com/abc') 'R2 and ping arguments are kept'
+Assert-True ($cmds[0] -notmatch '(?i)zerobudget') 'no old name is left in the command line'
+Assert-True ($newXml -match '<URI>\\AllotJar-Prod-DbBackup</URI>') 'the task URI names the new task'
+Assert-True ($newXml -match '<StartBoundary>2026-11-01T19:00:00</StartBoundary>' -and $newXml -match 'IgnoreNew' -and $newXml -match 'PT1H') 'trigger and settings are kept exactly'
+$oldCmds = Get-ScheduledTaskXmlCommands -Xml $taskXml
+Assert-True ((Convert-ZeroBudgetNames -Text $oldCmds[0]) -eq $cmds[0]) 'the new command line is the old one with the names changed and nothing else'
+
+Write-Host '== Every deploy script parses =='
+# The server scripts run only on Windows, so this is the one place CI sees a syntax error in them.
+foreach ($f in @(Get-ChildItem -Path (Split-Path $PSScriptRoot -Parent) -Include '*.ps1', '*.psm1' -Recurse -File)) {
+    $errs = $null
+    [void][System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs)
+    Assert-True (-not $errs) ("{0} parses{1}" -f $f.Name, $(if ($errs) { ": $($errs[0].Message) (line $($errs[0].Extent.StartLineNumber))" } else { '' }))
+}
 
 if ($script:Failures -gt 0) {
     Write-Host "$($script:Failures) assertion(s) FAILED." -ForegroundColor Red

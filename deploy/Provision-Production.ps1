@@ -5,22 +5,22 @@
     Actions workflow, or by hand in an elevated session.
 
 .DESCRIPTION
-    The box already runs the staging stack (IIS site 'ZeroBudget-Staging' = SPA front +
-    'ZeroBudget-Staging-Api' on 127.0.0.1:5000, SQL Express DB 'ZeroBudgetStaging',
+    The box already runs the staging stack (IIS site 'AllotJar-Staging' = SPA front +
+    'AllotJar-Staging-Api' on 127.0.0.1:5000, SQL Express DB 'AllotJarStaging',
     settings appsettings.Staging.json). This script stands up a parallel, fully
     separate production stack:
 
-      * dirs        C:\inetpub\zerobudget-prod\{api,web}  (+ C:\deploy\incoming-production / release-production)
-      * app pools   ZeroBudget-Prod-Web / ZeroBudget-Prod-Api  (No Managed Code, AlwaysRunning)
-      * IIS sites   'ZeroBudget-Prod'      -> the SPA front, host-bound to allotjar.com + www.allotjar.com
-                    'ZeroBudget-Prod-Api'  -> ANCM API on 127.0.0.1:5001
+      * dirs        C:\inetpub\allotjar-prod\{api,web}  (+ C:\deploy\incoming-production / release-production)
+      * app pools   AllotJar-Prod-Web / AllotJar-Prod-Api  (No Managed Code, AlwaysRunning)
+      * IIS sites   'AllotJar-Prod'      -> the SPA front, host-bound to allotjar.com + www.allotjar.com
+                    'AllotJar-Prod-Api'  -> ANCM API on 127.0.0.1:5001
       * TLS         SNI 443 bindings for apex/www (and staging.allotjar.com on the
                     staging site), using the cert pinned by -CertThumbprint. Every
                     binding is checked against the cert's SAN list first, so a cert
                     that doesn't cover a hostname fails loudly instead of producing a
                     Cloudflare 526 under SSL mode Full (strict). Use ONE origin cert
                     covering '*.allotjar.com' AND 'allotjar.com'.
-      * SQL         database 'ZeroBudgetProd' + db_owner for the prod app-pool identity
+      * SQL         database 'AllotJarProd' + db_owner for the prod app-pool identity
       * config      appsettings.Production.json cloned from the staging API's
                     appsettings.Staging.json with the prod DB name and a FRESH random JWT signing key
                     (never overwritten if it already exists)
@@ -37,20 +37,20 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$ProdWebRoot   = 'C:\inetpub\zerobudget-prod\web',
-    [string]$ProdApiRoot   = 'C:\inetpub\zerobudget-prod\api',
+    [string]$ProdWebRoot   = 'C:\inetpub\allotjar-prod\web',
+    [string]$ProdApiRoot   = 'C:\inetpub\allotjar-prod\api',
     [int]   $ProdApiPort   = 5001,
-    [string]$ProdDatabase  = 'ZeroBudgetProd',
-    [string]$ProdWebPool   = 'ZeroBudget-Prod-Web',
-    [string]$ProdApiPool   = 'ZeroBudget-Prod-Api',
-    [string]$ProdWebSite   = 'ZeroBudget-Prod',
-    [string]$ProdApiSite   = 'ZeroBudget-Prod-Api',
+    [string]$ProdDatabase  = 'AllotJarProd',
+    [string]$ProdWebPool   = 'AllotJar-Prod-Web',
+    [string]$ProdApiPool   = 'AllotJar-Prod-Api',
+    [string]$ProdWebSite   = 'AllotJar-Prod',
+    [string]$ProdApiSite   = 'AllotJar-Prod-Api',
     [string[]]$ProdHosts   = @('allotjar.com', 'www.allotjar.com'),
 
-    [string]$StagingSite     = 'ZeroBudget-Staging',
-    [string]$StagingApiRoot  = 'C:\inetpub\zerobudget-staging\api',
-    [string]$StagingDatabase = 'ZeroBudgetStaging',
-    [string]$StagingTaskName = 'ZeroBudget-Staging-DbBackup',
+    [string]$StagingSite     = 'AllotJar-Staging',
+    [string]$StagingApiRoot  = 'C:\inetpub\allotjar-staging\api',
+    [string]$StagingDatabase = 'AllotJarStaging',
+    [string]$StagingTaskName = 'AllotJar-Staging-DbBackup',
     [string]$StagingHost     = 'staging.allotjar.com',
 
     [string]$SqlServer     = '.\SQLEXPRESS',
@@ -354,7 +354,7 @@ if (Test-Path $prodSettings) {
 # =============================================================================
 $registerScript = Join-Path $PSScriptRoot 'Register-BackupTask.ps1'
 if (Test-Path $registerScript) {
-    $prodTaskName = 'ZeroBudget-Prod-DbBackup'
+    $prodTaskName = 'AllotJar-Prod-DbBackup'
 
     $effectiveR2Bucket = $ProdR2Bucket
     if (-not $effectiveR2Bucket) {
