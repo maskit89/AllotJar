@@ -341,7 +341,10 @@ foreach ($t in (Get-StackTasks $Old.TaskPrefix)) {
     $cmds = Get-ScheduledTaskXmlCommands -Xml $newXml
     foreach ($c in $cmds) { if ($c -match '(?i)zerobudget') { Problem "Task $($t.TaskName) would still name ZeroBudget after the change." } }
     Note ("task {0} -> {1}: runs {2}" -f $t.TaskName, $newName, (($cmds | ForEach-Object { $_ -replace 'https?://\S+', '<url>' }) -join ' ; '))
-    [void]$taskPlans.Add(@{ OldName = $t.TaskName; NewName = $newName; Path = $t.TaskPath; Xml = $newXml; Commands = $cmds; Enabled = [bool]$t.Settings.Enabled })
+    # A nightly backup always ends up switched on, even when an earlier stopped run left the old task paused.
+    $enabled = ([bool]$t.Settings.Enabled) -or ($t.TaskName -like '*-DbBackup')
+    if ($t.TaskName -like '*-DbBackup' -and -not $t.Settings.Enabled) { Note "task $($t.TaskName) is paused (an earlier run stopped); its new task will be switched on" }
+    [void]$taskPlans.Add(@{ OldName = $t.TaskName; NewName = $newName; Path = $t.TaskPath; Xml = $newXml; Commands = $cmds; Enabled = $enabled })
 }
 foreach ($t in (Get-StackTasks $New.TaskPrefix)) { Note "task $($t.TaskName) exists already" }
 
@@ -641,6 +644,11 @@ foreach ($tp in $taskPlans) {
     Done "$($tp.OldName) -> $($tp.NewName) (same trigger, settings and account)"
 }
 $tasksDone = $true
+foreach ($tp in @($taskPlans | Where-Object { $_.NewName -like '*-DbBackup' })) {
+    $st = (Get-ScheduledTask -TaskName $tp.NewName -TaskPath $tp.Path).State
+    if ("$st" -eq 'Disabled') { throw "Task $($tp.NewName) is registered but switched off, so no nightly backup would run. Switch it on with: Enable-ScheduledTask -TaskName $($tp.NewName)" }
+    Done "$($tp.NewName) is switched on ($st)"
+}
 # Prove the nightly backup works under its new name: run it once now (bounded wait).
 foreach ($tp in @($taskPlans | Where-Object { $_.NewName -like '*-DbBackup' -and $_.Enabled })) {
     Note "running $($tp.NewName) once now as a test (up to 15 minutes)..."
@@ -712,7 +720,7 @@ if ($Stack -eq 'production') {
         foreach ($tp in $taskPlans) {
             if (-not ($tp.Enabled -and (Get-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path -ErrorAction SilentlyContinue))) { continue }
             if ($tp.OldName -like '*-DbBackup' -and $settingsNow -ine $Old.Database) {
-                Write-Host ("    NIGHTLY BACKUP PAUSED: {0} still backs up {1}, but the settings now name {2}. Run this block again before 02:00 UTC." -f $tp.OldName, $Old.Database, $(if ($settingsNow) { $settingsNow } else { 'an unknown database' })) -ForegroundColor Red
+                Write-Host ("    NIGHTLY BACKUP PAUSED: {0} still backs up {1}, but the settings now name {2}. Run this block again before the next nightly backup (02:00 UTC production, 02:45 UTC staging)." -f $tp.OldName, $Old.Database, $(if ($settingsNow) { $settingsNow } else { 'an unknown database' })) -ForegroundColor Red
                 continue
             }
             try { Enable-ScheduledTask -TaskName $tp.OldName -TaskPath $tp.Path | Out-Null; Write-Host "    switched $($tp.OldName) back on" } catch { }
