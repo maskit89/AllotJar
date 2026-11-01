@@ -19,12 +19,12 @@ name: Deploy
 #   staging didn't get first.
 # * Both stacks live on the same VPS and reuse the same repo-level VPS_* SSH secrets.
 #   Every server-side name says which stack it belongs to:
-#     staging     C:\inetpub\zerobudget-staging\{api,web}, pools ZeroBudget-Staging-Api/-Web,
+#     staging     C:\inetpub\allotjar-staging\{api,web}, pools AllotJar-Staging-Api/-Web,
 #                 API :5000, ASPNETCORE_ENVIRONMENT=Staging (appsettings.Staging.json),
-#                 database ZeroBudgetStaging, release unpacked in C:\deploy\release-staging
-#     production  C:\inetpub\zerobudget-prod\{api,web}, pools ZeroBudget-Prod-Api/-Web,
+#                 database AllotJarStaging, release unpacked in C:\deploy\release-staging
+#     production  C:\inetpub\allotjar-prod\{api,web}, pools AllotJar-Prod-Api/-Web,
 #                 API :5001, ASPNETCORE_ENVIRONMENT=Production (appsettings.Production.json),
-#                 database ZeroBudgetProd, release unpacked in C:\deploy\release-production
+#                 database AllotJarProd, release unpacked in C:\deploy\release-production
 #
 # The staging and production bundles differ at build time (banner/consent/GA are
 # inlined by Vite), so each environment builds its own artifact - "build once,
@@ -167,7 +167,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-staging\release.zip -DestinationPath C:\deploy\release-staging -Force; & C:\deploy\release-staging\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-staging\api -WebDir C:\inetpub\zerobudget-staging\web -ApiPool ZeroBudget-Staging-Api -WebPool ZeroBudget-Staging-Web -HealthUrl http://127.0.0.1:5000/health -ApiProxyPort 5000 -AspNetEnvironment Staging"'
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-staging\release.zip -DestinationPath C:\deploy\release-staging -Force; & C:\deploy\release-staging\Deploy.ps1 -ApiDir C:\inetpub\allotjar-staging\api -WebDir C:\inetpub\allotjar-staging\web -ApiPool AllotJar-Staging-Api -WebPool AllotJar-Staging-Web -HealthUrl http://127.0.0.1:5000/health -ApiProxyPort 5000 -AspNetEnvironment Staging"'
 
   # Production ships only a commit whose CI on main passed. Journey and a11y run on
   # main, not on PRs, and this workflow never waited for CI, so without this check a
@@ -394,4 +394,4 @@ jobs:
           ssh -i ~/.ssh/deploy_key -p "$PORT" \
             -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
             "$USER@$HOST" \
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-production\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-production\release.zip -DestinationPath C:\deploy\release-production -Force; & C:\deploy\release-production\Deploy.ps1 -ApiDir C:\inetpub\zerobudget-prod\api -WebDir C:\inetpub\zerobudget-prod\web -ApiPool ZeroBudget-Prod-Api -WebPool ZeroBudget-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001 -AspNetEnvironment Production"'
+            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-production\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-production\release.zip -DestinationPath C:\deploy\release-production -Force; & C:\deploy\release-production\Deploy.ps1 -ApiDir C:\inetpub\allotjar-prod\api -WebDir C:\inetpub\allotjar-prod\web -ApiPool AllotJar-Prod-Api -WebPool AllotJar-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001 -AspNetEnvironment Production"'

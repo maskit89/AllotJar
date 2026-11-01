@@ -25,9 +25,9 @@
     across every deploy.
 
     Two stacks share this VPS. Every name says which one it is:
-        staging     C:\inetpub\zerobudget-staging\{api,web}  pools ZeroBudget-Staging-Api / -Web
+        staging     C:\inetpub\allotjar-staging\{api,web}  pools AllotJar-Staging-Api / -Web
                     API :5000, ASPNETCORE_ENVIRONMENT=Staging, appsettings.Staging.json
-        production  C:\inetpub\zerobudget-prod\{api,web}     pools ZeroBudget-Prod-Api / -Web
+        production  C:\inetpub\allotjar-prod\{api,web}     pools AllotJar-Prod-Api / -Web
                     API :5001, ASPNETCORE_ENVIRONMENT=Production, appsettings.Production.json
     The defaults below are the staging stack; the workflow passes every value explicitly
     for both stacks so a reader of deploy.yml sees which stack a job targets.
@@ -35,10 +35,10 @@
 [CmdletBinding()]
 param(
     [string]$ReleaseDir   = $PSScriptRoot,
-    [string]$ApiDir       = 'C:\inetpub\zerobudget-staging\api',
-    [string]$WebDir       = 'C:\inetpub\zerobudget-staging\web',
-    [string]$ApiPool      = 'ZeroBudget-Staging-Api',
-    [string]$WebPool      = 'ZeroBudget-Staging-Web',
+    [string]$ApiDir       = 'C:\inetpub\allotjar-staging\api',
+    [string]$WebDir       = 'C:\inetpub\allotjar-staging\web',
+    [string]$ApiPool      = 'AllotJar-Staging-Api',
+    [string]$WebPool      = 'AllotJar-Staging-Web',
     [string]$HealthUrl    = 'http://127.0.0.1:5000/health', # IPv4: the API binds to 127.0.0.1
     # Port the front site's ARR rule proxies /api to. deploy/web/web.config ships with
     # 5000 baked in (the staging stack); the production stack passes 5001 and the
@@ -72,16 +72,16 @@ if (-not (Test-Path $webSrc)) { throw "Missing web payload at $webSrc" }
 # --- 1. Preflight: the stack this deploy targets must exist under these names --
 # A missing pool or settings file is reported here, before the API is taken offline,
 # instead of as a health-check failure twenty retries later. The usual cause is a
-# stack still under its old names: run deploy\Rename-StagingStack.ps1 once.
+# stack still under its old ZeroBudget names: run deploy\Rename-ToAllotJar.ps1 for it once.
 foreach ($pool in @($ApiPool, $WebPool)) {
     if (-not (Test-Path "IIS:\AppPools\$pool")) {
-        throw "App pool '$pool' does not exist on this server. If this is the staging stack still under its pre-rename names (ZeroBudget-Api / ZeroBudget-Web), run deploy\Rename-StagingStack.ps1 once, then deploy again."
+        throw "App pool '$pool' does not exist on this server. If the stack still has its old ZeroBudget names (ZeroBudget-Staging-Api, ZeroBudget-Prod-Api, ...), run deploy\Rename-ToAllotJar.ps1 for it once, then deploy again."
     }
 }
 $settingsName = "appsettings.$AspNetEnvironment.json"
 $settingsPath = Join-Path $ApiDir $settingsName
 if (-not (Test-Path $settingsPath)) {
-    throw "$settingsPath is missing: the $AspNetEnvironment API would start with no connection string. Create it from appsettings.Production.json.example (for a renamed staging stack, Rename-StagingStack.ps1 renames the old appsettings.Production.json to appsettings.Staging.json)."
+    throw "$settingsPath is missing: the $AspNetEnvironment API would start with no connection string. Create it from appsettings.Production.json.example"
 }
 # The file must also fit THIS stack: its connection string names this stack's database and
 # Email:AppBaseUrl names this stack's origin (staging must set it: the API's built-in default

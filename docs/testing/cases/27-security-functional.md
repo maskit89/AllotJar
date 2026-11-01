@@ -1,6 +1,6 @@
 # Security-Functional Behaviors
 
-**ID prefix:** SEC | **Scope:** User-observable security behaviour that spans features — not a penetration test, but the black-box functional contract of the app's security controls: account lockout after repeated failures + recovery, the 429 rate-limit UX on the auth endpoints, Have-I-Been-Pwned breached-password rejection and the server password policy at register + change-password, the in-memory-only access token, the HttpOnly `zbb_rt` refresh cookie's flags + rotation + reuse detection + the 30-second replay grace, mid-session expiry that re-authenticates cleanly without losing the destination, sign-out-everywhere on password change, cross-tab logout, owner-scoping / cross-household IDOR probes (a direct API call for another household's id returns 404/403 and the UI never leaks it), invite-link single-use enforcement, the enforced security headers + CSP (which must not break Google Fonts or GA), consent-gated analytics (zero GA before consent, hashed ids after), no sensitive data in URLs / open-redirect protection, and the `autocomplete`/`type=password` attributes on credential fields. Where a security control is really a role or concurrency behaviour this file states the *security-observable* assertion and cross-references the owning file rather than re-testing it. | **Out of scope:** the full role→action matrix and per-endpoint 403/404 sweep live in `25-roles-permissions.md`; refresh-rotation / grace / cross-tab races in the multi-tab context live in `22-concurrency-multiuser.md`; invite creation/accept functional depth lives in `17-invites.md` and household isolation-on-switch in `16-people-households.md`; session-expiry-in-a-form UX detail lives in `26-ux-states.md`; per-area validation copy lives in each area file (`08`–`18`); the auth screens' field-level behaviour lives in `02-registration-login.md` and `03-session-auth-lifecycle.md`.
+**ID prefix:** SEC | **Scope:** User-observable security behaviour that spans features — not a penetration test, but the black-box functional contract of the app's security controls: account lockout after repeated failures + recovery, the 429 rate-limit UX on the auth endpoints, Have-I-Been-Pwned breached-password rejection and the server password policy at register + change-password, the in-memory-only access token, the HttpOnly `allotjar_rt` refresh cookie's flags + rotation + reuse detection + the 30-second replay grace, mid-session expiry that re-authenticates cleanly without losing the destination, sign-out-everywhere on password change, cross-tab logout, owner-scoping / cross-household IDOR probes (a direct API call for another household's id returns 404/403 and the UI never leaks it), invite-link single-use enforcement, the enforced security headers + CSP (which must not break Google Fonts or GA), consent-gated analytics (zero GA before consent, hashed ids after), no sensitive data in URLs / open-redirect protection, and the `autocomplete`/`type=password` attributes on credential fields. Where a security control is really a role or concurrency behaviour this file states the *security-observable* assertion and cross-references the owning file rather than re-testing it. | **Out of scope:** the full role→action matrix and per-endpoint 403/404 sweep live in `25-roles-permissions.md`; refresh-rotation / grace / cross-tab races in the multi-tab context live in `22-concurrency-multiuser.md`; invite creation/accept functional depth lives in `17-invites.md` and household isolation-on-switch in `16-people-households.md`; session-expiry-in-a-form UX detail lives in `26-ux-states.md`; per-area validation copy lives in each area file (`08`–`18`); the auth screens' field-level behaviour lives in `02-registration-login.md` and `03-session-auth-lifecycle.md`.
 
 **Test data setup:** A registered login **U1** (`u1@allotjar.eu`, password `Sunflower8x`, which meets the server policy — ≥8 chars + digit + upper + lower and is not HIBP-breached) owning household **H1** with a July 2026 month, an EUR account **"Joint"** and one jar **"Car"**. A second, unrelated login **U2** (`u2@allotjar.eu`) owning household **H2** with its own account, month and jar — used only for cross-household probes; U1 and U2 share no membership. All feature flags default **ON** (`accounts, multiCurrency, camtImport, reports, jars, householdAllocation, householdAccess`, plus `analytics`). Server money is `decimal(18,4)`; the wire role enum is numeric (0 Owner / 1 Admin / 2 Limited / 3 Read-only). Auth endpoints live under `/api/auth/*`; the SPA credential screens are `/login` (Sign in + Create account tabs), `/accept-invite?code=…`, and `/account` (the Change password dialog). Prod is served over HTTPS by Cloudflare in front of IIS/ARR → Kestrel; the API recovers the visitor's address from `X-Forwarded-For`, trusting only loopback (ARR) and Cloudflare's ranges (`ClientAddress`, S-P2-4). Build-time `VITE_GA_MEASUREMENT_ID = G-55WS48MJ91` is present ONLY in the production bundle (staging omits it, so analytics is inert there) and absent in dev/test/CI. The prod auth rate-limit is 20 requests/minute per source; the journey e2e harness raises it to 1000 via `RateLimiting__AuthPermitLimit`.
 
@@ -133,19 +133,19 @@
 - **Preconditions:** Signed in as U1 in a browser tab.
 - **Steps:**
   1. After sign-in, inspect `localStorage` and `sessionStorage`.
-  2. Look for any JWT / bearer token key (historically `zbb.token`).
-- **Expected:** No durable access token exists in web storage — the JWT is held in a module variable in `lib/api.ts` (`accessToken`). Only non-secret UI hints persist (`zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.budgetCurrency`, `zbb.numberFormat`, `zbb.analyticsConsent`). A successful XSS therefore cannot exfiltrate a long-lived credential from storage; the durable session sits only in the JS-unreadable HttpOnly refresh cookie. A full page reload drops the in-memory token and the session is rebuilt from the cookie (SEC-013 / SEC-019).
+  2. Look for any JWT / bearer token key (historically `allotjar.token`).
+- **Expected:** No durable access token exists in web storage — the JWT is held in a module variable in `lib/api.ts` (`accessToken`). Only non-secret UI hints persist (`allotjar.email`, `allotjar.role`, `allotjar.displayName`, `allotjar.currency`, `allotjar.budgetCurrency`, `allotjar.numberFormat`, `allotjar.analyticsConsent`). A successful XSS therefore cannot exfiltrate a long-lived credential from storage; the durable session sits only in the JS-unreadable HttpOnly refresh cookie. A full page reload drops the in-memory token and the session is rebuilt from the cookie (SEC-013 / SEC-019).
 - **Automated:** Partial (`client/e2e-journey/register.spec.ts` → "the session survives a full page reload via the refresh cookie" exercises the in-memory + cookie split)
 
 ### SEC-013 - The refresh cookie carries the correct security flags
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Fresh sign-in / register / accept-invite over HTTPS (prod) issues `zbb_rt`.
+- **Preconditions:** Fresh sign-in / register / accept-invite over HTTPS (prod) issues `allotjar_rt`.
 - **Steps:**
-  1. Sign in and inspect the `Set-Cookie: zbb_rt=…` response header.
+  1. Sign in and inspect the `Set-Cookie: allotjar_rt=…` response header.
   2. Check `HttpOnly`, `Secure`, `SameSite`, `Path`, `Max-Age/Expires`.
-- **Expected:** `zbb_rt` is `HttpOnly` (JS cannot read it), `Secure` in prod (`Secure = !IsDevelopment()`; plain in local dev only, which is why the journey harness runs `ASPNETCORE_ENVIRONMENT=Development` over http), `SameSite=Strict`, scoped `Path=/api/auth` (sent only to the auth endpoints, not every request), `IsEssential`, and expires in 30 days (`RefreshTokenService.LifetimeDays`). The stored value is opaque; the DB holds only its hex SHA-256, never the raw token.
-- **Automated:** Partial (`client/e2e-journey/concurrent-refresh.spec.ts` reads the `zbb_rt` Set-Cookie value; the individual flag assertions are not automated)
+- **Expected:** `allotjar_rt` is `HttpOnly` (JS cannot read it), `Secure` in prod (`Secure = !IsDevelopment()`; plain in local dev only, which is why the journey harness runs `ASPNETCORE_ENVIRONMENT=Development` over http), `SameSite=Strict`, scoped `Path=/api/auth` (sent only to the auth endpoints, not every request), `IsEssential`, and expires in 30 days (`RefreshTokenService.LifetimeDays`). The stored value is opaque; the DB holds only its hex SHA-256, never the raw token.
+- **Automated:** Partial (`client/e2e-journey/concurrent-refresh.spec.ts` reads the `allotjar_rt` Set-Cookie value; the individual flag assertions are not automated)
 
 ### SEC-014 - A session that died mid-use bounces to /login with a reason and returns you there
 - **Priority:** P0
@@ -161,7 +161,7 @@
 ### SEC-015 - Refresh rotation with reuse detection burns the family outside the grace window
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** U1 signed in; one valid `zbb_rt` cookie value captured.
+- **Preconditions:** U1 signed in; one valid `allotjar_rt` cookie value captured.
 - **Steps:**
   1. POST `/api/auth/refresh` with the cookie → it rotates to a new value (old token revoked with `ReplacedByTokenHash` set).
   2. Wait past the 30-second grace window, then replay the ORIGINAL (now-rotated) cookie value.
@@ -172,13 +172,13 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #171 (30s server-side grace so a second restored tab replaying a just-rotated cookie doesn't burn the family; the grace 401 must NOT clear the shared cookie)
-- **Preconditions:** A single browser cookie jar; two tabs cold-loading at once fire `/auth/refresh` with the SAME `zbb_rt`.
+- **Preconditions:** A single browser cookie jar; two tabs cold-loading at once fire `/auth/refresh` with the SAME `allotjar_rt`.
 - **Steps:**
   1. Register / sign in to capture the original cookie value.
   2. POST `/auth/refresh` with it (winner) → rotates, sets a fresh cookie.
   3. Within 30s POST `/auth/refresh` again with the SAME original value (loser).
   4. POST `/auth/refresh` with the winner's rotated value.
-- **Expected:** The winner returns `200` with a new `zbb_rt`. The loser returns `401` with `RefreshRotationResult.Superseded` and, critically, sends NO `Set-Cookie` deletion — clearing here would evict the winner's fresh cookie from the shared jar and sign the winning tab out ~15 min later. No family burn: the winner's rotated cookie still refreshes to `200`. Repeated replays inside the window stay refused-without-burn.
+- **Expected:** The winner returns `200` with a new `allotjar_rt`. The loser returns `401` with `RefreshRotationResult.Superseded` and, critically, sends NO `Set-Cookie` deletion — clearing here would evict the winner's fresh cookie from the shared jar and sign the winning tab out ~15 min later. No family burn: the winner's rotated cookie still refreshes to `200`. Repeated replays inside the window stay refused-without-burn.
 - **Automated:** Yes (`client/e2e-journey/concurrent-refresh.spec.ts` → "two tabs racing refresh with one cookie: loser refused, winner survives, no burn"; `RefreshTokenServiceTests.cs` → `Replaying_a_just_rotated_token_is_refused_without_burning_the_chain`, `Repeated_replays_within_the_grace_window_stay_refused_without_burning`. See CONC-018.)
 
 ### SEC-017 - Changing your password signs out every other device but keeps this one
@@ -201,7 +201,7 @@
 - **Steps:**
   1. In tab A, open the account menu and click "Sign out" (or have the session die → `sessionExpired`).
   2. Observe tab B without manually reloading it, then interact with it.
-- **Expected:** Tab A posts `signed-out` on the `zbb.auth` channel; tab B's handler clears its auth state only if it currently holds a token, so B stops rendering as signed in and `RequireAuth` bounces it to `/login` on its next interaction — it does NOT keep a working in-memory access token for up to 15 more minutes. The receive handler never re-broadcasts (no loops). Environments without `BroadcastChannel` degrade to per-tab behaviour (no crash).
+- **Expected:** Tab A posts `signed-out` on the `allotjar.auth` channel; tab B's handler clears its auth state only if it currently holds a token, so B stops rendering as signed in and `RequireAuth` bounces it to `/login` on its next interaction — it does NOT keep a working in-memory access token for up to 15 more minutes. The receive handler never re-broadcasts (no loops). Environments without `BroadcastChannel` degrade to per-tab behaviour (no crash).
 - **Automated:** Partial (`client/src/auth/AuthContext.test.tsx` → "another tab's sign-out broadcast signs this tab out"; the true two-tab broadcast is not e2e-automated — see CONC-021 / UX-047)
 
 ### SEC-019 - An idle tab whose token lapsed revalidates on focus, not on a failed save
@@ -221,7 +221,7 @@
 - **Steps:**
   1. Present a token signed with a different algorithm or `alg:none`, or with a tampered header alg.
   2. Present a valid-signature token whose `sstamp` claim no longer matches the user's current stamp (e.g. after a password change).
-- **Expected:** Only `HS256` is accepted (`ValidAlgorithms` pinned) — an algorithm-substitution / `alg:none` token is rejected `401`. Issuer (`ZeroBudget`), audience (`ZeroBudgetClient`), lifetime and signing key are all validated (30s clock skew). On each request `OnTokenValidated` re-checks the token's `sstamp` against `Users.SecurityStamp`: a definite mismatch fails the token (`401` "This session has been revoked."); a legacy token with no stamp claim is allowed (rollout grace); a transient DB error fails OPEN (a blip must not log everyone out). The JWT signing key must be ≥32 bytes or the app refuses to start.
+- **Expected:** Only `HS256` is accepted (`ValidAlgorithms` pinned) — an algorithm-substitution / `alg:none` token is rejected `401`. Issuer (`AllotJar`), audience (`AllotJarClient`), lifetime and signing key are all validated (30s clock skew). On each request `OnTokenValidated` re-checks the token's `sstamp` against `Users.SecurityStamp`: a definite mismatch fails the token (`401` "This session has been revoked."); a legacy token with no stamp claim is allowed (rollout grace); a transient DB error fails OPEN (a blip must not log everyone out). The JWT signing key must be ≥32 bytes or the app refuses to start.
 - **Automated:** Partial (`SecurityStampValidationTests.cs` → `Legacy_token_without_a_stamp_is_allowed`, `Matching_stamp_is_allowed`, `Rotated_stamp_revokes_the_token`, `A_stamped_token_against_a_missing_current_stamp_is_rejected`; the algorithm pinning + JWT-bearer wiring are not directly asserted at this layer)
 
 ## Owner-scoping & cross-household isolation (IDOR)
@@ -248,9 +248,9 @@
 ### SEC-023 - Role and household are re-resolved server-side each request; a forged client role can't escalate
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** U1 is a Read-only (or Limited) member somewhere; the client caches the numeric role in `zbb.role`.
+- **Preconditions:** U1 is a Read-only (or Limited) member somewhere; the client caches the numeric role in `allotjar.role`.
 - **Steps:**
-  1. Tamper with the client `zbb.role` in localStorage (e.g. set it to `0`/Owner) to unlock UI affordances.
+  1. Tamper with the client `allotjar.role` in localStorage (e.g. set it to `0`/Owner) to unlock UI affordances.
   2. Attempt a privileged write from the now-unlocked UI (or replay it directly against the API).
 - **Expected:** The server ignores the client's claimed role entirely — `HouseholdResolutionMiddleware` re-resolves the caller's active household + role from `HouseholdMemberships` every request and `AuthorizationBehaviour` enforces it. A forged client role only reveals UI controls locally; the actual command is rejected `403` by the server. Role is never baked into the JWT, so a revoke/downgrade takes effect on the very next request. (Full matrix: `25-roles-permissions.md` ROLE-005/033/036.)
 - **Automated:** Partial (`AuthorizationBehaviourTests.cs` covers the server-side pipeline enforcement per role; client tampering is not automated)
@@ -335,7 +335,7 @@
 ### SEC-031 - Zero GA script, cookies or hits before consent is granted
 - **Priority:** P1
 - **Type:** Negative
-- **Preconditions:** Analytics flag ON, measurement id built in, no stored consent (`zbb.analyticsConsent` unset) → the consent banner shows.
+- **Preconditions:** Analytics flag ON, measurement id built in, no stored consent (`allotjar.analyticsConsent` unset) → the consent banner shows.
 - **Steps:**
   1. Load the app signed-in as U1 with no prior consent choice; the "Analytics consent" banner appears at the bottom (Decline / Accept).
   2. Before touching the banner, inspect the network (no `googletagmanager.com/gtag/js` request), `document.cookie` (no `_ga*`), and `window.gtag` / `dataLayer`.
@@ -349,7 +349,7 @@
 - **Steps:**
   1. Click "Accept" on the consent banner.
   2. Inspect the `dataLayer` / gtag calls and the first page view.
-- **Expected:** `zbb.analyticsConsent = 'granted'` is persisted; `start()` loads gtag.js exactly once (idempotent), sets Consent Mode v2 defaults denied-by-default (`ad_storage` / `ad_user_data` / `ad_personalization` / `analytics_storage` all `denied`), configures the stream with `send_page_view:false`, `anonymize_ip:true`, `allow_google_signals:false`, `allow_ad_personalization_signals:false`, THEN flips `analytics_storage:'granted'`. Only after that is a redacted `page_view` sent (SEC-039). Ad/remarketing storage stays denied throughout.
+- **Expected:** `allotjar.analyticsConsent = 'granted'` is persisted; `start()` loads gtag.js exactly once (idempotent), sets Consent Mode v2 defaults denied-by-default (`ad_storage` / `ad_user_data` / `ad_personalization` / `analytics_storage` all `denied`), configures the stream with `send_page_view:false`, `anonymize_ip:true`, `allow_google_signals:false`, `allow_ad_personalization_signals:false`, THEN flips `analytics_storage:'granted'`. Only after that is a redacted `page_view` sent (SEC-039). Ad/remarketing storage stays denied throughout.
 - **Automated:** Partial (`analytics.test.ts` → loads GA and forwards only whitelisted events after `start()`; `start()` is idempotent — one script tag)
 
 ### SEC-033 - Declining keeps analytics fully inert and remembers the choice
@@ -359,7 +359,7 @@
 - **Steps:**
   1. Click "Decline".
   2. Navigate around, then reload the app.
-- **Expected:** `zbb.analyticsConsent = 'denied'` persists; the banner disappears and does not reappear on reload; GA is never loaded and no event / page_view / user-id is ever sent. Declining is a hard opt-out, not a "not yet".
+- **Expected:** `allotjar.analyticsConsent = 'denied'` persists; the banner disappears and does not reappear on reload; GA is never loaded and no event / page_view / user-id is ever sent. Declining is a hard opt-out, not a "not yet".
 - **Automated:** Partial (`analytics.test.ts` → consent storage persists/reads the choice)
 
 ### SEC-034 - After consent the GA User-ID is a one-way hash; the raw email never leaves the browser
@@ -399,7 +399,7 @@
 - **Steps:**
   1. Switch off the "Google Analytics" switch in the Help page's "Privacy" card (its only control; it calls `decline()`, not `reset()`).
   2. Separately, sign out while tracking is live.
-- **Expected:** The switch turns off and `zbb.analyticsConsent` becomes `denied` (not cleared to null, so the consent banner does not reappear); the switch itself is the way to re-decide at any time — a genuine, revocable opt-out (the provider's `reset()` exists but nothing in the UI calls it). On logout `clearUser()` sets GA's `user_id` and `user_role` to null so a subsequent user on the same browser is not stitched to the previous identity.
+- **Expected:** The switch turns off and `allotjar.analyticsConsent` becomes `denied` (not cleared to null, so the consent banner does not reappear); the switch itself is the way to re-decide at any time — a genuine, revocable opt-out (the provider's `reset()` exists but nothing in the UI calls it). On logout `clearUser()` sets GA's `user_id` and `user_role` to null so a subsequent user on the same browser is not stitched to the previous identity.
 - **Automated:** No
 
 ## URLs, redirects & credential-field autofill

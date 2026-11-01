@@ -72,7 +72,7 @@ public partial class JointAccountsW13Tests
     }
 
     private readonly DbContextOptions<ApplicationDbContext> _options = new DbContextOptionsBuilder<ApplicationDbContext>()
-        .UseInMemoryDatabase($"zbb-w13-{Guid.NewGuid()}")
+        .UseInMemoryDatabase($"allotjar-w13-{Guid.NewGuid()}")
         .Options;
 
     private readonly Guid _chris;

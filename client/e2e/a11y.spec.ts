@@ -503,7 +503,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     test('login has no WCAG A/AA violations', async ({ page }) => {
       // Signed out: no token, so the login page renders.
-      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
       await page.goto('/login')
       await page.getByLabel('Email').waitFor()
@@ -528,7 +528,7 @@ for (const theme of ['light', 'dark'] as const) {
 
     // Two-factor sign-in (fix 14): the passkey step after a right password, and its recovery-code form.
     test('the passkey step has no WCAG A/AA violations', async ({ page }) => {
-      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
       await page.route(/\/api\/auth\/login$/, (route) =>
         route.fulfill({
@@ -553,7 +553,7 @@ for (const theme of ['light', 'dark'] as const) {
     // The invite landing (public, restyle PR 9's frame): the signed-out accept form and the
     // missing-code state.
     test('accept-invite page has no WCAG A/AA violations', async ({ page }) => {
-      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
       await page.goto('/accept-invite?code=abc')
       await page.getByLabel('Your name (optional)').waitFor()
@@ -568,7 +568,7 @@ for (const theme of ['light', 'dark'] as const) {
     // forgot form + its non-enumerating confirmation, and the reset form + its
     // incomplete-link recovery state.
     test('forgot/reset password pages have no WCAG A/AA violations', async ({ page }) => {
-      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
 
       await page.goto('/forgot-password')
@@ -603,7 +603,7 @@ for (const theme of ['light', 'dark'] as const) {
     // states: done (mockApi 200s the confirm POST), expired (a 400), incomplete (no token) with
     // its (i) open, and working (the request never answers).
     test('confirm-email page has no WCAG A/AA violations', async ({ page }) => {
-      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
 
       await page.goto('/confirm-email?email=owner%40example.com&token=tok')
@@ -678,8 +678,8 @@ for (const theme of ['light', 'dark'] as const) {
       // A brand-new user (no onboarding record) so the welcome auto-opens.
       await page.addInitScript(
         ({ t }) => {
-          localStorage.setItem('zbb.theme', t)
-          localStorage.setItem('zbb.token', 'e2e-token')
+          localStorage.setItem('allotjar.theme', t)
+          localStorage.setItem('allotjar.token', 'e2e-token')
         },
         { t: theme },
       )

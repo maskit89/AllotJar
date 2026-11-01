@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-time bootstrap of a fresh Windows Server VPS to host ZeroBudget natively
+    One-time bootstrap of a fresh Windows Server VPS to host AllotJar natively
     (IIS + ASP.NET Core Module + SQL Server Express + OpenSSH for CI/CD). It creates
     the STAGING stack (every name says staging); Provision-Production.ps1 adds the
     production stack next to it later.
@@ -26,14 +26,14 @@ param(
     # Leave blank to bind the site to the server IP over HTTP (no domain needed).
     # Pass a hostname later (and run win-acme) to add a domain + HTTPS.
     [string]$Domain      = '',
-    [string]$WebRoot     = 'C:\inetpub\zerobudget-staging\web',
-    [string]$ApiRoot     = 'C:\inetpub\zerobudget-staging\api',
+    [string]$WebRoot     = 'C:\inetpub\allotjar-staging\web',
+    [string]$ApiRoot     = 'C:\inetpub\allotjar-staging\api',
     [string]$DeployRoot  = 'C:\deploy',
     [int]   $ApiPort     = 5000,
-    [string]$WebSite     = 'ZeroBudget-Staging',
-    [string]$ApiSite     = 'ZeroBudget-Staging-Api',
-    [string]$WebPool     = 'ZeroBudget-Staging-Web',
-    [string]$ApiPool     = 'ZeroBudget-Staging-Api',
+    [string]$WebSite     = 'AllotJar-Staging',
+    [string]$ApiSite     = 'AllotJar-Staging-Api',
+    [string]$WebPool     = 'AllotJar-Staging-Web',
+    [string]$ApiPool     = 'AllotJar-Staging-Api',
 
     # External installers. URL Rewrite + ARR links are the long-stable Microsoft
     # download URLs. Verify the Hosting Bundle URL is the latest .NET 10 build.
@@ -158,7 +158,7 @@ if ($cfRanges.Count -lt 1) {
 
 Info "Restricting web ports 80/443 to $($cfRanges.Count) Cloudflare ranges"
 foreach ($p in @(80, 443)) {
-    $name = "ZeroBudget-TCP-$p"
+    $name = "AllotJar-TCP-$p"
     # Recreate each run so re-provisioning re-applies the scope. Windows Allow rules union,
     # so an older Allow-from-Any rule would otherwise linger and defeat the restriction.
     Get-NetFirewallRule -DisplayName $name -ErrorAction SilentlyContinue | Remove-NetFirewallRule
@@ -167,7 +167,7 @@ foreach ($p in @(80, 443)) {
 }
 
 Info 'Opening firewall port 22 (SSH, for the deploy pipeline)'
-$sshName = 'ZeroBudget-TCP-22'
+$sshName = 'AllotJar-TCP-22'
 if (-not (Get-NetFirewallRule -DisplayName $sshName -ErrorAction SilentlyContinue)) {
     New-NetFirewallRule -DisplayName $sshName -Direction Inbound -Action Allow `
         -Protocol TCP -LocalPort 22 | Out-Null
@@ -184,7 +184,7 @@ Write-Host @"
 Next steps (see docs/deployment/README.md):
   1. Install SQL Server Express, then run:  sqlcmd -S .\SQLEXPRESS -E -i Setup-Database.sql
   2. Copy appsettings.Production.json.example -> $ApiRoot\appsettings.Staging.json and fill in secrets
-     (Database=ZeroBudgetStaging; the staging API runs as ASPNETCORE_ENVIRONMENT=Staging).
+     (Database=AllotJarStaging; the staging API runs as ASPNETCORE_ENVIRONMENT=Staging).
   3. Add your CI public key to C:\ProgramData\ssh\administrators_authorized_keys.
 $tlsNote
 "@ -ForegroundColor Green

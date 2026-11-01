@@ -15,7 +15,7 @@
     ping URL as -PingUrl. Then:
 
         .\Register-HealthPingTask.ps1 -PingUrl https://hc-ping.com/<uuid>              # production (port 5001)
-        .\Register-HealthPingTask.ps1 -PingUrl https://hc-ping.com/<uuid> -HealthUrl http://127.0.0.1:5000/health/ready -TaskName ZeroBudget-Staging-HealthPing
+        .\Register-HealthPingTask.ps1 -PingUrl https://hc-ping.com/<uuid> -HealthUrl http://127.0.0.1:5000/health/ready -TaskName AllotJar-Staging-HealthPing
 
     Needs Windows Server 2016 or later: an indefinitely repeating trigger is what keeps the task
     going, and this script checks the stored task has one.
@@ -28,7 +28,7 @@ param(
     [Parameter(Mandatory)] [string]$PingUrl,
     [string]$HealthUrl       = 'http://127.0.0.1:5001/health/ready',  # production API; staging is 5000
     [int]   $IntervalMinutes = 5,
-    [string]$TaskName        = 'ZeroBudget-Prod-HealthPing',
+    [string]$TaskName        = 'AllotJar-Prod-HealthPing',
     [string]$InstallDir      = 'C:\deploy',
     [string]$PingScript                                           # default: Ping-Health.ps1 beside this script
 )

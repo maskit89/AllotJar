@@ -4,34 +4,34 @@ AllotJar runs **natively on a Windows Server VPS** (no Docker):
 
 | Tier | Host | Notes |
 |------|------|-------|
-| SPA (React `dist`) | IIS site **ZeroBudget-Staging** / **ZeroBudget-Prod** on :80/:443 | also reverse-proxies `/api` → the API |
-| API (.NET 10) | IIS site **ZeroBudget-Staging-Api** on `localhost:5000` / **ZeroBudget-Prod-Api** on `localhost:5001`, hosted via the ASP.NET Core Module (ANCM) | IIS owns the process lifecycle |
-| Database | **SQL Server Express** Windows service (`ZeroBudgetStaging`, `ZeroBudgetProd`) | data files on disk → survive every deploy |
+| SPA (React `dist`) | IIS site **AllotJar-Staging** / **AllotJar-Prod** on :80/:443 | also reverse-proxies `/api` → the API |
+| API (.NET 10) | IIS site **AllotJar-Staging-Api** on `localhost:5000` / **AllotJar-Prod-Api** on `localhost:5001`, hosted via the ASP.NET Core Module (ANCM) | IIS owns the process lifecycle |
+| Database | **SQL Server Express** Windows service (`AllotJarStaging`, `AllotJarProd`) | data files on disk → survive every deploy |
 
 ```
-Internet :443 ──► IIS "ZeroBudget-Staging" / "ZeroBudget-Prod" (SPA + URL Rewrite)
+Internet :443 ──► IIS "AllotJar-Staging" / "AllotJar-Prod" (SPA + URL Rewrite)
                       │  proxy ^api/(.*) ──► http://localhost:5000 (staging) or :5001 (production) /api/{R:1}
                       ▼
-                 IIS "ZeroBudget-Staging-Api" / "ZeroBudget-Prod-Api" (ANCM) ──► SQL Server Express (Windows auth)
+                 IIS "AllotJar-Staging-Api" / "AllotJar-Prod-Api" (ANCM) ──► SQL Server Express (Windows auth)
 ```
 
 Every server-side name carries its environment, so nothing of staging's is called production:
 
 | | Staging | Production |
 |---|---|---|
-| Folders | `C:\inetpub\zerobudget-staging\{api,web}` | `C:\inetpub\zerobudget-prod\{api,web}` |
-| IIS sites | `ZeroBudget-Staging`, `ZeroBudget-Staging-Api` | `ZeroBudget-Prod`, `ZeroBudget-Prod-Api` |
-| App pools | `ZeroBudget-Staging-Web`, `ZeroBudget-Staging-Api` | `ZeroBudget-Prod-Web`, `ZeroBudget-Prod-Api` |
+| Folders | `C:\inetpub\allotjar-staging\{api,web}` | `C:\inetpub\allotjar-prod\{api,web}` |
+| IIS sites | `AllotJar-Staging`, `AllotJar-Staging-Api` | `AllotJar-Prod`, `AllotJar-Prod-Api` |
+| App pools | `AllotJar-Staging-Web`, `AllotJar-Staging-Api` | `AllotJar-Prod-Web`, `AllotJar-Prod-Api` |
 | API port | 5000 | 5001 |
 | `ASPNETCORE_ENVIRONMENT` (pinned by `Deploy.ps1` in the API's `web.config`) | `Staging` | `Production` |
 | Settings file (server-only, gitignored) | `appsettings.Staging.json` | `appsettings.Production.json` |
-| Database | `ZeroBudgetStaging` | `ZeroBudgetProd` |
-| Backup task | `ZeroBudget-Staging-DbBackup` (local only, 03:30 server time) | `ZeroBudget-Prod-DbBackup` (shipped to R2, 02:30) |
-| DataProtection key folder (`DataProtection:KeysPath`) | `C:\inetpub\zerobudget-staging-dp-keys` | `C:\inetpub\zerobudget-dp-keys` |
+| Database | `AllotJarStaging` | `AllotJarProd` |
+| Backup task | `AllotJar-Staging-DbBackup` (local only, 02:45 UTC) | `AllotJar-Prod-DbBackup` (shipped to R2, 02:00 UTC) |
+| DataProtection key folder (`DataProtection:KeysPath`) | `C:\inetpub\allotjar-staging-dp-keys` | `C:\inetpub\allotjar-prod-dp-keys` |
 | Origin inside emailed links (`Email:AppBaseUrl`; staging must set it, the built-in default is production's) | `https://staging.allotjar.com` | `https://www.allotjar.com` (or the apex `https://allotjar.com`) |
 | Release unpacked in | `C:\deploy\release-staging` (from `C:\deploy\incoming-staging`) | `C:\deploy\release-production` (from `C:\deploy\incoming-production`) |
 
-Until 4 October 2026 staging kept the names of the original single stack (`ZeroBudget`, `C:\inetpub\zerobudget`, database `ZeroBudget`) and, because nothing set its ASP.NET Core environment, read `appsettings.Production.json`. `deploy/Rename-StagingStack.ps1` renamed it in place (run once, on the VPS; `-Check` only reports).
+Until 4 October 2026 staging kept the names of the original single stack and read `appsettings.Production.json`; a one-off script (since removed) gave it the staging names. Until November 2026 both stacks still carried the app's original name, ZeroBudget (`ZeroBudget-Prod`, `C:\inetpub\zerobudget-prod`, database `ZeroBudgetProd`, and so on). `deploy/Rename-ToAllotJar.ps1` renames one stack at a time in place, keeping its data (run on the VPS; `-Check` only reports). Order: staging first, then production, then the Deploy workflow under the new names.
 
 The React client already calls the same-origin `/api` prefix, so the proxy needs **no frontend changes** and there is **no CORS** in production.
 
@@ -52,7 +52,7 @@ The React client already calls the same-origin `/api` prefix, so the proxy needs
 | `deploy/Register-BackupTask.ps1` | VPS, once | register the daily backup as a Scheduled Task (runs as SYSTEM) |
 | `.github/workflows/deploy.yml` | GitHub Actions | build → SSH-push → deploy on merge to `main` |
 | `src/AllotJar.Api/appsettings.Production.json.example` | template | copy to the server as `appsettings.Production.json` (production) or `appsettings.Staging.json` (staging), fill in secrets (both gitignored) |
-| `deploy/Rename-StagingStack.ps1` | VPS, once (done 4 Oct 2026) | renamed the original stack's sites, pools, folders, database, settings file and backup task to their staging names |
+| `deploy/Rename-ToAllotJar.ps1` | VPS, once per stack (Nov 2026) | renames a stack's sites, pools, folders, database, key folder, settings, scheduled tasks and local backups from ZeroBudget to AllotJar names, keeping its data |
 
 ---
 
@@ -78,24 +78,24 @@ Notes:
 ### 2. SSH deploy key
 On **your machine**, create a keypair dedicated to deploys:
 ```powershell
-ssh-keygen -t ed25519 -f $HOME\.ssh\zerobudget_deploy -C "github-actions"
+ssh-keygen -t ed25519 -f $HOME\.ssh\allotjar_deploy -C "github-actions"
 ```
-Copy the **public** half (`zerobudget_deploy.pub`) to the VPS, then there:
+Copy the **public** half (`allotjar_deploy.pub`) to the VPS, then there:
 ```powershell
-Add-Content C:\ProgramData\ssh\administrators_authorized_keys (Get-Content .\zerobudget_deploy.pub)
+Add-Content C:\ProgramData\ssh\administrators_authorized_keys (Get-Content .\allotjar_deploy.pub)
 icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
 ```
-Test from your machine: `ssh -i $HOME\.ssh\zerobudget_deploy Administrator@<vps-ip>`.
+Test from your machine: `ssh -i $HOME\.ssh\allotjar_deploy Administrator@<vps-ip>`.
 
 ### 3. (Optional) migrate existing household data
 Skip this for an empty start. To bring your dev data across, on the **dev machine**:
 ```powershell
 dotnet tool install -g microsoft.sqlpackage
-powershell -File .\Export-DevData.ps1          # -> deploy\ZeroBudget.bacpac
+powershell -File .\Export-DevData.ps1          # -> deploy\AllotJar.bacpac
 ```
-Copy `ZeroBudget.bacpac` to the VPS, then on the **VPS** — import **before** the grant (import creates the DB):
+Copy `AllotJar.bacpac` to the VPS, then on the **VPS** — import **before** the grant (import creates the DB):
 ```powershell
-powershell -File .\Import-ToServer.ps1 -BacpacPath C:\deploy\ZeroBudget.bacpac
+powershell -File .\Import-ToServer.ps1 -BacpacPath C:\deploy\AllotJar.bacpac
 powershell -ExecutionPolicy Bypass -File .\Bootstrap.ps1   # skips SQL install; grants on the new DB
 ```
 
@@ -126,7 +126,7 @@ Or restore a `.bak` taken before the deploy.
 ### Adding a domain + TLS (later)
 Once you have a domain:
 - Point a DNS **A record** at the VPS public IP, then re-run `Setup-Server.ps1 -Domain "budget.yourdomain.com"` to bind the host header.
-- Install free Let's Encrypt TLS with **win-acme** (`wacs.exe`): pick the `ZeroBudget-Staging` site; it creates the 443 binding **and** offers the HTTP->HTTPS redirect, and schedules auto-renewal. (The IIS-native equivalent of Caddy's auto-HTTPS.)
+- Install free Let's Encrypt TLS with **win-acme** (`wacs.exe`): pick the `AllotJar-Staging` site; it creates the 443 binding **and** offers the HTTP->HTTPS redirect, and schedules auto-renewal. (The IIS-native equivalent of Caddy's auto-HTTPS.)
 
 ---
 
@@ -162,8 +162,8 @@ Production deploys only on a hand-started Deploy run with **Also deploy to produ
 
 ---
 
-> **Environment names:** production DB = `ZeroBudgetProd` (API :5001, pool `ZeroBudget-Prod-Api`);
-> staging DB = `ZeroBudgetStaging` (API :5000, pool `ZeroBudget-Staging-Api`). See
+> **Environment names:** production DB = `AllotJarProd` (API :5001, pool `AllotJar-Prod-Api`);
+> staging DB = `AllotJarStaging` (API :5000, pool `AllotJar-Staging-Api`). See
 > [`staging-prod.md`](staging-prod.md) for the authoritative topology — the commands below
 > name the **production** database explicitly; swap in the staging values when targeting staging.
 
@@ -173,10 +173,10 @@ After SQL Server is installed, register the daily backup (runs as SYSTEM, prunes
 `Provision-Production.ps1` registers one task per environment; to (re)register by hand pass the
 target DB explicitly:
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup
-# verify:  Start-ScheduledTask -TaskName ZeroBudget-Prod-DbBackup ; Get-ChildItem C:\deploy\backups
+powershell -ExecutionPolicy Bypass -File .\Register-BackupTask.ps1 -Database AllotJarProd -TaskName AllotJar-Prod-DbBackup
+# verify:  Start-ScheduledTask -TaskName AllotJar-Prod-DbBackup ; Get-ChildItem C:\deploy\backups
 ```
-`.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time/retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
+`.bak` files land in `C:\deploy\backups`. Run `Register-BackupTask.ps1` again to change the time (`-TimeUtc HH:mm`, in UTC; the trigger is pinned to UTC so the server clock's summer/winter change cannot move it; defaults 02:00 for a `*Prod*` database, 02:45 otherwise) or the retention. If the task can't back up, the SYSTEM account lacks rights on the instance — grant it (or re-run the task as your SQL admin).
 
 ### Off-host backups (Cloudflare R2, encrypted)
 
@@ -218,12 +218,12 @@ One-time setup on the VPS:
    the new scripts into `C:\deploy`, so do step 3 first; until you do, the registered task keeps running
    its old copy of the script and keeps uploading plain backups):
    ```powershell
-   powershell -File .\Register-BackupTask.ps1 -Database ZeroBudgetProd -TaskName ZeroBudget-Prod-DbBackup -R2Bucket <bucket> -PingUrl <healthchecks url>
+   powershell -File .\Register-BackupTask.ps1 -Database AllotJarProd -TaskName AllotJar-Prod-DbBackup -R2Bucket <bucket> -PingUrl <healthchecks url>
    ```
 5. **Test it** — one verified backup, encrypted, shipped off-host and size-checked (the encrypted object
    is about 2 KB larger than the `.bak`), then prove the password-manager entry matches the VPS:
    ```powershell
-   powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd -R2Bucket <bucket>
+   powershell -File C:\deploy\Backup-Database.ps1 -Database AllotJarProd -R2Bucket <bucket>
    powershell -File .\Set-BackupEncryption.ps1 -Bucket <bucket> -CheckKey
    ```
    `-CheckKey` asks for the two secrets again (copy them from the password manager) and prints OK or MISMATCH.
@@ -250,11 +250,11 @@ from R2 onto **staging** every so often (staging is offline for about a minute; 
 touched). On the VPS, in an elevated Windows PowerShell, from a copy of this `deploy` folder:
 ```powershell
 # 1. keep staging's own data so it can be put back afterwards
-powershell -File .\Backup-Database.ps1 -Database ZeroBudgetStaging
+powershell -File .\Backup-Database.ps1 -Database AllotJarStaging
 # 2. fetch the newest production backup from R2, decrypted (prints the .bak's path)
 powershell -File .\Get-BackupFromR2.ps1 -Bucket allotjar
 # 3. restore it onto staging (asks you to type the target database name)
-powershell -File .\Migrate-FromBak.ps1 -Environment staging -BakPath C:\deploy\restore-test\ZeroBudgetProd_<stamp>.bak
+powershell -File .\Migrate-FromBak.ps1 -Environment staging -BakPath C:\deploy\restore-test\AllotJarProd_<stamp>.bak
 # 4. afterwards, put staging's own data back the same way, from the file step 1 wrote
 # 5. delete C:\deploy\restore-test\*.bak: the decrypted copy holds every user's data in plain text
 ```
@@ -273,7 +273,7 @@ salt fails with `failed to authenticate decrypted block`; it can never produce a
 **Provisioning can no longer downgrade this.** `Provision-Production.ps1` re-registers the daily
 tasks, and `Register-ScheduledTask -Force` overwrites — so a re-run used to silently replace an
 R2-enabled prod task with a local-only one. It now resolves the bucket from `-ProdR2Bucket`, else
-**preserves** the bucket on the existing `ZeroBudget-Prod-DbBackup` task, else **refuses to run**;
+**preserves** the bucket on the existing `AllotJar-Prod-DbBackup` task, else **refuses to run**;
 after registering, it reads the task back and asserts the R2 arguments are on the stored action.
 The "Provision production stack" workflow passes the bucket from the `BACKUP_R2_BUCKET` secret
 (and the TLS pin from `ORIGIN_CERT_THUMBPRINT`) and fails before touching the VPS if either is
@@ -283,11 +283,11 @@ missing.
 
 Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
 ```powershell
-powershell -File C:\deploy\Backup-Database.ps1 -Database ZeroBudgetProd
+powershell -File C:\deploy\Backup-Database.ps1 -Database AllotJarProd
 ```
 Restore a `.bak` if needed (stops the API pool, verifies the file, restores onto the database's own files, re-grants the pool login, health-checks):
 ```powershell
-powershell -File C:\deploy\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\backups\ZeroBudgetProd_<stamp>.bak
+powershell -File C:\deploy\Migrate-FromBak.ps1 -Environment production -BakPath C:\deploy\backups\AllotJarProd_<stamp>.bak
 ```
 
 ## Troubleshooting
@@ -298,5 +298,5 @@ powershell -File C:\deploy\Migrate-FromBak.ps1 -Environment production -BakPath 
 | `/api` returns 404 from the SPA site | ARR proxy not enabled at server level (re-run `Setup-Server.ps1`), or URL Rewrite missing. |
 | API up but DB errors at startup | app-pool login not granted — re-run `Setup-Database.sql`; check the connection string instance name (`\SQLEXPRESS`). |
 | Deploy fails on file-in-use | `app_offline.htm` step didn't take — confirm the app pool exists and ANCM is installed. |
-| Health check times out | check ANCM stdout logs in `C:\inetpub\zerobudget-staging\api\logs` (`zerobudget-prod` for production). |
-| Deploy stops at "App pool ... does not exist" or "appsettings.Staging.json is missing" | the staging stack still has its pre-rename names: run `deploy\Rename-StagingStack.ps1` once. |
+| Health check times out | check ANCM stdout logs in `C:\inetpub\allotjar-staging\api\logs` (`allotjar-prod` for production). |
+| Deploy stops at "App pool ... does not exist" or a settings file "names Database=ZeroBudget..." | the stack still has its old ZeroBudget names: run `deploy\Rename-ToAllotJar.ps1 -Stack <staging or production>` once. |

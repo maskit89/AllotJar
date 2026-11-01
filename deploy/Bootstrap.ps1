@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    One-shot, idempotent bootstrap of a fresh Windows Server VPS for ZeroBudget.
+    One-shot, idempotent bootstrap of a fresh Windows Server VPS for AllotJar.
     Bundles every server-side setup step into a single run.
 
 .DESCRIPTION
@@ -27,7 +27,7 @@
 [CmdletBinding()]
 param(
     [string]$Domain      = '',                          # blank = IP-only / HTTP
-    [string]$ApiRoot     = 'C:\inetpub\zerobudget-staging\api',
+    [string]$ApiRoot     = 'C:\inetpub\allotjar-staging\api',
     [string]$SqlInstance = '.\SQLEXPRESS',
 
     # SQL Server 2022 Express bootstrapper (small downloader). If this 404s, grab
@@ -109,7 +109,7 @@ if (Test-Path $prod) {
     Write-Host "$prod already exists - leaving it untouched."
 } else {
     $key  = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
-    $conn = "Server=$SqlInstance;Database=ZeroBudgetStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+    $conn = "Server=$SqlInstance;Database=AllotJarStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
     $cfg  = [ordered]@{
         ConnectionStrings = [ordered]@{ DefaultConnection = $conn }
         Jwt               = [ordered]@{ Key = $key }
@@ -131,13 +131,13 @@ The server is ready. Two things only YOU can finish:
 
 1. Authorize your GitHub deploy key (after you generate it on your PC, copy the
    .pub here, then run):
-     Add-Content C:\ProgramData\ssh\administrators_authorized_keys (Get-Content .\zerobudget_deploy.pub)
+     Add-Content C:\ProgramData\ssh\administrators_authorized_keys (Get-Content .\allotjar_deploy.pub)
      icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
 
 2. Add these GitHub repo secrets (Settings -> Secrets and variables -> Actions):
      VPS_HOST      = $ip
      VPS_SSH_USER  = $env:USERNAME
-     VPS_SSH_KEY   = <full contents of the PRIVATE key 'zerobudget_deploy'>
+     VPS_SSH_KEY   = <full contents of the PRIVATE key 'allotjar_deploy'>
      VPS_SSH_PORT  = 22
 
 Then merge PR #64 to trigger the first deploy. The app will be live at:

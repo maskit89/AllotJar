@@ -859,7 +859,7 @@ describe('JarsPage', () => {
     await user.click(screen.getByRole('button', { name: 'Sort jars: Needs attention' }))
     await user.click(await screen.findByRole('menuitemradio', { name: 'Most saved' }))
     expect(order()).toEqual(['Home insurance funding progress', 'Roof funding progress'])
-    expect(localStorage.getItem('zbb.jarSort')).toBe('saved')
+    expect(localStorage.getItem('allotjar.jarSort')).toBe('saved')
 
     unmount()
     renderPage()

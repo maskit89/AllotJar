@@ -11,7 +11,7 @@
 ### UX-001 - Every authenticated route is axe-clean (WCAG A/AA through 2.2) in light theme
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Stubbed Playwright, all flags on, `zbb.theme='light'`.
+- **Preconditions:** Stubbed Playwright, all flags on, `allotjar.theme='light'`.
 - **Steps:**
   1. For each path in `AUTHED_ROUTES` run `authedSetup(page, 'light')` and `page.goto(path)`.
   2. Wait for the first `heading level 1` to appear.
@@ -22,7 +22,7 @@
 ### UX-002 - Every authenticated route is axe-clean in dark theme
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Stubbed Playwright, `zbb.theme='dark'` (so `<html class="dark">`).
+- **Preconditions:** Stubbed Playwright, `allotjar.theme='dark'` (so `<html class="dark">`).
 - **Steps:**
   1. Repeat UX-001 with `authedSetup(page, 'dark')` for every `AUTHED_ROUTES` path.
 - **Expected:** Zero violations on every route in dark theme. Because the whole palette flips at the token level (`.dark` reassigns the slate ramp + `--color-surface`), contrast criteria (1.4.3/1.4.11) must pass with no per-element `dark:` fixes on the bulk of the page.
@@ -285,7 +285,7 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** Theme pre-paint script — CSP is `script-src 'self'`, so the initializer is the external same-origin `public/theme-init.js`, not an inline script.
-- **Preconditions:** `zbb.theme='dark'` (or OS dark, no stored value); hard reload any route.
+- **Preconditions:** `allotjar.theme='dark'` (or OS dark, no stored value); hard reload any route.
 - **Steps:**
   1. Hard-refresh and watch the first paint.
 - **Expected:** `theme-init.js` applies `.dark` before first paint, so there is no light-then-dark flash; dark = stored `'dark'` OR (no stored value AND OS dark). Note: `index.css` `@import`s Google Fonts, so the CSP must also allowlist Google Fonts — verify no CSP console error blocks fonts or the theme script. (No-flash detail also in `04-account-preferences.md` PREF-039.)
@@ -294,11 +294,11 @@
 ### UX-030 - Theme is device-wide and follows the OS live until the first explicit pick
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Fresh browser profile, no `zbb.theme`, OS set to dark.
+- **Preconditions:** Fresh browser profile, no `allotjar.theme`, OS set to dark.
 - **Steps:**
   1. Load the app (should be dark by OS); flip the OS to light and observe.
   2. Pick a theme explicitly (press the "Dark mode" button — in the top bar, in the green room of a signed-out page such as `/confirm-email`, or in the header of `/`, `/privacy` and `/terms`), then flip the OS again.
-- **Expected:** With `zbb.theme` unset, the theme (the "Dark mode" button, `ThemeButton`) follows OS `prefers-color-scheme` live via a `matchMedia` change listener. After an explicit pick the listener stops honouring OS changes and the choice persists in `localStorage['zbb.theme']` (device-wide, not per-user, kept across household switches).
+- **Expected:** With `allotjar.theme` unset, the theme (the "Dark mode" button, `ThemeButton`) follows OS `prefers-color-scheme` live via a `matchMedia` change listener. After an explicit pick the listener stops honouring OS changes and the choice persists in `localStorage['allotjar.theme']` (device-wide, not per-user, kept across household switches).
 - **Automated:** Yes (`client/e2e/theme-os-live.spec.ts` — system mode follows an emulated OS flip live; a theme pinned via the real Dark mode button ignores OS flips and survives a reload; the sign-in page's "Dark mode" button follows the OS until a press pins it)
 
 ## Responsive / mobile (375 px)
@@ -468,13 +468,13 @@
 - **Preconditions:** Signed in on `/transactions` (or any authed route) in a tab left open long enough for the refresh token to be revoked.
 - **Steps:**
   1. Revoke the session server-side (logout/rotate), then act in the stale tab (navigate or fire a request).
-- **Expected:** The 401 interceptor's single refresh fails, `sessionExpired()` clears the in-memory token + `zbb.email/role/displayName`, broadcasts `'signed-out'` to other tabs, and redirects to `/login?reason=expired&returnUrl=%2Ftransactions` showing "Your session has expired…". Signing back in returns to the original route. This holds on every authed page, not just one (e.g. ACCT-058 asserts it for `/accounts`).
+- **Expected:** The 401 interceptor's single refresh fails, `sessionExpired()` clears the in-memory token + `allotjar.email/role/displayName`, broadcasts `'signed-out'` to other tabs, and redirects to `/login?reason=expired&returnUrl=%2Ftransactions` showing "Your session has expired…". Signing back in returns to the original route. This holds on every authed page, not just one (e.g. ACCT-058 asserts it for `/accounts`).
 - **Automated:** Yes (`client/e2e-journey/session-expiry.spec.ts`; `AuthContext.test.tsx` cross-tab broadcast)
 
 ### UX-048 - A second tab replaying the just-rotated refresh cookie is not signed out
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** PR #171 — 30s server-side grace window; the grace 401 must NOT clear the shared `zbb_rt` cookie.
+- **Origin:** PR #171 — 30s server-side grace window; the grace 401 must NOT clear the shared `allotjar_rt` cookie.
 - **Preconditions:** Two tabs sharing one refresh cookie; both revalidate on focus near the same moment.
 - **Steps:**
   1. Focus tab A (wins the refresh, rotates the cookie), then immediately focus tab B (replays the now-stale cookie within 30s).

@@ -1,7 +1,7 @@
 // Persisted analytics-consent choice (GDPR/ePrivacy). Storage-only; the provider
 // orchestrates what happens when it changes.
 
-const KEY = 'zbb.analyticsConsent'
+const KEY = 'allotjar.analyticsConsent'
 
 export type ConsentChoice = 'granted' | 'denied'
 
