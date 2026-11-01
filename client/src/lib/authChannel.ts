@@ -4,7 +4,7 @@
  * still rendering as signed in. Guarded so environments without BroadcastChannel (old jsdom)
  * just degrade to per-tab behaviour.
  */
-const CHANNEL_NAME = 'zbb.auth'
+const CHANNEL_NAME = 'allotjar.auth'
 
 export function broadcastSignOut() {
   if (typeof BroadcastChannel === 'undefined') return

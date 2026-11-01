@@ -1,8 +1,8 @@
 # Session & Auth Lifecycle
 
-**ID prefix:** SESS | **Scope:** Everything that happens to a session *after* credentials succeed: the 15-minute in-memory access token (`Jwt:ExpiryMinutes` 15) and its silent refresh, the rotating 30-day HttpOnly refresh cookie `zbb_rt` (`Path=/api/auth`, `SameSite=Strict`), cold-load bootstrap from the cookie, the module-level single-flight `refreshSession()` (PR #157), the 401 interceptor with its credential-endpoint exemption LIST (PR #169), session expiry mid-form, the genuinely-dead-session sign-in prompt at `/login?reason=expired&returnUrl=…` (PR #169), deep links while logged out + `returnUrl` sanitizing, multi-tab behavior incl. the `zbb.auth` BroadcastChannel sign-out signal, session persistence across browser restart (sliding 30-day window BY DESIGN), the server-side 30-second refresh-replay grace window that keeps restored tabs from burning the session family (PR #171), logout (token revoked + security-stamp rotation + cookie cleared), and revoke-all-on-password-change. | **Out of scope:** the login/registration forms themselves — field validation, lockout, anti-enumeration, per-endpoint rate limiting on login/register, the *rendering details* of the `?reason=expired` notice and the sign-in leg of returnUrl (02-registration-login.md; since restyle PR 9 the notice is one quiet line at the top of the sign-in card, "Your session has expired.", with the full explanation behind its (i) **Why you were signed out**); landing page and public pages (01-landing-public.md); household switcher, start-own-budget, leave-household, ConsentModal, invite acceptance (households & people file); the `/account` preferences and change-password *form* — only the session side-effects of a password change live here (account settings file); feature-flag route registration, catch-all routing, onboarding mounting (routing & app shell file); role gating per request (roles & access file); dark/responsive/a11y sweeps (cross-cutting files — the expired-notice login page, with its (i) open, is already axe-scanned by `client/e2e/a11y.spec.ts`). **Do not test for:** "remember me" checkbox (none exists — every session is the 30-day sliding cookie), password reset, refresh-token config knob (`RefreshTokenService.LifetimeDays = 30` is a compile-time const).
+**ID prefix:** SESS | **Scope:** Everything that happens to a session *after* credentials succeed: the 15-minute in-memory access token (`Jwt:ExpiryMinutes` 15) and its silent refresh, the rotating 30-day HttpOnly refresh cookie `allotjar_rt` (`Path=/api/auth`, `SameSite=Strict`), cold-load bootstrap from the cookie, the module-level single-flight `refreshSession()` (PR #157), the 401 interceptor with its credential-endpoint exemption LIST (PR #169), session expiry mid-form, the genuinely-dead-session sign-in prompt at `/login?reason=expired&returnUrl=…` (PR #169), deep links while logged out + `returnUrl` sanitizing, multi-tab behavior incl. the `allotjar.auth` BroadcastChannel sign-out signal, session persistence across browser restart (sliding 30-day window BY DESIGN), the server-side 30-second refresh-replay grace window that keeps restored tabs from burning the session family (PR #171), logout (token revoked + security-stamp rotation + cookie cleared), and revoke-all-on-password-change. | **Out of scope:** the login/registration forms themselves — field validation, lockout, anti-enumeration, per-endpoint rate limiting on login/register, the *rendering details* of the `?reason=expired` notice and the sign-in leg of returnUrl (02-registration-login.md; since restyle PR 9 the notice is one quiet line at the top of the sign-in card, "Your session has expired.", with the full explanation behind its (i) **Why you were signed out**); landing page and public pages (01-landing-public.md); household switcher, start-own-budget, leave-household, ConsentModal, invite acceptance (households & people file); the `/account` preferences and change-password *form* — only the session side-effects of a password change live here (account settings file); feature-flag route registration, catch-all routing, onboarding mounting (routing & app shell file); role gating per request (roles & access file); dark/responsive/a11y sweeps (cross-cutting files — the expired-notice login page, with its (i) open, is already axe-scanned by `client/e2e/a11y.spec.ts`). **Do not test for:** "remember me" checkbox (none exists — every session is the 30-day sliding cookie), password reset, refresh-token config knob (`RefreshTokenService.LifetimeDays = 30` is a compile-time const).
 
-**Test data setup:** (a) Existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached), Owner of a solo household with at least one budget month and a few transactions, already consented/onboarded (no modal in the way). (b) A second browser or machine ("device B") signed in as the same login where a case says so. (c) Unless stated otherwise, environments: staging (`staging.allotjar.com`) or a local full stack (API :5099 + Vite, `ASPNETCORE_ENVIRONMENT=Development` — required for the `Secure` cookie flag to be dropped over http). (d) For 15-minute-expiry cases, either genuinely wait 16 minutes or run locally with `Jwt__ExpiryMinutes=1`; the JWT validator adds 30 s clock skew. (e) To kill a session server-side *without* the app knowing (simulating revocation from elsewhere), run `fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })` in the devtools console — it revokes the refresh token, rotates the security stamp and clears the cookie, but bypasses the client's `logout()` (no state clear, no broadcast). (f) `zbb_rt` is HttpOnly but visible in devtools → Application → Cookies; its value can be copied there for raw-replay cases via `curl -X POST https://<host>/api/auth/refresh -H "Cookie: zbb_rt=<value>" -i`. (g) Raise `RateLimiting__AuthPermitLimit` for scripted runs — 20 auth requests/min per source IP returns 429.
+**Test data setup:** (a) Existing login `owner@example.com` / `Sunlit-Meadow-42a` (non-breached), Owner of a solo household with at least one budget month and a few transactions, already consented/onboarded (no modal in the way). (b) A second browser or machine ("device B") signed in as the same login where a case says so. (c) Unless stated otherwise, environments: staging (`staging.allotjar.com`) or a local full stack (API :5099 + Vite, `ASPNETCORE_ENVIRONMENT=Development` — required for the `Secure` cookie flag to be dropped over http). (d) For 15-minute-expiry cases, either genuinely wait 16 minutes or run locally with `Jwt__ExpiryMinutes=1`; the JWT validator adds 30 s clock skew. (e) To kill a session server-side *without* the app knowing (simulating revocation from elsewhere), run `fetch('/api/auth/logout', { method: 'POST', credentials: 'include' })` in the devtools console — it revokes the refresh token, rotates the security stamp and clears the cookie, but bypasses the client's `logout()` (no state clear, no broadcast). (f) `allotjar_rt` is HttpOnly but visible in devtools → Application → Cookies; its value can be copied there for raw-replay cases via `curl -X POST https://<host>/api/auth/refresh -H "Cookie: allotjar_rt=<value>" -i`. (g) Raise `RateLimiting__AuthPermitLimit` for scripted runs — 20 auth requests/min per source IP returns 429.
 
 ## Cold-load bootstrap & session restore
 
@@ -15,7 +15,7 @@
   2. Watch the network log during load.
 - **Expected:**
   - A brief loading splash (`role="status"`, sr-only "Loading…") — never a flash of the login page or landing page.
-  - Exactly one `POST /api/auth/refresh` → 200 with an `AuthResponse` body and a `Set-Cookie: zbb_rt=<new value>` (rotated — value differs from before the reload).
+  - Exactly one `POST /api/auth/refresh` → 200 with an `AuthResponse` body and a `Set-Cookie: allotjar_rt=<new value>` (rotated — value differs from before the reload).
   - The page lands back on `/transactions` fully signed in; user chip shows the display name.
   - `GET /api/auth/me` fires after the token is applied and re-syncs role/preferences.
 - **Automated:** Yes (client/e2e-journey/register.spec.ts — "session survives full page reload" deep-loads /import off the cookie; client/src/auth/AuthContext.test.tsx — bootstrap path)
@@ -28,14 +28,14 @@
   1. Quit the browser completely (all windows).
   2. Reopen it and navigate to the app root `/`.
 - **Expected:**
-  - The in-memory access token is gone, but `zbb_rt` persisted (cookie `Expires` ≈ +30 days from last refresh, not session-scoped).
+  - The in-memory access token is gone, but `allotjar_rt` persisted (cookie `Expires` ≈ +30 days from last refresh, not session-scoped).
   - Cold-load bootstrap refreshes silently and lands on the dashboard — no sign-in prompt. This "still signed in next day/week" behavior is BY DESIGN (sliding 30-day session).
 - **Automated:** No
 
 ### SESS-003 - Cold load with no cookie lands signed out, with no zombie UI
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Fresh browser profile (or cookies cleared): no `zbb_rt`, no `zbb.*` localStorage keys.
+- **Preconditions:** Fresh browser profile (or cookies cleared): no `allotjar_rt`, no `allotjar.*` localStorage keys.
 - **Steps:**
   1. Navigate to `/`.
   2. Navigate to `/transactions`.
@@ -48,7 +48,7 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #157 / StrictMode double-mount replayed the just-rotated cookie and tripped reuse detection, burning every refresh token
-- **Preconditions:** Local dev build (`npm run dev` — React StrictMode active), signed in previously so a valid `zbb_rt` exists.
+- **Preconditions:** Local dev build (`npm run dev` — React StrictMode active), signed in previously so a valid `allotjar_rt` exists.
 - **Steps:**
   1. Hard reload the app with the Network tab open.
   2. Count `POST /api/auth/refresh` requests during the load.
@@ -77,12 +77,12 @@
 - **Type:** Edge
 - **Preconditions:** Signed in as `owner@example.com`.
 - **Steps:**
-  1. In devtools → Application → Local Storage, list all `zbb.*` keys.
+  1. In devtools → Application → Local Storage, list all `allotjar.*` keys.
   2. Search localStorage and sessionStorage for the JWT value (copy a fragment from the `Authorization` header of any request in the Network tab).
   3. In the console run `document.cookie`.
 - **Expected:**
-  - localStorage holds only `zbb.email`, `zbb.role`, `zbb.displayName`, `zbb.currency`, `zbb.budgetCurrency`, `zbb.numberFormat` (plus unrelated theme/onboarding keys). The JWT appears NOWHERE in storage.
-  - `document.cookie` does not include `zbb_rt` (HttpOnly).
+  - localStorage holds only `allotjar.email`, `allotjar.role`, `allotjar.displayName`, `allotjar.currency`, `allotjar.budgetCurrency`, `allotjar.numberFormat` (plus unrelated theme/onboarding keys). The JWT appears NOWHERE in storage.
+  - `document.cookie` does not include `allotjar_rt` (HttpOnly).
   - Bonus check: on a brand-new tab before `/auth/me` resolves, chrome may briefly render from the stored role (fallback Owner) — the server still enforces the real role per request; UI corrects itself when `/auth/me` lands.
 - **Automated:** No
 
@@ -95,8 +95,8 @@
   2. Inspect the cookie in Application → Cookies.
   3. Navigate around non-auth API calls (e.g. `GET /api/budget/current`) and check request cookies.
 - **Expected:**
-  - `zbb_rt`: `HttpOnly`, `Secure` (non-Development only), `SameSite=Strict`, `Path=/api/auth`, `Expires` ≈ now + 30 days.
-  - Because of `Path=/api/auth`, the cookie rides ONLY on `/api/auth/*` requests — step 3's budget calls carry no `zbb_rt`.
+  - `allotjar_rt`: `HttpOnly`, `Secure` (non-Development only), `SameSite=Strict`, `Path=/api/auth`, `Expires` ≈ now + 30 days.
+  - Because of `Path=/api/auth`, the cookie rides ONLY on `/api/auth/*` requests — step 3's budget calls carry no `allotjar_rt`.
 - **Automated:** No
 
 ## Silent refresh & the 401 interceptor
@@ -261,7 +261,7 @@
 - **Type:** Happy
 - **Preconditions:** Signed in as `owner@example.com`; devtools access to the cookie's expiry timestamp.
 - **Steps:**
-  1. Note the `zbb_rt` `Expires` value in devtools.
+  1. Note the `allotjar_rt` `Expires` value in devtools.
   2. Use the app the next day (any silent refresh fires).
   3. Re-check the cookie's `Expires`.
 - **Expected:**
@@ -318,7 +318,7 @@
   2. Switch to tab 2 without reloading it.
 - **Expected:**
   - Tab 1: signed out (see SESS-037 for full logout expectations).
-  - Tab 2: receives `'signed-out'` on BroadcastChannel `zbb.auth`, clears its auth state instantly and `RequireAuth` bounces it to `/login?returnUrl=%2Ftransactions` — it does NOT keep rendering budget data, and its next API call cannot succeed anyway (stamp rotated).
+  - Tab 2: receives `'signed-out'` on BroadcastChannel `allotjar.auth`, clears its auth state instantly and `RequireAuth` bounces it to `/login?returnUrl=%2Ftransactions` — it does NOT keep rendering budget data, and its next API call cannot succeed anyway (stamp rotated).
 - **Automated:** Partial (client/src/auth/AuthContext.test.tsx — another tab's sign-out broadcast signs this tab out, via the BroadcastChannel polyfill; no real two-tab browser test)
 
 ### SESS-025 - A session dying in one tab broadcasts to the others too
@@ -380,13 +380,13 @@
 - **Priority:** P0
 - **Type:** Regression
 - **Origin:** PR #171 / the losing tab's Set-Cookie deletion evicted the WINNER's fresh cookie, signing it out ~15 min later
-- **Preconditions:** Copy the current `zbb_rt` value from devtools (call it T0); the app is signed in.
+- **Preconditions:** Copy the current `allotjar_rt` value from devtools (call it T0); the app is signed in.
 - **Steps:**
   1. Trigger a rotation (hard reload → refresh 200; jar now holds T1).
-  2. Within 30 seconds, replay T0 raw: `curl -X POST https://<host>/api/auth/refresh -H "Cookie: zbb_rt=<T0>" -i`.
+  2. Within 30 seconds, replay T0 raw: `curl -X POST https://<host>/api/auth/refresh -H "Cookie: allotjar_rt=<T0>" -i`.
   3. Inspect the replay response headers; then leave the browser tab open >15 minutes and act in it.
 - **Expected:**
-  - Step 2: 401 with NO `Set-Cookie` header at all — the response must not delete `zbb_rt` (in the real multi-tab case that header lands in the shared jar and would evict T1).
+  - Step 2: 401 with NO `Set-Cookie` header at all — the response must not delete `allotjar_rt` (in the real multi-tab case that header lands in the shared jar and would evict T1).
   - Step 3: the browser's next silent refresh (using T1) still succeeds — the winning session was untouched and no family burn occurred.
 - **Automated:** Yes (client/e2e-journey/concurrent-refresh.spec.ts — loser 401 with no Set-Cookie, winner's rotated cookie still refreshes; tests/AllotJar.Application.Tests/Application/RefreshTokenServiceTests.cs — grace-window rotation trio)
 
@@ -401,7 +401,7 @@
   3. Replay T0 via curl and inspect the response.
   4. In the browser (holding T1), wait past the access-token lifetime and act; also act on device B.
 - **Expected:**
-  - Step 3: 401 AND the cookie is cleared (`Set-Cookie` deleting `zbb_rt`), AND `RevokeAllForUserAsync` burns every active refresh token for the user.
+  - Step 3: 401 AND the cookie is cleared (`Set-Cookie` deleting `allotjar_rt`), AND `RevokeAllForUserAsync` burns every active refresh token for the user.
   - Step 4: both the original browser and device B fail their next refresh → both bounce to `/login?reason=expired…`. Neither the thief nor the legitimate sessions can continue — by design.
 - **Automated:** Yes (tests/AllotJar.Application.Tests/Application/RefreshTokenServiceTests.cs — replay outside the grace window burns the chain)
 
@@ -421,7 +421,7 @@
 - **Priority:** P1
 - **Type:** Regression
 - **Origin:** PR #169 / a stale signed-out device replaying its token used to nuke the user's fresh sessions
-- **Preconditions:** Device A signed out via "Sign out" (its token revoked WITHOUT a replacement); its old `zbb_rt` value captured beforehand. User has since signed in again (fresh session, device B or same browser).
+- **Preconditions:** Device A signed out via "Sign out" (its token revoked WITHOUT a replacement); its old `allotjar_rt` value captured beforehand. User has since signed in again (fresh session, device B or same browser).
 - **Steps:**
   1. Replay device A's old token via curl (any time later — the grace window is irrelevant here).
   2. Check the fresh session still works.
@@ -447,9 +447,9 @@
 - **Type:** Negative
 - **Preconditions:** Any HTTP client.
 - **Steps:**
-  1. `curl -X POST https://<host>/api/auth/refresh -H "Cookie: zbb_rt=not-a-real-token-🙂" -i` (also try an empty value and a 5,000-character value).
+  1. `curl -X POST https://<host>/api/auth/refresh -H "Cookie: allotjar_rt=not-a-real-token-🙂" -i` (also try an empty value and a 5,000-character value).
 - **Expected:**
-  - 401 in every case, with a `Set-Cookie` deleting `zbb_rt` (unknown token → hard clear so the browser stops re-presenting junk). No 500 on the huge or emoji-laden values — the value is only hashed, never parsed.
+  - 401 in every case, with a `Set-Cookie` deleting `allotjar_rt` (unknown token → hard clear so the browser stops re-presenting junk). No 500 on the huge or emoji-laden values — the value is only hashed, never parsed.
 - **Automated:** Partial (tests/AllotJar.Application.Tests/Application/RefreshTokenServiceTests.cs — unknown token rejected at service level; the HTTP Set-Cookie clearing is unasserted)
 
 ### SESS-035 - A 30-day-old (expired) refresh token prompts a fresh sign-in
@@ -465,7 +465,7 @@
 ### SESS-036 - Deleted user with a live cookie cannot refresh
 - **Priority:** P3
 - **Type:** Edge
-- **Preconditions:** Local environment; a signed-in user whose `AspNetUsers` row is then deleted directly in the DB while their `zbb_rt` remains valid.
+- **Preconditions:** Local environment; a signed-in user whose `AspNetUsers` row is then deleted directly in the DB while their `allotjar_rt` remains valid.
 - **Steps:**
   1. Cold-load the app with the orphaned cookie.
 - **Expected:**
@@ -477,15 +477,15 @@
 ### SESS-037 - Sign out end-to-end: token revoked, stamp rotated, cookie cleared, state wiped
 - **Priority:** P0
 - **Type:** Happy
-- **Preconditions:** Signed in as `owner@example.com` on `/transactions`; note the current `zbb_rt` value and copy the current bearer token from a request header.
+- **Preconditions:** Signed in as `owner@example.com` on `/transactions`; note the current `allotjar_rt` value and copy the current bearer token from a request header.
 - **Steps:**
   1. Open the account menu (aria-label "Account menu") and click "Sign out".
   2. Inspect network, cookies and localStorage.
   3. Replay the OLD bearer token: `curl https://<host>/api/auth/me -H "Authorization: Bearer <old JWT>" -i`.
   4. Replay the OLD cookie against `/auth/refresh` via curl.
 - **Expected:**
-  - Step 1: fire-and-forget `POST /auth/logout` → 204 with `Set-Cookie` deleting `zbb_rt`; client state clears instantly (no waiting on the response); `RequireAuth` bounces the tab to `/login?returnUrl=%2Ftransactions` (no `reason=expired` — this was a chosen sign-out); analytics `logout` event fires.
-  - Step 2: `zbb_rt` gone; `zbb.email`, `zbb.role`, `zbb.displayName` removed; `zbb.currency`/`zbb.numberFormat` reset to the defaults ("EUR"/"comma-dot"), `zbb.budgetCurrency` removed (and `currencyLocked` reset), and the money format resets.
+  - Step 1: fire-and-forget `POST /auth/logout` → 204 with `Set-Cookie` deleting `allotjar_rt`; client state clears instantly (no waiting on the response); `RequireAuth` bounces the tab to `/login?returnUrl=%2Ftransactions` (no `reason=expired` — this was a chosen sign-out); analytics `logout` event fires.
+  - Step 2: `allotjar_rt` gone; `allotjar.email`, `allotjar.role`, `allotjar.displayName` removed; `allotjar.currency`/`allotjar.numberFormat` reset to the defaults ("EUR"/"comma-dot"), `allotjar.budgetCurrency` removed (and `currencyLocked` reset), and the money format resets.
   - Step 3: 401 — the security-stamp rotation killed the access token immediately, not after its remaining ≤15 min.
   - Step 4: 401 (revoked; and per SESS-032 this replay does NOT burn any future sessions).
 - **Automated:** Partial (client/e2e-journey/session-expiry.spec.ts exercises server logout semantics + revoked-tab behavior; the menu-driven client flow incl. localStorage wipe has no test)
@@ -558,14 +558,14 @@
 ### SESS-042 - "Sign out" from the blocking consent prompt abandons the session (second logout exit)
 - **Priority:** P1
 - **Type:** Edge
-- **Preconditions:** Signed in as a `needsConsent` login that deep-linked in — sign out, paste a guarded route like `/account` into the address bar, sign in, so `navigate(returnUrl)` lands on `/account` with the ConsentModal blocking it. Copy the current bearer token and note `zbb_rt` beforehand.
+- **Preconditions:** Signed in as a `needsConsent` login that deep-linked in — sign out, paste a guarded route like `/account` into the address bar, sign in, so `navigate(returnUrl)` lands on `/account` with the ConsentModal blocking it. Copy the current bearer token and note `allotjar_rt` beforehand.
 - **Steps:**
   1. On the ConsentModal, click "Sign out".
   2. Inspect the network log, localStorage, the cookie, and the resulting URL.
   3. Sign back in with the same login.
 - **Expected:**
-  - Step 1: the "Sign out" button is wired straight to `useAuth().logout` (ConsentModal.tsx:81 `onClick={logout}`) — the SAME `logout()` as the account menu: fire-and-forget `POST /auth/logout` → 204 (refresh token revoked, security stamp rotated, `Set-Cookie` deleting `zbb_rt`), then `clearAuthState()` wipes the in-memory token and the `zbb.email`/`zbb.role`/`zbb.displayName` hints AND resets `needsConsent` to false, then `broadcastSignOut()` posts `'signed-out'` on the `zbb.auth` channel. (Unlike the account-menu sign-out in SESS-037, this button does NOT emit the analytics `logout` event — it calls `logout` directly, with no analytics wrapper.)
-  - Step 2: with the token gone, `isAuthenticated` flips false → the ConsentModal unmounts and `RequireAuth` for `/account` navigates to `/login?returnUrl=%2Faccount`, with NO `reason=expired` param and no expired-session notice — this was a chosen sign-out, not an expiry. `zbb_rt` is cleared; the identity hints are gone. (Variant: a `needsConsent` login that never deep-linked is sitting on the public `/`; there, signing out has no guarded route to bounce, so it simply renders the LandingPage signed-out — still no `/login`, still no expired-session notice.)
+  - Step 1: the "Sign out" button is wired straight to `useAuth().logout` (ConsentModal.tsx:81 `onClick={logout}`) — the SAME `logout()` as the account menu: fire-and-forget `POST /auth/logout` → 204 (refresh token revoked, security stamp rotated, `Set-Cookie` deleting `allotjar_rt`), then `clearAuthState()` wipes the in-memory token and the `allotjar.email`/`allotjar.role`/`allotjar.displayName` hints AND resets `needsConsent` to false, then `broadcastSignOut()` posts `'signed-out'` on the `allotjar.auth` channel. (Unlike the account-menu sign-out in SESS-037, this button does NOT emit the analytics `logout` event — it calls `logout` directly, with no analytics wrapper.)
+  - Step 2: with the token gone, `isAuthenticated` flips false → the ConsentModal unmounts and `RequireAuth` for `/account` navigates to `/login?returnUrl=%2Faccount`, with NO `reason=expired` param and no expired-session notice — this was a chosen sign-out, not an expiry. `allotjar_rt` is cleared; the identity hints are gone. (Variant: a `needsConsent` login that never deep-linked is sitting on the public `/`; there, signing out has no guarded route to bounce, so it simply renders the LandingPage signed-out — still no `/login`, still no expired-session notice.)
   - "Sign out" and "I agree" are the ONLY exits — the dialog exposes no close/dismiss/✕ control, and the backdrop is not click-to-close.
   - Step 3: the login is still un-consented server-side (`ConsentedUtc` is still null — nothing stamped it), so `/auth/me` again returns `needsConsent: true` and the blocking ConsentModal re-appears. Signing out truly abandoned the session without agreeing.
 - **Automated:** Partial (client/src/components/ConsentModal.test.tsx asserts the "Sign out" button exists and that no close/dismiss control is present, but never clicks it or asserts the logout side-effects; the underlying logout mechanics are covered by SESS-037 and client/e2e-journey/session-expiry.spec.ts)

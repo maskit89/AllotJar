@@ -2,8 +2,8 @@
   "//": "TEMPLATE - copy ON THE SERVER ONLY to 'appsettings.Production.json' for the production API or 'appsettings.Staging.json' for the staging API (Deploy.ps1 pins ASPNETCORE_ENVIRONMENT per stack, so each API reads only its own file) and fill in real values. Never commit a filled-in file (both names are gitignored). The deploy script preserves both across redeploys (robocopy /XF).",
 
   "ConnectionStrings": {
-    "//": "SQL Server Express on the same box. Trusted_Connection uses the API app-pool identity (IIS APPPOOL\\ZeroBudget-Prod-Api for production, IIS APPPOOL\\ZeroBudget-Staging-Api for staging), which Provision-Production.ps1 / Setup-Database.sql grant db_owner - so there is no DB password to store. Database is ZeroBudgetProd for production and ZeroBudgetStaging for staging. Adjust the instance name (\\SQLEXPRESS) if you installed a default instance.",
-    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ZeroBudgetProd;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
+    "//": "SQL Server Express on the same box. Trusted_Connection uses the API app-pool identity (IIS APPPOOL\\AllotJar-Prod-Api for production, IIS APPPOOL\\AllotJar-Staging-Api for staging), which Provision-Production.ps1 / Setup-Database.sql grant db_owner - so there is no DB password to store. Database is AllotJarProd for production and AllotJarStaging for staging. Adjust the instance name (\\SQLEXPRESS) if you installed a default instance.",
+    "DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=AllotJarProd;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
   },
 
   "Jwt": {
@@ -41,6 +41,6 @@
 
   "DataProtection": {
     "//": "Persistent folder for the DataProtection key ring (grant the API app-pool identity modify rights). Without it, emailed password-reset links die on every app restart/deploy.",
-    "KeysPath": "C:\\inetpub\\zerobudget-dp-keys"
+    "KeysPath": "C:\\inetpub\\allotjar-prod-dp-keys"
   }
 }

@@ -1,6 +1,6 @@
 # Account Preferences (/account)
 
-**ID prefix:** PREF | **Scope:** The `/account` page (route always mounted under `RequireAuth`, reached via the UserMenu item "Account settings"; titled "Account settings", restyle PR 12): the "Your account" card — the profile (avatar, the name as a heading with a pencil "Edit name" that turns it into the First name / Last name fields, the access level as a chip with what it allows behind its (i) "About access level", the email) and, under a hairline, Preferences (Currency select — **read-only with a lock once the budget currency is locked** (W08, rule 85), the lock and why behind its (i) — Number format select, and Save, whose accessible name is "Save preferences"; one form, so Save also saves the names) including the currency choice of a household that holds nothing yet (no FX conversion, ever) and the number/money format change with its immediate app-wide effect via `setMoneyFormat`, the Sign-in card (its Password row's "Change", named "Change password", opens the Change password dialog — Current password check, new-password rules incl. Identity policy + HIBP, session continuity on this device; "Set a password" for a passwordless login; the Google row with Disconnect behind its ⋯), the Household card's sharing row as an entry point to `/people`, and theme-toggle persistence (per device/browser, `zbb.theme`). Server side: `PUT /api/auth/preferences` and `POST /api/auth/change-password` on `src/AllotJar.Api/Controllers/AuthController.cs`, normalisation in `src/AllotJar.Infrastructure/Identity/UserPreferences.cs`. | **Out of scope:** currency/format defaults and pickers at sign-up, HIBP at registration, lockout/anti-enumeration on login (02-registration-login.md); refresh mechanics, the cross-device sign-out that a password change causes, replay grace window, cross-tab sign-out broadcast (03-session-auth-lifecycle.md — only the *this-device* side of a password change and the silent-refresh-on-/account regression live here); the Household card's "Your own budget" row and its ⋯ "Leave household" (with the Leave dialog), household switcher, invites, ConsentModal (households & people file); UserMenu general behavior, greetings, onboarding, month TopBar (routing & app shell file); deep role matrices (roles & access file — only the "read-only can still self-serve" area-specific case lives here); dark/responsive/a11y sweeps (cross-cutting files — `/account` is already axe-scanned light+dark by `client/e2e/a11y.spec.ts` and width-guarded by `client/e2e/mobile-layout.spec.ts`). **Do not test for:** a `GET /auth/preferences` endpoint (only PUT exists; reads come via `/auth/me`), password reset / "Forgot password?", email change (no UI or endpoint), avatar upload, per-user theme sync across devices (theme is deliberately device-local).
+**ID prefix:** PREF | **Scope:** The `/account` page (route always mounted under `RequireAuth`, reached via the UserMenu item "Account settings"; titled "Account settings", restyle PR 12): the "Your account" card — the profile (avatar, the name as a heading with a pencil "Edit name" that turns it into the First name / Last name fields, the access level as a chip with what it allows behind its (i) "About access level", the email) and, under a hairline, Preferences (Currency select — **read-only with a lock once the budget currency is locked** (W08, rule 85), the lock and why behind its (i) — Number format select, and Save, whose accessible name is "Save preferences"; one form, so Save also saves the names) including the currency choice of a household that holds nothing yet (no FX conversion, ever) and the number/money format change with its immediate app-wide effect via `setMoneyFormat`, the Sign-in card (its Password row's "Change", named "Change password", opens the Change password dialog — Current password check, new-password rules incl. Identity policy + HIBP, session continuity on this device; "Set a password" for a passwordless login; the Google row with Disconnect behind its ⋯), the Household card's sharing row as an entry point to `/people`, and theme-toggle persistence (per device/browser, `allotjar.theme`). Server side: `PUT /api/auth/preferences` and `POST /api/auth/change-password` on `src/AllotJar.Api/Controllers/AuthController.cs`, normalisation in `src/AllotJar.Infrastructure/Identity/UserPreferences.cs`. | **Out of scope:** currency/format defaults and pickers at sign-up, HIBP at registration, lockout/anti-enumeration on login (02-registration-login.md); refresh mechanics, the cross-device sign-out that a password change causes, replay grace window, cross-tab sign-out broadcast (03-session-auth-lifecycle.md — only the *this-device* side of a password change and the silent-refresh-on-/account regression live here); the Household card's "Your own budget" row and its ⋯ "Leave household" (with the Leave dialog), household switcher, invites, ConsentModal (households & people file); UserMenu general behavior, greetings, onboarding, month TopBar (routing & app shell file); deep role matrices (roles & access file — only the "read-only can still self-serve" area-specific case lives here); dark/responsive/a11y sweeps (cross-cutting files — `/account` is already axe-scanned light+dark by `client/e2e/a11y.spec.ts` and width-guarded by `client/e2e/mobile-layout.spec.ts`). **Do not test for:** a `GET /auth/preferences` endpoint (only PUT exists; reads come via `/auth/me`), password reset / "Forgot password?", email change (no UI or endpoint), avatar upload, per-user theme sync across devices (theme is deliberately device-local).
 
 **Test data setup:** (a) Solo owner login `owner@example.test` / `Sunlit-Meadow-42a` (non-breached, meets digit+upper+lower policy), preferences EUR / `comma-dot` (1,234.56), First name "Alex", Last name "Muscat"; its household has one budget month with income 2,500.00 and planned lines summing 1,234.56, one jar "Emergency Fund" with balance 350.00, and one EUR account "Main" — so format changes are observable on real amounts, and its budget currency (EUR) is **locked** (`/auth/me` → `currencyLocked: true`). (a2) A fresh solo owner `fresh@example.test` (same password shape) whose household holds **nothing** yet — no account, no month, no transaction — so its currency is still changeable (`currencyLocked: false`). (b) A shared household (2 members) owned by `owner2@example.test` with an invited member login `member@example.test` (role Read-only where a case says so; invite display name "Sam", no first/last name). (c) Fresh browser profile per case unless stated; locale `en-GB`. (d) "Direct API" steps: any HTTP client with a valid bearer token (copy from devtools) against the JSON endpoints — the UI selects block invalid values client-side. (e) Local stack (API :5099, `ASPNETCORE_ENVIRONMENT=Development`) or staging (staging.allotjar.com); for token-expiry cases run locally with `Jwt__ExpiryMinutes=1` or genuinely wait >15 min. (f) New passwords in positive cases: random non-breached shape `Aa1-<uuid>` (HIBP rejects fixed common passwords).
 
@@ -24,7 +24,7 @@
 ### PREF-002 - Logged-out deep link to /account bounces to login and returns after sign-in
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Anonymous browser (no `zbb_rt` cookie).
+- **Preconditions:** Anonymous browser (no `allotjar_rt` cookie).
 - **Steps:**
   1. Navigate directly to `/account`.
   2. Sign in as `owner@example.test` on the login page shown.
@@ -42,7 +42,7 @@
   2. Read the access level chip beside the name, and hover or focus its (i) ("About access level").
 - **Expected:**
   - The chip reads "Read-only" (a screen reader hears "Access level: Read-only"; labels: 0 Owner / 1 Admin / 2 Limited / 3 Read-only from `HOUSEHOLD_ROLE_LABELS`; any unknown numeric falls back to "Member", with no (i)). The (i) says what the role allows: "View everything; cannot make changes." (`HOUSEHOLD_ROLE_HINTS`).
-  - On a cold load the value may briefly render from the `zbb.role` localStorage hint and corrects itself once `GET /api/auth/me` resolves — the settled value must match the server role.
+  - On a cold load the value may briefly render from the `allotjar.role` localStorage hint and corrects itself once `GET /api/auth/me` resolves — the settled value must match the server role.
 - **Automated:** Partial (client/src/pages/AccountPage.test.tsx — each role's chip and (i), and the unknown role)
 
 ### PREF-004 - Login without a display name shows the email as the heading and an email-initial avatar
@@ -70,7 +70,7 @@
   - `PUT /api/auth/preferences` → 200 with `{firstName:"Christopher", lastName:"Borg", displayName:"Christopher Borg", …}`.
   - Success line (`role="status"`, beside Save): "Your preferences have been saved."
   - The fields close; the profile heading and the user chip read "Christopher Borg" immediately, without a reload; avatar initials become "CB". The ✕ ("Cancel edit") or Escape instead puts the saved name back without saving.
-  - `localStorage['zbb.displayName']` = "Christopher Borg". Currency and number format are unchanged (the form submits the current number-format value and, while the currency is locked, the stored `preferredCurrency`).
+  - `localStorage['allotjar.displayName']` = "Christopher Borg". Currency and number format are unchanged (the form submits the current number-format value and, while the currency is locked, the stored `preferredCurrency`).
 - **Automated:** Partial (client/src/pages/AccountPage.catalog.test.tsx — PREF-005; client/src/pages/AccountPage.test.tsx — the pencil, ✕, Escape and Save closing the fields)
 
 ### PREF-006 - Both name fields can be blanked (names are not required)
@@ -82,7 +82,7 @@
   2. Click "Save preferences".
 - **Expected:**
   - Save succeeds (the fields have no `required` attribute, unlike at sign-up).
-  - Server nulls both names and the DisplayName; the profile heading shows the email instead (PREF-004); user chip falls back to the email initial; `zbb.displayName` is removed from localStorage.
+  - Server nulls both names and the DisplayName; the profile heading shows the email instead (PREF-004); user chip falls back to the email initial; `allotjar.displayName` is removed from localStorage.
 - **Automated:** No
 
 ### PREF-007 - Whitespace-only names are treated as blank
@@ -196,7 +196,7 @@
   1. On `/account`, change "Number format" from `1,234.56` to `1.234,56` and click "Save preferences".
   2. Without reloading, navigate to `/` (Budget) and `/transactions`.
 - **Expected:**
-  - Success message; `localStorage['zbb.numberFormat']` = "dot-comma".
+  - Success message; `localStorage['allotjar.numberFormat']` = "dot-comma".
   - Every money figure now renders German-style grouping: the planned total reads "1.234,56 €", the hero Income "2.500,00 €" — including inline-editable plain amounts ("1.234,56"). No reload needed (`setMoneyFormat` swaps the module-level locale and the context change re-renders consumers).
   - The currency itself is untouched — format and currency are independent preferences.
 - **Automated:** Partial (client/src/lib/money.test.ts — setMoneyFormat renders all five locale groupings; client/src/pages/AccountPage.test.tsx — the PUT; the immediate cross-page effect is unasserted)
@@ -221,7 +221,7 @@
 - **Steps:**
   1. Hard-reload `/` and watch the first paint of money amounts (throttle network if needed).
 - **Expected:**
-  - Amounts render "1.234,56 €"-style from the very first paint — the format is applied on mount from `localStorage['zbb.numberFormat']` before `/auth/me` round-trips; there is no flash of the en-GB default.
+  - Amounts render "1.234,56 €"-style from the very first paint — the format is applied on mount from `localStorage['allotjar.numberFormat']` before `/auth/me` round-trips; there is no flash of the en-GB default.
 - **Automated:** No
 
 ### PREF-018 - Failed preferences save changes nothing (no optimistic application)
@@ -296,11 +296,11 @@
 - **Origin:** PR #169 / change-password used to return 204 — it now returns 200 `AuthResponse` (all refresh tokens are revoked first) which the client MUST apply or this device dies ~15 min later
 - **Preconditions:** Signed in as `owner@example.test`; devtools Network + Application (Cookies) open.
 - **Steps:**
-  1. Note the current `zbb_rt` cookie value.
+  1. Note the current `allotjar_rt` cookie value.
   2. Change the password (as PREF-022).
   3. Inspect the change-password response and the cookie; stay on the app past the old token's expiry (locally: `Jwt__ExpiryMinutes=1`, wait 2 min, then navigate).
 - **Expected:**
-  - The 200 response carries `token`/`expiresAtUtc` and a `Set-Cookie: zbb_rt=<new value>` — the cookie value CHANGED (all prior refresh tokens were revoked, then a fresh one issued for this device).
+  - The 200 response carries `token`/`expiresAtUtc` and a `Set-Cookie: allotjar_rt=<new value>` — the cookie value CHANGED (all prior refresh tokens were revoked, then a fresh one issued for this device).
   - After the old access token's lifetime, silent refresh succeeds off the new cookie — this device never sees the expired-session prompt. (Other signed-in devices bounce to `/login?reason=expired` — covered in 03-session-auth-lifecycle.md.)
 - **Automated:** Partial (client/e2e-journey/session-expiry.spec.ts — device B's rotated cookie keeps refreshing after its change-password; the in-page cookie-adoption detail is implicit)
 
@@ -458,19 +458,19 @@
 ### PREF-036 - Explicit theme pick applies instantly and persists on this device
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Signed in as `owner@example.test`; no `zbb.theme` key yet (fresh profile); OS in light mode.
+- **Preconditions:** Signed in as `owner@example.test`; no `allotjar.theme` key yet (fresh profile); OS in light mode.
 - **Steps:**
   1. On any authenticated page (TopBar, right side), click the "dark" button of the Theme toggle (`role="group"`, aria-label "Theme"; buttons aria-labelled "Light mode"/"Dark mode").
   2. Hard-reload the page; navigate around; sign out and view `/login`.
 - **Expected:**
-  - Dark theme applies immediately (`<html>` gains class `dark`); the pressed button shows `aria-pressed="true"`; `localStorage['zbb.theme']` = "dark"; GA event `theme_changed {theme:'dark'}` when analytics is on.
+  - Dark theme applies immediately (`<html>` gains class `dark`); the pressed button shows `aria-pressed="true"`; `localStorage['allotjar.theme']` = "dark"; GA event `theme_changed {theme:'dark'}` when analytics is on.
   - The choice survives reload AND sign-out — the login page renders dark too (the key is device-wide and never cleared by logout/session-expiry).
 - **Automated:** No
 
 ### PREF-037 - Theme is per-device/browser, not per-user
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Browser A with `zbb.theme` = "dark" (from PREF-036); a second browser/profile B never used with the app.
+- **Preconditions:** Browser A with `allotjar.theme` = "dark" (from PREF-036); a second browser/profile B never used with the app.
 - **Steps:**
   1. In browser A, sign out and sign in as a DIFFERENT user (`member@example.test`).
   2. In browser B, sign in as `owner@example.test`.
@@ -482,7 +482,7 @@
 ### PREF-038 - Without an explicit pick, the app follows the OS theme live — until the first pick
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Fresh profile (no `zbb.theme`); signed in; OS theme switchable (Windows Settings > Personalization > Colors).
+- **Preconditions:** Fresh profile (no `allotjar.theme`); signed in; OS theme switchable (Windows Settings > Personalization > Colors).
 - **Steps:**
   1. With the app open, switch the OS from light to dark and back.
   2. Click "light" on the toggle (explicit pick).
@@ -496,7 +496,7 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** CSP is `script-src 'self'` (security review) — the pre-paint theme script must stay the external `public/theme-init.js`; inlining it would be blocked and dark-mode users would get a white flash
-- **Preconditions:** `zbb.theme` = "dark"; devtools Network throttled (Slow 3G) to stretch the load.
+- **Preconditions:** `allotjar.theme` = "dark"; devtools Network throttled (Slow 3G) to stretch the load.
 - **Steps:**
   1. Hard-reload `/` and watch the very first paint.
   2. Check the console for CSP violations and confirm `theme-init.js` loads as a separate same-origin request.

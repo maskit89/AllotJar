@@ -8,7 +8,7 @@ import { suppressOnboarding, uniqueEmail } from './helpers'
  * (Google__UseFakeValidator, set in playwright.journey.config.ts) which accepts
  * fake-google:{json} credentials. The credential is POSTed via page.request — sharing the
  * browser's cookie jar, the same idiom the password-reset journey uses — so this exercises the
- * ONE thing only this layer can: the real zbb_rt cookie issued by /auth/google surviving a full
+ * ONE thing only this layer can: the real allotjar_rt cookie issued by /auth/google surviving a full
  * page load through the client's cold-boot session restore, the deferred-consent ConsentModal,
  * and the passwordless account page. (The button's own rendering is covered at the Vitest layer.)
  */
@@ -28,7 +28,7 @@ test('a first Google sign-in creates a passwordless account and must accept term
   const sub = `g-${randomUUID()}`
   await suppressOnboarding(page, email)
 
-  // Exchange a Google credential for a session (sets the zbb_rt cookie in the shared jar).
+  // Exchange a Google credential for a session (sets the allotjar_rt cookie in the shared jar).
   const res = await page.request.post('/api/auth/google', { data: { credential: fakeCredential(sub, email) } })
   expect(res.ok()).toBeTruthy()
   const body = await res.json()

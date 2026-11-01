@@ -14,9 +14,9 @@ took us here at the 2026-07 GA cutover. For the base IIS/SQL deploy mechanics, s
 ## The model
 
 ```
-Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBudget-Prod'  ─► API :5001 ─► SQL 'ZeroBudgetProd'
+Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'AllotJar-Prod'  ─► API :5001 ─► SQL 'AllotJarProd'
 (allotjar.com)    │                          = PRODUCTION (public)
-                  └─ staging.allotjar.com ─► VPS IIS site 'ZeroBudget-Staging' ─► API :5000 ─► SQL 'ZeroBudgetStaging'
+                  └─ staging.allotjar.com ─► VPS IIS site 'AllotJar-Staging' ─► API :5000 ─► SQL 'AllotJarStaging'
                        ▲                     = STAGING (the old beta stack + its data)
                        │
                 WAF custom rule 'staging-ip-allowlist':
@@ -27,15 +27,16 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
 ```
 
 - **Staging** = the original VPS stack **with its historical data**, renamed on 4 October
-  2026 so that every part of it says staging (`deploy/Rename-StagingStack.ps1`): sites
-  `ZeroBudget-Staging` / `ZeroBudget-Staging-Api`, pools `ZeroBudget-Staging-Web` / `-Api`,
-  `C:\inetpub\zerobudget-staging`, database `ZeroBudgetStaging`, settings
+  2026 so that every part of it says staging, and to AllotJar names in November 2026
+  (`deploy/Rename-ToAllotJar.ps1`): sites
+  `AllotJar-Staging` / `AllotJar-Staging-Api`, pools `AllotJar-Staging-Web` / `-Api`,
+  `C:\inetpub\allotjar-staging`, database `AllotJarStaging`, settings
   `appsettings.Staging.json` (the API runs as `ASPNETCORE_ENVIRONMENT=Staging`). Only
   allowlisted IPs get through Cloudflare; everyone else is blocked at the edge.
   The bundle is built with `VITE_APP_ENV=staging` (amber banner + data-loss signup
   consent) and **no GA measurement ID** (analytics inert).
 - **Production** = the clean stack provisioned at cutover (own IIS sites/pools, API
-  on `127.0.0.1:5001`, own database `ZeroBudgetProd`, own `appsettings.Production.json`
+  on `127.0.0.1:5001`, own database `AllotJarProd`, own `appsettings.Production.json`
   with a fresh JWT signing key). Public at `allotjar.com`/`www`. Accounts do NOT
   carry over from staging — production started empty.
 - **One pipeline** (`.github/workflows/deploy.yml`): every merge to `main` deploys
@@ -58,9 +59,9 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'ZeroBud
 | Prod stack provisioning (manual run) | `.github/workflows/provision-production.yml` + `deploy/Provision-Production.ps1` |
 | Cloudflare DNS/WAF automation | `deploy/Setup-Cloudflare.ps1` |
 | Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port, `-AspNetEnvironment` pins which `appsettings.<Env>.json` the API reads) |
-| One-time rename of the staging stack to staging names | `deploy/Rename-StagingStack.ps1` (idempotent; `-Check` reports only) |
+| One-time rename of a stack from its old ZeroBudget names to AllotJar names | `deploy/Rename-ToAllotJar.ps1 -Stack staging` / `-Stack production` (idempotent; `-Check` reports only) |
 | Staging banner + signup consent | `client/src/components/StagingBanner.tsx`, `client/src/lib/env.ts`, `LoginPage.tsx` |
-| Daily DB backups (both databases) | `deploy/Backup-Database.ps1` + `deploy/Register-BackupTask.ps1` (tasks `ZeroBudget-Staging-DbBackup`, `ZeroBudget-Prod-DbBackup`) |
+| Daily DB backups (both databases) | `deploy/Backup-Database.ps1` + `deploy/Register-BackupTask.ps1` (tasks `AllotJar-Staging-DbBackup`, `AllotJar-Prod-DbBackup`) |
 | Retired coming-soon page (archived source) | `marketing/coming-soon/` |
 
 ## Outbound email (password reset)
@@ -118,7 +119,7 @@ for the staging API; both preserved across deploys by `Deploy.ps1`'s robocopy ex
 > *"could not route … perhaps your object identifier is invalid?"* — off-request, so the user just
 > never receives the email. Startup now warns when the id isn't 32 hex characters (see step 5).
 
-**3. Set `"DataProtection": { "KeysPath": "C:\\inetpub\\zerobudget-dp-keys" }`** (create the folder,
+**3. Set `"DataProtection": { "KeysPath": "C:\\inetpub\\allotjar-prod-dp-keys" }`** (create the folder,
 grant the API app-pool identity modify rights). **Without this, every app restart/deploy invalidates
 all outstanding reset links** — the IIS app pool doesn't load a user profile, so the DataProtection
 key ring is otherwise in-memory. The ring is encrypted at rest with LocalMachine DPAPI.
@@ -204,8 +205,8 @@ minutes, grace 5 minutes, your email), then on the VPS:
 .\Register-HealthPingTask.ps1 -PingUrl https://hc-ping.com/<uuid>   # production API on port 5001
 ```
 
-Pass `-HealthUrl http://127.0.0.1:5000/health/ready -TaskName ZeroBudget-Staging-HealthPing` with a
-second check for staging. `Start-ScheduledTask -TaskName ZeroBudget-Prod-HealthPing` runs it at once; stop
+Pass `-HealthUrl http://127.0.0.1:5000/health/ready -TaskName AllotJar-Staging-HealthPing` with a
+second check for staging. `Start-ScheduledTask -TaskName AllotJar-Prod-HealthPing` runs it at once; stop
 the API's app pool for a minute to watch the check go red and come back.
 
 ## Sign in with Google
@@ -268,7 +269,7 @@ be bypassed by hitting the VPS directly.
    tasks. The prod API dir is empty until the first deploy.
 3. **First production deploy**: approve the pending `deploy-production` job on the
    latest Deploy run (or re-run the workflow). Health check: `http://127.0.0.1:5001/health`
-   on the VPS; EF migrations create the schema in `ZeroBudgetProd` on first start.
+   on the VPS; EF migrations create the schema in `AllotJarProd` on first start.
 4. **Cloudflare — staging first** (never expose staging unfiltered):
    `deploy/Setup-Cloudflare.ps1 -ApiToken <t> -Phase staging` — creates the WAF
    allowlist rule, THEN the proxied `staging` A record.
@@ -282,7 +283,7 @@ be bypassed by hitting the VPS directly.
    the staging site so each site answers exactly its own hostnames.
 8. **Verify**: `www.allotjar.com` serves the app with no banner; `staging.allotjar.com`
    works from an allowlisted IP and is blocked elsewhere; `app.allotjar.com` no
-   longer resolves; `Get-ScheduledTask ZeroBudget-Staging-DbBackup, ZeroBudget-Prod-DbBackup`
+   longer resolves; `Get-ScheduledTask AllotJar-Staging-DbBackup, AllotJar-Prod-DbBackup`
    both exist and run.
 
 Rollback: the coming-soon Worker still exists (custom domains can be re-added in

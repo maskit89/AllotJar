@@ -46,7 +46,7 @@ public class GoogleSignInFlowTests
 
         // The session cookie rode along — Google sign-in survives a reload like any other login.
         response.Headers.TryGetValues("Set-Cookie", out var cookies).Should().BeTrue();
-        cookies!.Should().Contain(c => c.StartsWith("zbb_rt="));
+        cookies!.Should().Contain(c => c.StartsWith("allotjar_rt="));
 
         // /auth/me: usable household context, consent still owed, and NO password on the account.
         var me = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/auth/me", token);

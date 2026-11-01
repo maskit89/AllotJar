@@ -217,7 +217,7 @@ describe('ConfirmEmailPage in the green-banner frame (restyle PR 16)', () => {
     await user.click(dark)
     expect(dark).toHaveAttribute('aria-pressed', 'true')
     expect(document.documentElement).toHaveClass('dark')
-    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+    expect(localStorage.getItem('allotjar.theme')).toBe('dark')
   })
 
   it('shows the staging banner in a staging build above the room, as the other auth pages do', async () => {

@@ -19,7 +19,7 @@
    Account settings straight after.
 
    Usage (SSMS on the box; the USE line below picks the production database,
-   change it to ZeroBudgetStaging only for a staging login):
+   change it to AllotJarStaging only for a staging login):
      1. Set @Email to the login's email address.
      2. Run the whole script. STEP 1 shows one user row, its passkeys and
         whether it has codes; STEP 2 deletes inside a transaction that ROLLS
@@ -31,7 +31,7 @@
         should add a new passkey and save the new recovery codes.
    ============================================================================ */
 
-USE ZeroBudgetProd;
+USE AllotJarProd;
 SET XACT_ABORT ON;   -- an error part-way rolls the whole of STEP 2 back
 
 DECLARE @Email nvarchar(256) = N'';   -- e.g. N'someone@example.com'

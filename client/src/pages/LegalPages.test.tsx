@@ -114,7 +114,7 @@ describe('LegalLayout in the warm look (restyle PR 16)', () => {
     await user.click(theme)
     expect(theme).toHaveAttribute('aria-pressed', 'true')
     expect(document.documentElement).toHaveClass('dark')
-    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+    expect(localStorage.getItem('allotjar.theme')).toBe('dark')
 
     await user.click(theme)
     expect(theme).toHaveAttribute('aria-pressed', 'false')

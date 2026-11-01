@@ -84,7 +84,7 @@ internal sealed class ApiFactory : WebApplicationFactory<Program>
         // AddInfrastructure, RateLimiting:AuthPermitLimit for the limiter closure). With the
         // minimal hosting model, ConfigureAppConfiguration callbacks are appended to the app's
         // configuration only at Build() time — after those eager reads — so on a dev box the API
-        // would boot against the real appsettings/user-secrets values (the developer's ZeroBudget
+        // would boot against the real appsettings/user-secrets values (the developer's AllotJar
         // database and secret Jwt key) and sign tokens with a different key than it validates.
         // UseSetting flows through the factory into the initial host configuration, which is both
         // present from WebApplication.CreateBuilder onward and highest-precedence.

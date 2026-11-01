@@ -253,7 +253,7 @@ describe('AccountsPage', () => {
   })
 
   it.each([1.234, 33.3333])('preserves an unchanged opening balance of %s with comma decimals', async (openingBalance) => {
-    localStorage.setItem('zbb.numberFormat', 'dot-comma')
+    localStorage.setItem('allotjar.numberFormat', 'dot-comma')
     const account = { ...accounts()[0], openingBalance, currentBalance: openingBalance }
     mockGet.mockImplementation((url: string) => Promise.resolve({ data: url === '/accounts' ? [account] : [] }))
     mockPut.mockResolvedValue({ data: account })

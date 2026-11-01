@@ -22,13 +22,13 @@ const DEFAULT_RECORD: OnboardingRecord = {
 
 // Keyed by the login's id from /auth/me, never its email, so no address is kept in the browser
 // (D2, client P3-8). Older versions keyed it by email: that record is moved across once.
-const keyFor = (userId: string) => `zbb.onboarding:${userId}`
+const keyFor = (userId: string) => `allotjar.onboarding:${userId}`
 
 /** Moves a record kept under the login's email (older versions) to its id, once, then deletes it. */
 function migrateEmailRecord(userId: string | null, email: string | null) {
   if (!userId || !email) return
   try {
-    const legacyKey = `zbb.onboarding:${email}`
+    const legacyKey = `allotjar.onboarding:${email}`
     const legacy = localStorage.getItem(legacyKey)
     if (legacy === null) return
     if (localStorage.getItem(keyFor(userId)) === null) localStorage.setItem(keyFor(userId), legacy)

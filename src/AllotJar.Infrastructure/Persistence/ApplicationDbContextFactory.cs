@@ -15,7 +15,7 @@ public class ApplicationDbContextFactory : IDesignTimeDbContextFactory<Applicati
     {
         var options = new DbContextOptionsBuilder<ApplicationDbContext>()
             .UseSqlServer(
-                "Server=(localdb)\\MSSQLLocalDB;Database=ZeroBudget;Trusted_Connection=True;MultipleActiveResultSets=true",
+                "Server=(localdb)\\MSSQLLocalDB;Database=AllotJar;Trusted_Connection=True;MultipleActiveResultSets=true",
                 sql => sql.MigrationsAssembly(typeof(ApplicationDbContext).Assembly.FullName))
             .Options;
 

@@ -31,7 +31,7 @@ test('the manifest names the app, opens at sign-in, and every icon it lists load
 })
 
 async function withWorker(page: Page, theme: 'light' | 'dark') {
-  await page.addInitScript((t) => localStorage.setItem('zbb.theme', t), theme)
+  await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t), theme)
   await page.route('**/api/**', mockApi)
   await page.goto('/login')
   await page.evaluate(async () => {

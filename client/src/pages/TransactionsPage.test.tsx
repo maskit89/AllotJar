@@ -448,7 +448,7 @@ describe('TransactionsPage manual sheet', () => {
   })
 
   it('preserves an unchanged transaction amount with comma decimals', async () => {
-    localStorage.setItem('zbb.numberFormat', 'dot-comma')
+    localStorage.setItem('allotjar.numberFormat', 'dot-comma')
     const transaction = { ...tx(), amount: 1.234 }
     mockLoad([transaction])
     mockPut.mockResolvedValue({ data: transaction })
@@ -464,7 +464,7 @@ describe('TransactionsPage manual sheet', () => {
   })
 
   it('preserves existing split amounts and their total with comma decimals', async () => {
-    localStorage.setItem('zbb.numberFormat', 'space-comma')
+    localStorage.setItem('allotjar.numberFormat', 'space-comma')
     const transaction = {
       ...tx(), amount: 3.5796, isSplit: true,
       splits: [

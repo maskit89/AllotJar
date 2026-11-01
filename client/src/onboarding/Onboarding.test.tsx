@@ -70,7 +70,7 @@ describe('Onboarding', () => {
     expect(await screen.findByRole('region', { name: 'Getting started' })).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
 
-    const raw = localStorage.getItem('zbb.onboarding:u-me')
+    const raw = localStorage.getItem('allotjar.onboarding:u-me')
     expect(raw && JSON.parse(raw).welcomeSeen).toBe(true)
 
     // A fresh mount for the same (returning) user must not re-open the welcome.
@@ -92,18 +92,18 @@ describe('Onboarding', () => {
       expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument(),
     )
 
-    const raw = localStorage.getItem('zbb.onboarding:u-me')
+    const raw = localStorage.getItem('allotjar.onboarding:u-me')
     expect(raw && JSON.parse(raw).checklistDismissed).toBe(true)
   })
 
   // D2 (PR #307 review P3-1): progress is kept under the login's id, never its email; a record an
   // older version kept under the email is moved across once, so a returning user isn't welcomed again.
   it('moves an email-keyed record to the login id once and deletes it', async () => {
-    localStorage.setItem('zbb.onboarding:me@test.app', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: false }))
+    localStorage.setItem('allotjar.onboarding:me@test.app', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: false }))
     renderApp()
 
-    await waitFor(() => expect(localStorage.getItem('zbb.onboarding:me@test.app')).toBeNull())
-    expect(JSON.parse(localStorage.getItem('zbb.onboarding:u-me') ?? '{}').welcomeSeen).toBe(true)
+    await waitFor(() => expect(localStorage.getItem('allotjar.onboarding:me@test.app')).toBeNull())
+    expect(JSON.parse(localStorage.getItem('allotjar.onboarding:u-me') ?? '{}').welcomeSeen).toBe(true)
     expect(screen.queryByRole('heading', { name: 'Welcome to AllotJar' })).not.toBeInTheDocument()
     expect(Object.keys(localStorage).some((k) => k.includes('@'))).toBe(false)
   })
@@ -185,7 +185,7 @@ describe('Onboarding on a phone', () => {
     expect(pill).toHaveAttribute('aria-expanded', 'false')
     expect(screen.queryByRole('region', { name: 'Getting started' })).not.toBeInTheDocument()
     // Collapsing is not dismissing.
-    expect(JSON.parse(localStorage.getItem('zbb.onboarding:u-me') ?? '{}').checklistDismissed).toBe(false)
+    expect(JSON.parse(localStorage.getItem('allotjar.onboarding:u-me') ?? '{}').checklistDismissed).toBe(false)
 
     fireEvent.click(pill)
     const region = await screen.findByRole('region', { name: 'Getting started' })

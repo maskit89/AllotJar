@@ -6,10 +6,10 @@ import { authedSetup } from './mocks'
  * The contract split across theme-init.js (pre-paint) and lib/theme.ts (live, shared by every
  * theme control: the top bar's Dark mode button, the account menu's and More sheet's switches):
  *
- *  - while `zbb.theme` is UNSET ("system" mode), the app follows the OS
+ *  - while `allotjar.theme` is UNSET ("system" mode), the app follows the OS
  *    `prefers-color-scheme` — both at first paint and LIVE mid-session via the
  *    ThemeToggle's matchMedia change listener;
- *  - once the user pins a theme via a real theme control (which persists `zbb.theme`), OS
+ *  - once the user pins a theme via a real theme control (which persists `allotjar.theme`), OS
  *    scheme changes are ignored — live AND across a reload.
  *
  * Driven with page.emulateMedia({ colorScheme }) mid-session (which fires the
@@ -27,7 +27,7 @@ const darkMode = (page: import('@playwright/test').Page) =>
 // live — dark stamps it, light removes it, repeatedly, without a reload.
 test('system mode follows the OS colour-scheme live (UX-030)', async ({ page }) => {
   await page.emulateMedia({ colorScheme: 'light' })
-  await authedSetup(page, 'system') // leaves zbb.theme unset
+  await authedSetup(page, 'system') // leaves allotjar.theme unset
   await page.goto('/')
   await page.getByRole('heading', { level: 1 }).first().waitFor()
 
@@ -45,7 +45,7 @@ test('system mode follows the OS colour-scheme live (UX-030)', async ({ page }) 
   await expect(html(page)).not.toHaveClass(/dark/)
 
   // Nothing was persisted: the user never chose, so system mode remains active.
-  expect(await page.evaluate(() => localStorage.getItem('zbb.theme'))).toBeNull()
+  expect(await page.evaluate(() => localStorage.getItem('allotjar.theme'))).toBeNull()
 })
 
 // Pinning a theme via the real Dark mode button persists the choice; OS flips no
@@ -59,10 +59,10 @@ test('a theme pinned via the Dark mode button ignores OS colour-scheme flips (UX
   await page.getByRole('heading', { level: 1 }).first().waitFor()
   await expect(html(page)).not.toHaveClass(/dark/)
 
-  // Pin DARK through the real control (writes zbb.theme = 'dark').
+  // Pin DARK through the real control (writes allotjar.theme = 'dark').
   await darkMode(page).click()
   await expect(html(page)).toHaveClass(/dark/)
-  expect(await page.evaluate(() => localStorage.getItem('zbb.theme'))).toBe('dark')
+  expect(await page.evaluate(() => localStorage.getItem('allotjar.theme'))).toBe('dark')
 
   // The OS flips to light — the pinned dark choice wins; .dark stays stamped.
   await page.emulateMedia({ colorScheme: 'light' })
@@ -98,14 +98,14 @@ test('the sign-in page Dark mode button follows the OS until a press pins it (UX
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(html(page)).toHaveClass(/dark/)
   await expect(dark).toHaveAttribute('aria-pressed', 'true')
-  expect(await page.evaluate(() => localStorage.getItem('zbb.theme'))).toBeNull()
+  expect(await page.evaluate(() => localStorage.getItem('allotjar.theme'))).toBeNull()
 
   // A keyboard press turns dark mode off and pins light; OS flips are ignored from then on.
   await dark.focus()
   await page.keyboard.press('Enter')
   await expect(html(page)).not.toHaveClass(/dark/)
   await expect(dark).toHaveAttribute('aria-pressed', 'false')
-  expect(await page.evaluate(() => localStorage.getItem('zbb.theme'))).toBe('light')
+  expect(await page.evaluate(() => localStorage.getItem('allotjar.theme'))).toBe('light')
   await page.emulateMedia({ colorScheme: 'light' })
   await page.emulateMedia({ colorScheme: 'dark' })
   await expect(html(page)).not.toHaveClass(/dark/)

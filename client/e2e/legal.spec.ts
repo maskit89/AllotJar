@@ -22,7 +22,7 @@ const LEGAL = [
 for (const theme of ['light', 'dark'] as const) {
   for (const { path, heading } of LEGAL) {
     test(`${path} has no WCAG A/AA violations — ${theme}`, async ({ page }) => {
-      await page.addInitScript((t) => localStorage.setItem('zbb.theme', t as string), theme)
+      await page.addInitScript((t) => localStorage.setItem('allotjar.theme', t as string), theme)
       await page.route('**/api/**', mockApi)
       await page.goto(path)
       await page.getByRole('heading', { level: 1, name: heading }).waitFor()
@@ -99,7 +99,7 @@ test.describe('the legal pages in the warm look', () => {
 // #352 P3-3: on the dark sage the theme button's ring reads as a ring (3:1 against the page around
 // it, the non-text contrast bar), not the light page's hairline that all but vanished there.
 test('the legal pages’ theme button ring reads in dark mode', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('zbb.theme', 'dark'))
+  await page.addInitScript(() => localStorage.setItem('allotjar.theme', 'dark'))
   await page.route('**/api/**', mockApi)
   await page.goto('/privacy')
   await page.getByRole('heading', { level: 1, name: 'Privacy Policy' }).waitFor()

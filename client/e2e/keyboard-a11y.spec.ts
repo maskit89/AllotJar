@@ -16,7 +16,7 @@ import { AUTHED_ROUTES, authedSetup, mockApi } from './mocks'
 
 /** Sign out and land on /login (mirrors a11y.spec.ts's login setup). */
 async function signedOutLogin(page: Page) {
-  await page.addInitScript(() => localStorage.setItem('zbb.theme', 'light'))
+  await page.addInitScript(() => localStorage.setItem('allotjar.theme', 'light'))
   await page.route('**/api/**', mockApi)
   await page.goto('/login')
   await page.getByLabel('Email').waitFor()
@@ -386,7 +386,7 @@ test('login: after a failed sign-in from the submit button, focus is back on the
 })
 
 test('forgot password: "Check your inbox" takes focus on its title when it replaces the form', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('zbb.theme', 'light'))
+  await page.addInitScript(() => localStorage.setItem('allotjar.theme', 'light'))
   await page.route('**/api/**', mockApi)
   await page.goto('/forgot-password')
   await page.getByLabel('Email').fill('owner@example.com')

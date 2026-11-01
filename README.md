@@ -46,11 +46,11 @@ The `Application` project is organised by feature — `Budgets`, `Transactions`,
 `HouseholdAccess` — each holding its commands, queries, DTOs and the read-time
 calculators (`BudgetActuals`, `AccountBalances`).
 
-> The GitHub repo is `maskit89/AllotJar`. A handful of internal identifiers still
-> carry the original **ZeroBudget** name by design — the physical database name,
-> the IIS/pool/deploy paths under `deploy/**`, the JWT issuer, the `zbb_rt` cookie
-> and `zbb.*` client keys. These are stable infrastructure names, not a rename we
-> left half-done.
+> The GitHub repo is `maskit89/AllotJar`. The server names (IIS sites, app pools,
+> folders, databases `AllotJarStaging` / `AllotJarProd`, scheduled tasks) and the JWT
+> issuer say AllotJar since November 2026 (`deploy/Rename-ToAllotJar.ps1`), as do the
+> refresh cookie (`allotjar_rt`) and the browser storage keys (`allotjar.*`), renamed before
+> the beta while nobody was signed in.
 
 ### Dependency rule (clean architecture)
 
@@ -440,7 +440,7 @@ Both suites — plus an **axe accessibility** check — run in CI on every push 
 - Every budgeting endpoint is `[Authorize]`d; handlers additionally scope all
   reads/writes to the active household's `OwnerId` (defence in depth — no IDOR).
 - **Tokens:** login/register returns a short-lived (15-min) access token held **in
-  memory** by the SPA, plus a rotating **HttpOnly refresh cookie** (`zbb_rt`, `Secure`
+  memory** by the SPA, plus a rotating **HttpOnly refresh cookie** (`allotjar_rt`, `Secure`
   in prod, `SameSite=Strict`, scoped to `/api/auth`) that the client silently exchanges
   for a fresh access token. JWTs are **revocable** via the Identity security stamp, so a
   password change or forced sign-out invalidates outstanding tokens.
@@ -485,5 +485,5 @@ staging/production split.
 - **`provision-production.yml`** is the manual infra workflow that
   stood up (and can re-shape) the production IIS/SQL stack on the VPS.
 - Both stacks share one VPS: separate IIS sites/pools, API on `:5000` (staging) and
-  `:5001` (production), separate SQL databases (`ZeroBudget` / `ZeroBudgetProd`).
+  `:5001` (production), separate SQL databases (`AllotJarStaging` / `AllotJarProd`).
 - The `deploy/` folder holds the PowerShell bootstrap/setup/deploy/backup scripts.
