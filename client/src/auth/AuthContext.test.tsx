@@ -180,7 +180,7 @@ describe('mid-session expiry', () => {
 
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'))
     expect(getToken()).toBeNull()
-    expect(localStorage.getItem('allotjar.email')).toBeNull() // identity remnants cleared
+    expect(localStorage.getItem('zbb.email')).toBeNull() // identity remnants cleared
     expect(assign).toHaveBeenCalledWith('/login?reason=expired')
   })
 
@@ -217,6 +217,6 @@ describe('mid-session expiry', () => {
 
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'))
     expect(getToken()).toBeNull()
-    expect(localStorage.getItem('allotjar.email')).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull()
   })
 })

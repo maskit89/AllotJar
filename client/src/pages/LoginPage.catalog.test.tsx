@@ -568,9 +568,9 @@ describe('LoginPage (REG catalog)', () => {
     await user.click(submitButton('Sign in'))
 
     expect(await screen.findByText('HOME', undefined, { timeout: 5000 })).toBeInTheDocument()
-    expect(localStorage.getItem('allotjar.email')).toBeNull()
-    expect(localStorage.getItem('allotjar.role')).toBeNull()
-    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.role')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
     expect(allStoredValues().join(' ')).not.toContain('owner@example.com')
     // The access token is in-memory only — it must never touch localStorage.
     expect(allStoredValues()).not.toContain('tok-secret-xyz')

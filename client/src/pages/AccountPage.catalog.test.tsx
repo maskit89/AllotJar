@@ -148,7 +148,7 @@ describe('AccountPage — preferences catalog (PREF)', () => {
     // The details card "Name" and the user chip re-render to the recomposed display name
     // without a reload; the next cold load reads it from /auth/me, not from storage.
     await waitFor(() => expect(screen.getAllByText('Christopher Borg').length).toBeGreaterThanOrEqual(1), { timeout: 5000 })
-    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
   })
 
   // PREF-012 — The Currency select offers exactly the curated 24-currency list and the

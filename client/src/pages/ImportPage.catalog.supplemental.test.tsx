@@ -50,7 +50,7 @@ async function goToReview(user: ReturnType<typeof userEvent.setup>) {
 
 describe('ImportPage (catalog supplemental)', () => {
   beforeEach(() => {
-    // Keep the default Owner role — never let a stray allotjar.role from another suite drop canWrite.
+    // Keep the default Owner role — never let a stray zbb.role from another suite drop canWrite.
     localStorage.clear()
     resetApiMocks()
     mockPreview.mockReset()

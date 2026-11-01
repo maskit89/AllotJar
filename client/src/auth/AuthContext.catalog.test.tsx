@@ -100,9 +100,9 @@ describe('SESS: AuthContext session lifecycle', () => {
   // (email, name, role) isn't kept there either (D2): only the money-display prefs are.
   it('SESS-006: the access token and the identity are memory-only — localStorage holds only pref hints', async () => {
     // An older version left the identity behind; starting up clears it.
-    localStorage.setItem('allotjar.email', 'old@x.com')
-    localStorage.setItem('allotjar.role', '0')
-    localStorage.setItem('allotjar.displayName', 'Old')
+    localStorage.setItem('zbb.email', 'old@x.com')
+    localStorage.setItem('zbb.role', '0')
+    localStorage.setItem('zbb.displayName', 'Old')
     await renderSignedIn(standardAdapter)
     await waitFor(() => expect(localStorage.getItem('allotjar.currency')).toBe('GBP'), { timeout: 5000 })
 
@@ -111,9 +111,9 @@ describe('SESS: AuthContext session lifecycle', () => {
     for (let i = 0; i < localStorage.length; i++) stored.push(localStorage.getItem(localStorage.key(i)!) as string)
     expect(stored).not.toContain('boot-jwt') // the JWT appears NOWHERE in storage
 
-    expect(localStorage.getItem('allotjar.email')).toBeNull()
-    expect(localStorage.getItem('allotjar.role')).toBeNull()
-    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.role')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
     expect(stored.join(' ')).not.toContain('dev@x.com')
   })
 
@@ -203,9 +203,9 @@ describe('SESS: AuthContext session lifecycle', () => {
     await waitFor(() => expect(screen.getByTestId('probe')).toHaveTextContent('out'), { timeout: 5000 })
     expect(logoutPosts).toBe(1)
     expect(getToken()).toBeNull()
-    expect(localStorage.getItem('allotjar.email')).toBeNull()
-    expect(localStorage.getItem('allotjar.role')).toBeNull()
-    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.role')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
     // Money prefs snap back to the neutral fallbacks.
     expect(localStorage.getItem('allotjar.currency')).toBe('EUR')
     expect(localStorage.getItem('allotjar.numberFormat')).toBe('comma-dot')

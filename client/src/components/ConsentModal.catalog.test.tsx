@@ -63,9 +63,9 @@ describe('SESS: ConsentModal session-side surfaces', () => {
   it('SESS-042: "Sign out" runs logout — POST /auth/logout, identity hints wiped, blocking dialog unmounts', async () => {
     mockGet.mockResolvedValue(me(true))
     // Identity hints a signed-in session would have stored (apply() writes these).
-    localStorage.setItem('allotjar.email', 'sam@x.com')
-    localStorage.setItem('allotjar.role', '1')
-    localStorage.setItem('allotjar.displayName', 'Sam')
+    localStorage.setItem('zbb.email', 'sam@x.com')
+    localStorage.setItem('zbb.role', '1')
+    localStorage.setItem('zbb.displayName', 'Sam')
     const user = userEvent.setup()
     renderModal()
 
@@ -74,8 +74,8 @@ describe('SESS: ConsentModal session-side surfaces', () => {
 
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/logout'), { timeout: 5000 })
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument(), { timeout: 5000 })
-    expect(localStorage.getItem('allotjar.email')).toBeNull()
-    expect(localStorage.getItem('allotjar.role')).toBeNull()
-    expect(localStorage.getItem('allotjar.displayName')).toBeNull()
+    expect(localStorage.getItem('zbb.email')).toBeNull()
+    expect(localStorage.getItem('zbb.role')).toBeNull()
+    expect(localStorage.getItem('zbb.displayName')).toBeNull()
   })
 })
