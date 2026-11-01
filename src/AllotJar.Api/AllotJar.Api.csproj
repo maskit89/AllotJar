@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>zerobudget-api</UserSecretsId>
+    <UserSecretsId>allotjar-api</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

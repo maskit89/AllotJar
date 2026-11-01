@@ -51,7 +51,7 @@
   1. Open `/login?register=1`; open the **Currency** select.
   2. Confirm the option list, then register picking **US dollar ($)**.
   3. After landing, open `/account` → **Preferences** and read the Currency value.
-- **Expected:** The select lists exactly the 24 `CURRENCY_OPTIONS` (EUR, GBP, USD, CHF, CAD, AUD, NZD, JPY, INR, SGD, HKD, SEK, NOK, DKK, PLN, CZK, HUF, RON, ZAR, BRL, MXN, AED, SAR, TRY) with symbol-bearing labels. Registration stores `preferredCurrency = USD`; `/account` Preferences shows **US dollar ($)**; `zbb.currency=USD` in localStorage.
+- **Expected:** The select lists exactly the 24 `CURRENCY_OPTIONS` (EUR, GBP, USD, CHF, CAD, AUD, NZD, JPY, INR, SGD, HKD, SEK, NOK, DKK, PLN, CZK, HUF, RON, ZAR, BRL, MXN, AED, SAR, TRY) with symbol-bearing labels. Registration stores `preferredCurrency = USD`; `/account` Preferences shows **US dollar ($)**; `allotjar.currency=USD` in localStorage.
 - **Automated:** No
 
 ### CURR-005 - All five number-format presets are selectable and persist
@@ -62,7 +62,7 @@
   1. Open `/login?register=1`; open **Number format**.
   2. Register choosing **1 234,56** (space-comma).
   3. Open `/account` → Preferences and read Number format.
-- **Expected:** The select offers exactly 5 worked-example labels: **1,234.56**, **1.234,56**, **1 234,56**, **1'234.56**, **1,23,456.78** (comma-dot / dot-comma / space-comma / apostrophe / lakh). Stored `numberFormat = space-comma`; `zbb.numberFormat=space-comma` in localStorage.
+- **Expected:** The select offers exactly 5 worked-example labels: **1,234.56**, **1.234,56**, **1 234,56**, **1'234.56**, **1,23,456.78** (comma-dot / dot-comma / space-comma / apostrophe / lakh). Stored `numberFormat = space-comma`; `allotjar.numberFormat=space-comma` in localStorage.
 - **Automated:** Partial (client/src/lib/money.test.ts — `NUMBER_FORMAT_OPTIONS` values; `setMoneyFormat` renders each style)
 
 ### CURR-006 - API accepts any valid ISO 4217 code; rejects a non-3-letter code
@@ -191,8 +191,8 @@
 ### CURR-018 - Format preference is applied from localStorage before /auth/me returns
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** AuthContext mount effect calls `setMoneyFormat(numberFormat)` from `zbb.numberFormat` once, so a hard reload renders in the chosen style pre-hydration.
-- **Preconditions:** U-DE (dot-comma) already signed in (`zbb.numberFormat=dot-comma` in localStorage).
+- **Origin:** AuthContext mount effect calls `setMoneyFormat(numberFormat)` from `allotjar.numberFormat` once, so a hard reload renders in the chosen style pre-hydration.
+- **Preconditions:** U-DE (dot-comma) already signed in (`allotjar.numberFormat=dot-comma` in localStorage).
 - **Steps:**
   1. Hard-reload `/` (drops the in-memory access token; session restores via refresh cookie).
   2. Observe the first paint of money values before `/auth/me` resolves.
@@ -345,7 +345,7 @@
 - **Steps:**
   1. Use the household switcher to switch to the joined household (full re-bootstrap); then back.
   2. Leave the joined household.
-- **Expected:** After each re-bootstrap `/auth/me` re-applies USD + comma-dot as the login's preferences (per-login), and `budgetCurrency` follows the ACTIVE household: money and the chip read £/"GBP · …" in the joined household and $/"USD · Your household" in the own one; grouping style is the same everywhere. `zbb.budgetCurrency` tracks the active household. (PREF-044.)
+- **Expected:** After each re-bootstrap `/auth/me` re-applies USD + comma-dot as the login's preferences (per-login), and `budgetCurrency` follows the ACTIVE household: money and the chip read £/"GBP · …" in the joined household and $/"USD · Your household" in the own one; grouping style is the same everywhere. `allotjar.budgetCurrency` tracks the active household. (PREF-044.)
 - **Automated:** No
 
 ---

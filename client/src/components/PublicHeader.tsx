@@ -8,8 +8,8 @@ import { ThemeButton } from './ThemeToggle'
  * (`/privacy`, `/terms`). Both are **SSR-safe**: the landing is prerendered to static HTML, so these
  * read no router state, and their links are `PublicLink`s: a plain `<a>` in the static HTML, an
  * in-app link once the app is running (the theme button's hook has a server snapshot). The pieces are the `.auth-top` row and the `.pub-foot` footer of index.css;
- * on the landing the row sits in the green room (white ink), on a legal page on the sage (`.legal`
- * restyles its ink and the theme button's ring there).
+ * on the landing and the legal pages the row sits on the sage (`.land` and `.legal` restyle its ink
+ * and the theme button's ring there; the room's white ink is the default).
  */
 
 /**

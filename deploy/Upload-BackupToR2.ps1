@@ -26,12 +26,12 @@
     -R2Bucket is set; can also be run by hand.
 
 .EXAMPLE
-    .\Upload-BackupToR2.ps1 -Bucket allotjar -Database ZeroBudgetProd
+    .\Upload-BackupToR2.ps1 -Bucket allotjar -Database AllotJarProd
 #>
 [CmdletBinding()]
 param(
     [Parameter(Mandatory = $true)][string]$Bucket,
-    [string]$Database   = 'ZeroBudgetProd',
+    [string]$Database   = 'AllotJarProd',
     [string]$BackupDir  = 'C:\deploy\backups',
     [string]$File,                                   # specific .bak; default = newest for -Database
     [string]$Rclone     = 'C:\deploy\rclone\rclone.exe',

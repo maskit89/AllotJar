@@ -538,7 +538,7 @@ H1 has: EUR account **"Joint"** (balance 1,250.00) and EUR account **"Savings"**
 ### ROLE-042 - Fresh tab renders provisional Owner chrome before /auth/me corrects the role
 - **Priority:** P1
 - **Type:** Regression
-- **Origin:** `AuthContext` seeds `role` from `localStorage['zbb.role']` with a **default of Owner** on a fresh tab (`storedRole()`); `RoleGating.test.tsx` pattern — write controls may flash then vanish once `/auth/me` resolves.
+- **Origin:** `AuthContext` seeds `role` from `localStorage['allotjar.role']` with a **default of Owner** on a fresh tab (`storedRole()`); `RoleGating.test.tsx` pattern — write controls may flash then vanish once `/auth/me` resolves.
 - **Preconditions:** Rhea (Read-only) opens a brand-new tab / hard navigation (access token is in-memory only, so a cold load bootstraps from the refresh cookie).
 - **Steps:**
   1. As Rhea, hard-load `/transactions` (or `/`); observe the first paint before `/auth/me` resolves.

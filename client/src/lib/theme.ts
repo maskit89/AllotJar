@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useSyncExternalStore } from 'react'
 import { EVENTS, track } from '../analytics'
 
-const KEY = 'zbb.theme'
+const KEY = 'allotjar.theme'
 /** Fired on window when a theme control pins a choice, so every mounted control follows. */
-const CHANGED = 'zbb:theme'
+const CHANGED = 'allotjar:theme'
 export type ThemeMode = 'light' | 'dark'
 
 /** jsdom has no matchMedia, so every access is guarded. */
@@ -47,7 +47,7 @@ function subscribe(onChange: () => void) {
  * The app's theme, shared by every theme control on screen (the top bar's button, the account
  * menu's and the More sheet's Dark mode switches, the auth pages' Light/Dark toggle). Until the
  * user picks, it follows the OS `prefers-color-scheme` live; a pick is persisted under
- * localStorage 'zbb.theme' and from then on wins over the OS. The initial class is set by
+ * localStorage 'allotjar.theme' and from then on wins over the OS. The initial class is set by
  * public/theme-init.js before first paint, so there is no flash on load.
  */
 export function useTheme() {

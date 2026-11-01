@@ -63,7 +63,7 @@ public class PasswordResetFlowTests
         var resetJson = await HttpApiFixture.ReadJsonAsync(reset);
         resetJson.RootElement.GetProperty("token").GetString().Should().NotBeNullOrEmpty();
         reset.Headers.TryGetValues("Set-Cookie", out var cookies).Should().BeTrue();
-        cookies!.Should().Contain(c => c.StartsWith("zbb_rt="), "a successful reset signs this device in");
+        cookies!.Should().Contain(c => c.StartsWith("allotjar_rt="), "a successful reset signs this device in");
 
         // The old password is gone; the new one signs in.
         var oldLogin = await client.PostAsJsonAsync("/api/auth/login",
@@ -82,7 +82,7 @@ public class PasswordResetFlowTests
         // cookie jar) is used so the explicit old cookie isn't overwritten by the reset's fresh one.
         using var bareClient = _fixture.CreateClientWithoutCookies();
         using var replayRefresh = new HttpRequestMessage(HttpMethod.Post, "/api/auth/refresh");
-        replayRefresh.Headers.Add("Cookie", $"zbb_rt={preResetRefreshCookie}");
+        replayRefresh.Headers.Add("Cookie", $"allotjar_rt={preResetRefreshCookie}");
         var refreshWithOldCookie = await bareClient.SendAsync(replayRefresh);
         refreshWithOldCookie.StatusCode.Should().Be(HttpStatusCode.Unauthorized,
             "the pre-reset refresh cookie must be revoked, or a stolen cookie survives the reset");
@@ -267,8 +267,8 @@ public class PasswordResetFlowTests
     private static string ExtractRefreshCookie(HttpResponseMessage response)
     {
         var setCookie = response.Headers.GetValues("Set-Cookie")
-            .First(c => c.StartsWith("zbb_rt=", StringComparison.Ordinal));
-        return setCookie["zbb_rt=".Length..].Split(';')[0];
+            .First(c => c.StartsWith("allotjar_rt=", StringComparison.Ordinal));
+        return setCookie["allotjar_rt=".Length..].Split(';')[0];
     }
 
     /// <summary>Pulls email + token back out of the reset link in the text body.</summary>

@@ -8,8 +8,8 @@ import { InfoHint } from '../components/InfoHint'
 /** The recovery line of a link that cannot be redeemed (the banner in the app has a Resend). */
 const RECOVER = 'Sign in and use Resend in the banner to get a fresh one.'
 
-/** The page's one primary: the sign-in form's green pill (the ui Button's primary classes, as the
- *  landing's "Create your free account" draws it), as a react-router link. */
+/** The page's one primary: the sign-in form's green pill (the ui Button's primary classes), as a
+ *  react-router link. */
 function Pill({ to, children }: { to: string; children: string }) {
   return (
     <Link

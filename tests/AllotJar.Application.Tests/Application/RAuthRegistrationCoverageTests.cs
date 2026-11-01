@@ -107,7 +107,7 @@ public class RAuthRegistrationCoverageTests
             var services = new ServiceCollection();
             services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
             services.AddDbContext<ApplicationDbContext>(o =>
-                o.UseInMemoryDatabase($"zbb-identity-{Guid.NewGuid()}"));
+                o.UseInMemoryDatabase($"allotjar-identity-{Guid.NewGuid()}"));
             services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(Hibp));
 
             services

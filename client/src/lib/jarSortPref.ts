@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react'
 import { isJarSort, type JarSort } from './jarStatus'
 
-const KEY = 'zbb.jarSort'
+const KEY = 'allotjar.jarSort'
 
 /** The order last picked on this device; attention first until one is picked or when storage is blocked. */
 function stored(): JarSort {

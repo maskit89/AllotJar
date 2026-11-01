@@ -24,7 +24,7 @@ export function uniqueEmail(prefix = 'journey'): string {
 export async function suppressOnboarding(page: Page, email: string): Promise<void> {
   await page.addInitScript((em) => {
     window.localStorage.setItem(
-      `zbb.onboarding:${em}`,
+      `allotjar.onboarding:${em}`,
       JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true }),
     )
   }, email)

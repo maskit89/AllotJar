@@ -123,7 +123,7 @@ describe('AppShell (the app frame)', () => {
     await user.click(button)
     expect(document.documentElement).toHaveClass('dark')
     expect(button).toHaveAttribute('aria-pressed', 'true')
-    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+    expect(localStorage.getItem('allotjar.theme')).toBe('dark')
 
     // The sidebar's account button opens the menu: Account settings, the Dark mode switch, Sign out.
     await user.click(await screen.findByRole('button', { name: /^Account menu: Alex Byrne/ }))
@@ -137,7 +137,7 @@ describe('AppShell (the app frame)', () => {
     // Choosing the switch flips the theme back and keeps the menu open.
     await user.click(sw)
     expect(document.documentElement).not.toHaveClass('dark')
-    expect(localStorage.getItem('zbb.theme')).toBe('light')
+    expect(localStorage.getItem('allotjar.theme')).toBe('light')
     expect(screen.getByRole('menu')).toBeInTheDocument()
     expect(within(screen.getByRole('menu')).getByRole('menuitemcheckbox', { name: 'Dark mode' })).toHaveAttribute('aria-checked', 'false')
 

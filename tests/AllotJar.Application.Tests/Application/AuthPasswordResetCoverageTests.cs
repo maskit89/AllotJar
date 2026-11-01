@@ -487,7 +487,7 @@ public class AuthPasswordResetCoverageTests
             var services = new ServiceCollection();
             services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
             services.AddDbContext<ApplicationDbContext>(o =>
-                o.UseInMemoryDatabase($"zbb-reset-{Guid.NewGuid()}"));
+                o.UseInMemoryDatabase($"allotjar-reset-{Guid.NewGuid()}"));
             services.AddSingleton<IHttpClientFactory>(new StubHttpClientFactory(Hibp));
             services.AddSingleton<IDataProtectionProvider>(new EphemeralDataProtectionProvider());
             services.Configure<DataProtectionTokenProviderOptions>(o =>
