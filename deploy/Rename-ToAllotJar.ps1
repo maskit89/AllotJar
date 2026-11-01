@@ -205,7 +205,7 @@ function Get-State {
         'key folder' = @{ old = (Test-Path -LiteralPath $Old.KeysPath);          new = (Test-Path -LiteralPath $New.KeysPath) }
         'database'   = @{ old = ($null -ne (Get-DbState $Old.Database));        new = ($null -ne (Get-DbState $New.Database)) }
         'sql login'  = @{ old = (Test-Login "IIS APPPOOL\$($Old.ApiPool)");     new = (Test-Login "IIS APPPOOL\$($New.ApiPool)") }
-        'tasks'      = @{ old = ((Get-StackTasks $Old.TaskPrefix).Count -gt 0); new = ((Get-StackTasks $New.TaskPrefix).Count -gt 0) }
+        'tasks'      = @{ old = (@(Get-StackTasks $Old.TaskPrefix).Count -gt 0); new = (@(Get-StackTasks $New.TaskPrefix).Count -gt 0) }
     }
 }
 function Show-State($state) {
@@ -583,7 +583,7 @@ $settingsAcl = Get-Acl -LiteralPath $settingsPath
 if ($settingsAcl.AreAccessRulesProtected -and -not (Test-HasRight $settingsPath $sidNewApi ([System.Security.AccessControl.FileSystemRights]::Read))) {
     throw "IIS AppPool\$($New.ApiPool) cannot read $settingsPath."
 }
-if ((Get-ExplicitRules $settingsAcl $sidOldApi).Count) { throw "$settingsPath still has an entry for the old pool." }
+if (@(Get-ExplicitRules $settingsAcl $sidOldApi).Count) { throw "$settingsPath still has an entry for the old pool." }
 Done "IIS AppPool\$($New.ApiPool) can read $($Cfg.Settings)"
 if ((Test-Path -LiteralPath $New.KeysPath) -and (Get-Acl -LiteralPath $New.KeysPath).AreAccessRulesProtected) {
     if (-not (Test-HasRight $New.KeysPath $sidNewApi ([System.Security.AccessControl.FileSystemRights]::Modify))) { throw "IIS AppPool\$($New.ApiPool) cannot modify $($New.KeysPath)." }
