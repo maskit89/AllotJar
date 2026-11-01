@@ -9,19 +9,19 @@ import { JOURNEY_PASSWORD, uniqueEmail } from './helpers'
  * winner's fresh cookie out of the browser's shared jar.
  */
 
-/** The zbb_rt value a response sets, or null when it doesn't touch the refresh cookie. */
+/** The allotjar_rt value a response sets, or null when it doesn't touch the refresh cookie. */
 function refreshCookieFrom(headers: { name: string; value: string }[]): string | null {
   const header = headers.find(
-    (h) => h.name.toLowerCase() === 'set-cookie' && h.value.startsWith('zbb_rt='),
+    (h) => h.name.toLowerCase() === 'set-cookie' && h.value.startsWith('allotjar_rt='),
   )
-  return header ? header.value.slice('zbb_rt='.length).split(';', 1)[0] : null
+  return header ? header.value.slice('allotjar_rt='.length).split(';', 1)[0] : null
 }
 
 /** POST /auth/refresh from a pristine cookie jar, presenting exactly the given cookie value. */
 async function postRefresh(baseURL: string, cookie: string) {
   const ctx = await request.newContext({ baseURL })
   try {
-    const res = await ctx.post('/api/auth/refresh', { headers: { cookie: `zbb_rt=${cookie}` } })
+    const res = await ctx.post('/api/auth/refresh', { headers: { cookie: `allotjar_rt=${cookie}` } })
     return { status: res.status(), setCookie: refreshCookieFrom(res.headersArray()) }
   } finally {
     await ctx.dispose()

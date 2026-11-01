@@ -272,7 +272,7 @@ describe('LandingPage — the product tour and the chrome', () => {
   })
 
   // The theme button works on the public page: a press turns dark mode on (the `.dark` class on
-  // <html>, persisted under zbb.theme) and the toggle reads pressed.
+  // <html>, persisted under allotjar.theme) and the toggle reads pressed.
   it('the theme button switches the page to dark mode and back', async () => {
     const user = userEvent.setup()
     render(<LandingPage />)
@@ -281,7 +281,7 @@ describe('LandingPage — the product tour and the chrome', () => {
     await user.click(theme)
     expect(theme).toHaveAttribute('aria-pressed', 'true')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
-    expect(localStorage.getItem('zbb.theme')).toBe('dark')
+    expect(localStorage.getItem('allotjar.theme')).toBe('dark')
 
     await user.click(theme)
     expect(theme).toHaveAttribute('aria-pressed', 'false')
@@ -387,16 +387,16 @@ describe('LandingPage — the theme button before mount', () => {
     expect(button).toMatch(/<svg[^>]*class="[^"]*lucide-moon[^"]*dark:hidden[^"]*"/)
     expect(button).toMatch(/<svg[^>]*class="[^"]*lucide-sun[^"]*hidden[^"]*dark:block[^"]*"/)
     // Whatever the stored theme: the static render never reads it.
-    localStorage.setItem('zbb.theme', 'dark')
+    localStorage.setItem('allotjar.theme', 'dark')
     try {
       expect(renderToStaticMarkup(<LandingPage />)).toBe(html)
     } finally {
-      localStorage.removeItem('zbb.theme')
+      localStorage.removeItem('allotjar.theme')
     }
   })
 
   it('reads the theme once mounted (one icon, aria-pressed)', () => {
-    localStorage.setItem('zbb.theme', 'dark')
+    localStorage.setItem('allotjar.theme', 'dark')
     try {
       render(<LandingPage />)
       const theme = screen.getByRole('button', { name: 'Dark mode' })
@@ -404,7 +404,7 @@ describe('LandingPage — the theme button before mount', () => {
       expect(theme.querySelectorAll('svg')).toHaveLength(1)
       expect(theme.querySelector('svg')).toHaveClass('lucide-sun')
     } finally {
-      localStorage.removeItem('zbb.theme')
+      localStorage.removeItem('allotjar.theme')
     }
   })
 })
@@ -595,7 +595,7 @@ describe('Analytics consent banner', () => {
     )
   }
 
-  const CONSENT_KEY = 'zbb.analyticsConsent'
+  const CONSENT_KEY = 'allotjar.analyticsConsent'
 
   // LAND-024 — with the flag on and no stored choice, the non-modal consent region
   // appears (after the features fetch) with the exact copy and Decline / Accept buttons.

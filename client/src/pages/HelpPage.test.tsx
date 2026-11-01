@@ -71,12 +71,12 @@ describe('HelpPage', () => {
   })
 
   it('uses the household currency noun in the hero', () => {
-    localStorage.setItem('zbb.budgetCurrency', 'USD')
+    localStorage.setItem('allotjar.budgetCurrency', 'USD')
     try {
       renderPage()
       expect(screen.getByRole('region', { name: 'Zero-based budgeting' })).toHaveTextContent('Give every dollar a job')
     } finally {
-      localStorage.removeItem('zbb.budgetCurrency')
+      localStorage.removeItem('allotjar.budgetCurrency')
     }
   })
 

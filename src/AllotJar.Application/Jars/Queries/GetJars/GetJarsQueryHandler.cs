@@ -12,11 +12,13 @@ public class GetJarsQueryHandler
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public GetJarsQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetJarsQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<IReadOnlyList<JarDto>> Handle(
@@ -25,7 +27,7 @@ public class GetJarsQueryHandler
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
         var asOf = request.AsOf ?? today;
 
         // Rule 21: a Recurring cycle whose deadline has arrived with its target held rolls

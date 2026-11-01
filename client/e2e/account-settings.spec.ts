@@ -28,7 +28,7 @@ const json = (body: unknown) => ({ status: 200, contentType: 'application/json',
 /** Sam: Admin in Alex's household, no budget of his own, Google only, currency not locked. */
 async function asSam(page: Page, privateAccounts = 0) {
   await page.addInitScript(() => {
-    localStorage.setItem('zbb.onboarding:sam@example.eu', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true }))
+    localStorage.setItem('allotjar.onboarding:sam@example.eu', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true }))
   })
   await page.route(/\/api\/auth\/me$/, (route) =>
     route.fulfill(
@@ -219,7 +219,7 @@ test.describe('Account settings', () => {
       ),
     )
     await page.addInitScript(() => {
-      localStorage.setItem('zbb.onboarding:christopher.muscat89@example.eu', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true }))
+      localStorage.setItem('allotjar.onboarding:christopher.muscat89@example.eu', JSON.stringify({ v: 1, welcomeSeen: true, tourDone: true, checklistDismissed: true }))
     })
     await openAccount(page)
 

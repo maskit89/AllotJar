@@ -631,7 +631,7 @@
 - **Steps:**
   1. In tab 1, switch to household B (full reload of tab 1 only).
   2. In tab 2 (not reloaded), trigger an API call (navigate to `/people`).
-- **Expected:** Tab 2 keeps rendering the OLD household's cached UI, but its new API calls resolve to the NEW active household (server-side `ActiveOwnerId`), producing a transient stale/mixed view until tab 2 reloads. Only sign-outs cross tabs (BroadcastChannel `zbb.auth`). Document as a known limitation; verify no data is written to the wrong household unexpectedly.
+- **Expected:** Tab 2 keeps rendering the OLD household's cached UI, but its new API calls resolve to the NEW active household (server-side `ActiveOwnerId`), producing a transient stale/mixed view until tab 2 reloads. Only sign-outs cross tabs (BroadcastChannel `allotjar.auth`). Document as a known limitation; verify no data is written to the wrong household unexpectedly.
 - **Automated:** No
 
 ---

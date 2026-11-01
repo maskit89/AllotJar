@@ -26,7 +26,7 @@ async function withAnalytics(page: Page, consent: 'granted' | 'denied' | null) {
   await page.route('**/api/features', (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ...FLAGS, analytics: true }) }),
   )
-  if (consent) await page.addInitScript((c) => localStorage.setItem('zbb.analyticsConsent', c), consent)
+  if (consent) await page.addInitScript((c) => localStorage.setItem('allotjar.analyticsConsent', c), consent)
 }
 
 async function openHelp(page: Page) {
@@ -214,14 +214,14 @@ test.describe('Help', () => {
     await expect(sw).toHaveAttribute('aria-checked', 'true')
     await expect(privacy.getByText('Not chosen yet')).toHaveCount(0)
     await expect(page.getByRole('region', { name: 'Analytics consent' })).toHaveCount(0)
-    expect(await page.evaluate(() => localStorage.getItem('zbb.analyticsConsent'))).toBe('granted')
+    expect(await page.evaluate(() => localStorage.getItem('allotjar.analyticsConsent'))).toBe('granted')
 
     // Declining again from the keyboard: off, and stored as declined (the banner stays away).
     await sw.focus()
     await page.keyboard.press('Space')
     await expect(sw).toHaveAttribute('aria-checked', 'false')
     await expect(privacy.getByText('Not chosen yet')).toHaveCount(0)
-    expect(await page.evaluate(() => localStorage.getItem('zbb.analyticsConsent'))).toBe('denied')
+    expect(await page.evaluate(() => localStorage.getItem('allotjar.analyticsConsent'))).toBe('denied')
     await expect(page.getByRole('region', { name: 'Analytics consent' })).toHaveCount(0)
 
     // What is sent sits behind the (i).

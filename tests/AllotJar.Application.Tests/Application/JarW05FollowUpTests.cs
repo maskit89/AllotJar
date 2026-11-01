@@ -858,7 +858,7 @@ public class JarW05FollowUpTests
         // Two requests load the same departure and each shifts it for its own kept leg; without a
         // lock or a token the second save overwrites the first, and the old account holds a
         // residue of the jar again.
-        var name = $"zbb-w05-follow-up-{Guid.NewGuid()}";
+        var name = $"allotjar-w05-follow-up-{Guid.NewGuid()}";
         ApplicationDbContext Open() => new(new DbContextOptionsBuilder<ApplicationDbContext>().UseInMemoryDatabase(name).Options);
         Guid departureId;
         await using (var seed = Open())

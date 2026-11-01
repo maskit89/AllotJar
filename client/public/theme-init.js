@@ -4,7 +4,7 @@
 // Loaded synchronously in <head>, so it still runs before the body renders.
 (function () {
   try {
-    var stored = localStorage.getItem('zbb.theme')
+    var stored = localStorage.getItem('allotjar.theme')
     var dark =
       stored === 'dark' ||
       (!stored && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches)

@@ -28,7 +28,7 @@ namespace AllotJar.Api.Controllers;
 public partial class AuthController : ControllerBase
 {
     /// <summary>HttpOnly cookie that carries the refresh token; scoped to the auth endpoints only.</summary>
-    private const string RefreshCookieName = "zbb_rt";
+    private const string RefreshCookieName = "allotjar_rt";
 
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly IJwtTokenGenerator _tokenGenerator;

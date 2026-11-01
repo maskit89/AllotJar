@@ -2,7 +2,7 @@
 
 **ID prefix:** LAND | **Scope:** The anonymous-facing surface of AllotJar: the public landing page at `/` (the "Product tour" since 31 Oct 2026: the header row, the line with Create free account and Sign in side by side and a slice of the app, three steps, three features, four extras, the green closing band, the quiet footer; euro always), the auth-state branching of `/` (splash → landing vs dashboard), the public legal pages `/privacy` and `/terms`, SEO artifacts observable in the served app (head title/meta/canonical/OG/JSON-LD, `robots.txt`, `sitemap.xml`, the prerendered landing HTML, `theme-init.js`), the analytics consent banner + GA Consent Mode gating, the staging banner + staging signup data-loss consent, and the (retired) coming-soon page expectations. | **Out of scope:** login/registration form mechanics, session refresh, returnUrl handling and `?reason=expired` (auth & sessions file); AppShell nav, onboarding welcome/tour/checklist, ConsentModal general behavior, theme toggle control (routing & app shell file); ReportsPage (reports file); household greeting banners `?joined/started/left` (households & people file); full responsive/dark/a11y sweeps and role matrices (cross-cutting files) — only the landing/legal-specific contrast regressions and the coming-soon reduced-motion behavior are covered here because they are area-specific past bugs.
 
-**Test data setup:** (a) A clean anonymous browser profile — no `zbb_rt` cookie, empty `localStorage` (no `zbb.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **production** deployment `www.allotjar.com`/apex (built with `VITE_APP_ENV=production`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and/or the **staging** deployment `staging.allotjar.com` (built with `VITE_APP_ENV=staging`, NO GA measurement ID — analytics disabled; reachable only from allowlisted IPs via a Cloudflare WAF rule), and to a **local/default** build (`VITE_APP_ENV` unset, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) The coming-soon page was RETIRED at the 2026-07 GA cutover (`www`/apex now serve the production app); its source remains archived in `marketing/coming-soon/`.
+**Test data setup:** (a) A clean anonymous browser profile — no `allotjar_rt` cookie, empty `localStorage` (no `allotjar.*` keys). (b) One existing login `owner@example.com` (Owner of a solo household) for auth-branching cases. (c) Access to the live **production** deployment `www.allotjar.com`/apex (built with `VITE_APP_ENV=production`, GA measurement ID `G-55WS48MJ91` inlined, server flag `Features:Analytics=true`) and/or the **staging** deployment `staging.allotjar.com` (built with `VITE_APP_ENV=staging`, NO GA measurement ID — analytics disabled; reachable only from allowlisted IPs via a Cloudflare WAF rule), and to a **local/default** build (`VITE_APP_ENV` unset, `Features:Analytics=false` by default; flip the flag via the `Features` section of `appsettings.json` — `IOptionsSnapshot`, no restart needed). (d) The coming-soon page was RETIRED at the 2026-07 GA cutover (`www`/apex now serve the production app); its source remains archived in `marketing/coming-soon/`.
 
 ## Landing page — anonymous visit
 
@@ -107,7 +107,7 @@
 ### LAND-008 - Authenticated user at `/` gets the dashboard, never the landing
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** `owner@example.com` signed in with a live session (valid `zbb_rt` refresh cookie).
+- **Preconditions:** `owner@example.com` signed in with a live session (valid `allotjar_rt` refresh cookie).
 - **Steps:**
   1. From inside the app, navigate to `/`.
   2. Hard-reload the browser on `/` (cold load — in-memory access token gone, cookie present).
@@ -312,11 +312,11 @@
 - **Priority:** P2
 - **Type:** Regression
 - **Origin:** CSP hardening (security review) — `script-src 'self'` forbids inline scripts, so the pre-paint theme snippet must remain the external `/theme-init.js`
-- **Preconditions:** Anonymous browser with `localStorage['zbb.theme'] = 'dark'` set for the app origin; OS in light mode (to prove the stored key wins).
+- **Preconditions:** Anonymous browser with `localStorage['allotjar.theme'] = 'dark'` set for the app origin; OS in light mode (to prove the stored key wins).
 - **Steps:**
   1. Hard-reload `/` and observe the very first painted frame (throttle CPU/network if needed).
   2. Check the network tab for `/theme-init.js` and the console for CSP violations.
-  3. Repeat with `zbb.theme` removed and the OS in dark mode.
+  3. Repeat with `allotjar.theme` removed and the OS in dark mode.
 - **Expected:**
   - Step 1: the landing paints dark from the first frame — no white flash (the script is render-blocking in `<head>`).
   - Step 2: `/theme-init.js` is fetched as an external same-origin script with HTTP 200; zero CSP violations.
@@ -328,7 +328,7 @@
 ### LAND-024 - Consent banner shows when the flag is on and no choice is stored
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** Server `Features:Analytics=true`; browser with no `zbb.analyticsConsent` key; anonymous visitor (banner is auth-independent).
+- **Preconditions:** Server `Features:Analytics=true`; browser with no `allotjar.analyticsConsent` key; anonymous visitor (banner is auth-independent).
 - **Steps:**
   1. Navigate to `/` (landing, signed out).
   2. Inspect the bottom of the viewport after `/api/features` resolves.
@@ -347,7 +347,7 @@
   1. Load `/` and click "Accept" on the banner.
   2. Inspect `localStorage`, the injected scripts, and the `dataLayer` sequence.
 - **Expected:**
-  - `localStorage['zbb.analyticsConsent'] = 'granted'`; the banner disappears immediately and never returns on later loads.
+  - `localStorage['allotjar.analyticsConsent'] = 'granted'`; the banner disappears immediately and never returns on later loads.
   - gtag start order: Consent Mode v2 default with everything denied → GA script injected (only now does a request to googletagmanager.com occur) → `config` with `send_page_view:false`, `anonymize_ip:true`, `allow_google_signals:false`, `allow_ad_personalization_signals:false` → `consent update { analytics_storage: 'granted' }`.
   - A synthetic initial `page_view` fires for the current path (redacted `page_path` + origin-prefixed `page_location`), plus a `consent_updated` event with param `consent: 'granted'`.
 - **Automated:** Partial (client/src/analytics/analytics.test.ts — start gating, idempotent start, consent persistence; not the DOM banner flow)
@@ -361,7 +361,7 @@
   2. Browse several pages, sign in, reload.
   3. Filter network requests for `googletagmanager.com` / `google-analytics.com`.
 - **Expected:**
-  - `localStorage['zbb.analyticsConsent'] = 'denied'`; banner gone and does not reappear on reload.
+  - `localStorage['allotjar.analyticsConsent'] = 'denied'`; banner gone and does not reappear on reload.
   - Zero requests to any Google Analytics host at any point — the script is never injected; `track()` calls are inert no-ops.
 - **Automated:** Partial (client/src/analytics/analytics.test.ts — nothing loads/fires before start; consent persistence)
 
@@ -372,7 +372,7 @@
 - **Steps:**
   1. Load `/`, `/login`, `/privacy`; sign in and visit the dashboard.
 - **Expected:**
-  - The consent banner never renders on any page (`available=false`); no `zbb.analyticsConsent` key is created; no GA network traffic. (The Help page's "Privacy" card and its "Google Analytics" switch are also absent — LAND-043.)
+  - The consent banner never renders on any page (`available=false`); no `allotjar.analyticsConsent` key is created; no GA network traffic. (The Help page's "Privacy" card and its "Google Analytics" switch are also absent — LAND-043.)
 - **Automated:** No
 
 ### LAND-028 - Flag on but no measurement ID: banner shows, Accept is inert
@@ -390,7 +390,7 @@
 ### LAND-029 - Corrupted or unavailable consent storage degrades to "undecided"
 - **Priority:** P2
 - **Type:** Edge
-- **Preconditions:** Analytics flag on. Case A: `localStorage['zbb.analyticsConsent'] = 'yes'` (garbage). Case B: storage blocked (private-mode/permission context where `localStorage` access throws).
+- **Preconditions:** Analytics flag on. Case A: `localStorage['allotjar.analyticsConsent'] = 'yes'` (garbage). Case B: storage blocked (private-mode/permission context where `localStorage` access throws).
 - **Steps:**
   1. Case A: load `/` and observe the banner.
   2. Case B: load `/`, click "Accept", reload.
@@ -597,17 +597,17 @@ The link pointed at docs/USER_GUIDE.md on GitHub, which no longer opens for user
 ### LAND-043 - "Privacy" card: the "Google Analytics" switch's three states
 - **Priority:** P1
 - **Type:** Happy
-- **Preconditions:** `Features:Analytics=true` (flag on so `available === true`); `owner@example.com` signed in on `/help`. Each consent state is reached by seeding `localStorage['zbb.analyticsConsent']` (`granted` / `denied` / key absent) before load. Production bundle (with `G-55WS48MJ91`) to also observe GA start; a flag-on build with no measurement ID (e.g. the staging bundle) to prove the inert path.
+- **Preconditions:** `Features:Analytics=true` (flag on so `available === true`); `owner@example.com` signed in on `/help`. Each consent state is reached by seeding `localStorage['allotjar.analyticsConsent']` (`granted` / `denied` / key absent) before load. Production bundle (with `G-55WS48MJ91`) to also observe GA start; a flag-on build with no measurement ID (e.g. the staging bundle) to prove the inert path.
 - **Steps:**
   1. With the key absent (undecided), load `/help`; read the "Privacy" card, its (i) and the switch row.
   2. Click the switch; inspect `localStorage`, the switch and the bottom consent banner.
-  3. Reload with `zbb.analyticsConsent = 'denied'`; read the switch; then click it.
-  4. With `zbb.analyticsConsent = 'granted'`, read the switch; then click it (also from the keyboard: Space / Enter).
+  3. Reload with `allotjar.analyticsConsent = 'denied'`; read the switch; then click it.
+  4. With `allotjar.analyticsConsent = 'granted'`, read the switch; then click it (also from the keyboard: Space / Enter).
 - **Expected:**
   - The card renders only because the flag is on (`available`): on desktop (content 940px and wider) the right-hand column beside the Topics card, sticky while the page scrolls; on a phone the last card. Its title is "Privacy" with the (i) "About privacy" holding the blurb: "We use Google Analytics to understand how AllotJar is used, so we can improve it. We never send your name, email, account or category names, or any amounts: only anonymous page views and feature-usage events. You can change this at any time."
   - Its one row is a `button role="switch"` named "Google Analytics" (chart tile | name | track) whose `aria-checked` tracks the stored consent exactly: `granted` → `true`; `denied` → `false`; undecided → `false` with the sub-line "Not chosen yet" under the name (the switch's accessible description). No "Status: …" sentence and no Turn on / Turn off buttons.
   - A click when `aria-checked` is false calls `accept()`; when true, `decline()`.
-  - Opt-IN (steps 2 & 3): `accept()` persists `localStorage['zbb.analyticsConsent'] = 'granted'`, the switch turns on and "Not chosen yet" goes. If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the production bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID (e.g. staging) it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
+  - Opt-IN (steps 2 & 3): `accept()` persists `localStorage['allotjar.analyticsConsent'] = 'granted'`, the switch turns on and "Not chosen yet" goes. If the bottom consent banner was showing (it shows only when consent is `null`), it disappears now that consent is no longer null. On the production bundle this starts GA with the Consent Mode v2 sequence (cross-ref LAND-025); on a flag-on build without a measurement ID (e.g. staging) it persists `granted` but starts nothing (`isConfigured()` false — cross-ref LAND-028).
   - Opt-OUT (step 4): `decline()` persists `'denied'` (the value is set, NOT cleared to `null`); the switch turns off without a sub-line. The bottom consent banner does NOT reappear (it needs `consent === null`, and this is `'denied'`). The provider's `reset()` is not wired to the UI, so the choice persists rather than reverting to undecided. In-session gtag keeps emitting until the next reload (cross-ref LAND-032).
   - Cross-check: on a default build with the flag off, this whole card is absent (LAND-027) and no consent key is created.
 - **Automated:** Yes (client/src/pages/HelpPage.privacy.test.tsx — the card only when `available`, the (i) blurb, the switch's three states and which of `accept`/`decline` a click or a key calls; client/e2e/help.spec.ts — the real provider: undecided + banner → accept persists `granted` and the banner goes → Space declines and persists `denied`, the sticky column, and axe with the card; client/e2e/a11y.spec.ts — axe with the banner and the switch, light and dark)

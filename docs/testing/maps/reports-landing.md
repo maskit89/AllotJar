@@ -40,7 +40,7 @@ applies only to solo-vs-shared gating, not the feature flag.
   full Open Graph (og:image `https://www.allotjar.com/og/allotjar-og.png?v=2`, 1200x630, locale en_GB) +
   Twitter `summary_large_image` card, `SoftwareApplication` JSON-LD (price "0", EUR). `theme-init.js`
   loads externally (not inline) so CSP `script-src 'self'` covers it, and applies the dark class
-  before paint from `localStorage['zbb.theme']` or `prefers-color-scheme`.
+  before paint from `localStorage['allotjar.theme']` or `prefers-color-scheme`.
 - Prerender: `client/package.json` build = `tsc -b && vite build && node scripts/prerender.mjs`.
   `scripts/prerender.mjs` builds an SSR bundle of `client/src/prerender/landing-entry.tsx`
   (`renderToStaticMarkup(<LandingPage/>)`) and replaces `<div id="root"></div>` in `dist/index.html`.
