@@ -305,6 +305,8 @@ if (-not (Test-Path -LiteralPath $settingsPath)) {
     if (-not (Test-JsonWithComments $settings.Text)) { Problem "$settingsPath does not parse as JSON (with // comments stripped) even before any change." }
     $planned = Convert-ZeroBudgetNames -Text $settings.Text
     if (-not (Test-JsonWithComments $planned)) { Problem "$settingsPath would not parse after the name change." }
+    $plannedKeys = @([regex]::Matches($planned, '"KeysPath"\s*:\s*"((?:[^"\\]|\\.)*)"') | ForEach-Object { $_.Groups[1].Value -replace '\\\\', '\' })
+    if ($plannedKeys.Count -eq 1 -and $plannedKeys[0].TrimEnd('\') -ine $New.KeysPath) { Problem "After the change KeysPath would be $($plannedKeys[0]), not $($New.KeysPath) (the old name is probably written in another case); edit it by hand to $($Old.KeysPath), then re-run." }
     $left = Get-ZeroBudgetLineNumbers -Text $planned
     if ($left.Count) { Note ("after the change, lines {0} of the settings file still mention zerobudget (left as they are; open the file to look)" -f ($left -join ', ')) }
     $pp = Get-StackSettingsProblems -SettingsText $planned -AspNetEnvironment $Cfg.Env -ExpectedDatabase $New.Database
@@ -393,6 +395,8 @@ $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $tasksDone = $false
 $warnings = New-Object System.Collections.ArrayList
 $oldDbBackup = $null
+$settingsCopy = $null; $settingsCopyBom = $false
+$foldersTouched = $false; $startedOnNew = $false
 try {
 
 # --- 1. Pause this stack's scheduled tasks, stop its sites and pools -----------------
@@ -435,7 +439,12 @@ if ($settings.Database -ieq $Old.Database) {
     $plan = Get-RestoreFileMoves -Database $New.Database -BackupFiles @($files) -TargetFiles @($own) -OtherFiles @($other) -DataDir $dataDir -LogDir $logDir
     # A new-named database left by an earlier run that stopped before the settings were switched
     # was never used (the settings still named the old one), so it is restored over.
-    if (Get-DbState $New.Database) { Note "$($New.Database) exists from an earlier run that did not finish; it is restored over" }
+    if ((Get-DbState $New.Database) -eq 'ONLINE') {
+        # Never restored over without a copy, even though the settings say it was never used.
+        $over = Join-Path $BackupDir ("{0}_{1}_overwritten.bak" -f $New.Database, $stamp)
+        Invoke-Sql -Query "BACKUP DATABASE [$($New.Database)] TO DISK = N'$(Q $over)' WITH CHECKSUM, INIT;"
+        Note "$($New.Database) exists from an earlier run that did not finish; copied to $over, then restored over"
+    } elseif (Get-DbState $New.Database) { Note "$($New.Database) exists (not online) from an earlier run; it is restored over" }
     # One batch on one connection: take the single-user slot (if the database exists and is online),
     # restore over it, open it again.
     Invoke-Sql -Query (@"
@@ -459,27 +468,8 @@ ALTER DATABASE [{0}] SET MULTI_USER;
     Skip "the settings already name $($New.Database)"
 } else { throw "The settings name $($settings.Database)." }
 
-# --- 3. Settings file: old names -> new names (a copy is kept first) ------------------------
-Info 'Settings file'
-$settings = Read-Settings $settingsPath
-$newText = Convert-ZeroBudgetNames -Text $settings.Text
-if ($newText -ceq $settings.Text) {
-    Skip "$($Cfg.Settings) names nothing old"
-} else {
-    New-Item -ItemType Directory -Force -Path $SettingsBackupDir | Out-Null
-    $copy = Join-Path $SettingsBackupDir ("{0}.before-allotjar-{1}" -f $Cfg.Settings, $stamp)
-    Copy-Item -LiteralPath $settingsPath -Destination $copy
-    if ([System.IO.File]::ReadAllText($copy) -cne $settings.Text) { throw "The copy $copy does not match the settings file; nothing written." }
-    Done "kept a copy: $copy"
-    if (-not (Test-JsonWithComments $newText)) { throw 'The changed settings would not parse; nothing written.' }
-    $pp = Get-StackSettingsProblems -SettingsText $newText -AspNetEnvironment $Cfg.Env -ExpectedDatabase $New.Database
-    if ($pp.Count) { throw ("The changed settings would not pass the deploy check; nothing written: " + ($pp -join ' ')) }
-    Write-TextFile -Path $settingsPath -Text $newText -Bom $settings.Bom
-    $after = Read-Settings $settingsPath
-    Done ("{0} now names Database={1}; KeysPath={2}" -f $Cfg.Settings, $after.Database, ($after.KeysPaths -join ' | '))
-}
-
-# --- 4. Folders: the stack root and its key folder ------------------------------------------
+# --- 3. Folders: the stack root and its key folder (before the settings change, so the likeliest
+#        stop, a file held open, happens while the settings still name the old database) -----------
 Info 'Folders'
 function Move-Folder([string]$From, [string]$To) {
     if ((Test-Path -LiteralPath $From) -and -not (Test-Path -LiteralPath $To)) {
@@ -491,9 +481,31 @@ function Move-Folder([string]$From, [string]$To) {
     } elseif (Test-Path -LiteralPath $To) { Skip "$To exists" }
     else { throw "Neither $From nor $To exists." }
 }
+$foldersTouched = $true
 Move-Folder $Old.Root $New.Root
 $settingsPath = Join-Path $New.Root "api\$($Cfg.Settings)"
 if ((Read-Settings $settingsPath).KeysPaths.Count -eq 1) { Move-Folder $Old.KeysPath $New.KeysPath } else { Note 'no KeysPath in the settings; no key folder to move' }
+
+# --- 4. Settings file: old names -> new names (a copy is kept first) ------------------------
+Info 'Settings file'
+$settings = Read-Settings $settingsPath
+$newText = Convert-ZeroBudgetNames -Text $settings.Text
+if ($newText -ceq $settings.Text) {
+    Skip "$($Cfg.Settings) names nothing old"
+} else {
+    New-Item -ItemType Directory -Force -Path $SettingsBackupDir | Out-Null
+    $copy = Join-Path $SettingsBackupDir ("{0}.before-allotjar-{1}" -f $Cfg.Settings, $stamp)
+    Copy-Item -LiteralPath $settingsPath -Destination $copy
+    $settingsCopy = $copy; $settingsCopyBom = $settings.Bom
+    if ([System.IO.File]::ReadAllText($copy) -cne $settings.Text) { throw "The copy $copy does not match the settings file; nothing written." }
+    Done "kept a copy: $copy"
+    if (-not (Test-JsonWithComments $newText)) { throw 'The changed settings would not parse; nothing written.' }
+    $pp = Get-StackSettingsProblems -SettingsText $newText -AspNetEnvironment $Cfg.Env -ExpectedDatabase $New.Database
+    if ($pp.Count) { throw ("The changed settings would not pass the deploy check; nothing written: " + ($pp -join ' ')) }
+    Write-TextFile -Path $settingsPath -Text $newText -Bom $settings.Bom
+    $after = Read-Settings $settingsPath
+    Done ("{0} now names Database={1}; KeysPath={2}" -f $Cfg.Settings, $after.Database, ($after.KeysPaths -join ' | '))
+}
 
 # --- 5. IIS: rename pools and sites, repoint pools and paths --------------------------------
 # A renamed pool is a new object to WAS and would start at once (AlwaysRunning), before its file
@@ -622,6 +634,7 @@ $sm = New-Object Microsoft.Web.Administration.ServerManager
 $changed = $false
 foreach ($pool in @($New.ApiPool, $New.WebPool)) { if (-not $sm.ApplicationPools[$pool].AutoStart) { $sm.ApplicationPools[$pool].AutoStart = $true; $changed = $true } }
 if ($changed) { $sm.CommitChanges(); Start-Sleep -Seconds 2; $sm = New-Object Microsoft.Web.Administration.ServerManager }
+$startedOnNew = $true   # from here on, users may write to the new database
 foreach ($pool in @($New.ApiPool, $New.WebPool)) { if ($sm.ApplicationPools[$pool].State -ne 'Started') { [void]$sm.ApplicationPools[$pool].Start() } }
 foreach ($site in @($New.ApiSite, $New.WebSite)) { if ($sm.Sites[$site].State -ne 'Started') { [void]$sm.Sites[$site].Start() } }
 if (Wait-Health $Cfg.HealthUrl) { Done "$Stack answers $($Cfg.HealthUrl) (the API reads its settings and reaches $($New.Database))" }
@@ -644,11 +657,12 @@ foreach ($tp in $taskPlans) {
     Done "$($tp.OldName) -> $($tp.NewName) (same trigger, settings and account)"
 }
 $tasksDone = $true
-foreach ($tp in @($taskPlans | Where-Object { $_.NewName -like '*-DbBackup' })) {
-    $st = (Get-ScheduledTask -TaskName $tp.NewName -TaskPath $tp.Path).State
-    if ("$st" -eq 'Disabled') { throw "Task $($tp.NewName) is registered but switched off, so no nightly backup would run. Switch it on with: Enable-ScheduledTask -TaskName $($tp.NewName)" }
-    Done "$($tp.NewName) is switched on ($st)"
-}
+# Whatever this run moved, the stack must end with exactly one nightly backup task, switched on.
+$backupTask = "$($New.TaskPrefix)DbBackup"
+$bt = @(Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object { $_.TaskName -eq $backupTask })
+if ($bt.Count -ne 1) { throw "There are $($bt.Count) tasks named $backupTask; the stack needs exactly one nightly backup task. Tell the thread." }
+if ("$($bt[0].State)" -eq 'Disabled') { throw "Task $backupTask is switched off, so no nightly backup would run. Switch it on with: Enable-ScheduledTask -TaskName $backupTask" }
+Done "$backupTask is switched on ($($bt[0].State))"
 # Prove the nightly backup works under its new name: run it once now (bounded wait).
 foreach ($tp in @($taskPlans | Where-Object { $_.NewName -like '*-DbBackup' -and $_.Enabled })) {
     Note "running $($tp.NewName) once now as a test (up to 15 minutes)..."
@@ -668,7 +682,8 @@ Info 'SQL Server: the old database'
 if (Get-DbState $Old.Database) {
     if (-not $oldDbBackup) {
         # A re-run: take a fresh verified copy before dropping, whatever an earlier run did.
-        $oldDbBackup = Join-Path $BackupDir ("{0}_{1}.bak" -f $New.Database, $stamp)
+        # Named so nobody mistakes it for a backup of the live database.
+        $oldDbBackup = Join-Path $BackupDir ("{0}_{1}_old-{2}.bak" -f $New.Database, $stamp, $Old.Database)
         Invoke-Sql -Query "BACKUP DATABASE [$($Old.Database)] TO DISK = N'$(Q $oldDbBackup)' WITH CHECKSUM, INIT;"
         Invoke-Sql -Query "RESTORE VERIFYONLY FROM DISK = N'$(Q $oldDbBackup)' WITH CHECKSUM;"
     }
@@ -709,6 +724,30 @@ if ($Stack -eq 'production') {
 } catch {
     $err = $_
     Write-Host "`nSTOPPED: $($err.Exception.Message)" -ForegroundColor Red
+    # Until the stack has started on the new database nothing has been written to it, so going back
+    # is lossless: folders back (if IIS still uses the old names and paths) and the settings copy back.
+    if (-not $startedOnNew) {
+        # Only while IIS still knows the stack by its old names (and so its old paths).
+        $oldSitesLive = $false
+        try { $oldSitesLive = $null -ne (New-Object Microsoft.Web.Administration.ServerManager).Sites[$Old.ApiSite] } catch { }
+        if ($foldersTouched -and $oldSitesLive) {
+            foreach ($pair in @(@($New.KeysPath, $Old.KeysPath), @($New.Root, $Old.Root))) {
+                if ((Test-Path -LiteralPath $pair[0]) -and -not (Test-Path -LiteralPath $pair[1])) {
+                    try { Move-Item -LiteralPath $pair[0] -Destination $pair[1]; Write-Host "    moved $($pair[0]) back to $($pair[1])" }
+                    catch { Write-Host "    could not move $($pair[0]) back: $($_.Exception.Message)" -ForegroundColor Red }
+                }
+            }
+        }
+        if ($settingsCopy) {
+            foreach ($sp in @((Join-Path $New.Root "api\$($Cfg.Settings)"), (Join-Path $Old.Root "api\$($Cfg.Settings)"))) {
+                if (Test-Path -LiteralPath $sp) {
+                    try { Write-TextFile -Path $sp -Text ([System.IO.File]::ReadAllText($settingsCopy)) -Bom $settingsCopyBom; Write-Host "    put the settings back as they were ($sp)" }
+                    catch { Write-Host "    could not put the settings back: $($_.Exception.Message). The copy is $settingsCopy" -ForegroundColor Red }
+                    break
+                }
+            }
+        }
+    }
     if (-not $tasksDone) {
         # The old backup task backs up the OLD database. Once the settings name the new one, switching
         # it back on would ship a frozen copy every night with nothing alerting, so it stays paused then:
