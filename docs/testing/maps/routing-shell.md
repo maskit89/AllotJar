@@ -16,7 +16,7 @@ All routes declared in `client/src/App.tsx`. Feature-flag-gated routes are **con
 | `/accept-invite` | `AcceptInvitePage` | Public, **no guard at all** (App.tsx:69) | `?code=` invite token; missing code → inline alert. Signed-in users get a "join with existing login" variant (AcceptInvitePage.tsx:105-120); anonymous users set a password. Success → `navigate('/?joined=1')` or `window.location.assign('/?joined=1')` |
 | `/privacy` | `PrivacyPage` | Public, signed in or out (App.tsx:71) | Crawlable legal page |
 | `/terms` | `TermsPage` | Public (App.tsx:72) | Crawlable legal page |
-| `/` | `bootstrapping ? AuthSplash : isAuthenticated ? DashboardPage : LandingPage` | Split by auth state (App.tsx:73-81) | Landing = public page in the sign-in pages' look (restyle PR 15: AuthFrame's room and shelf, one primary "Create your free account" → `/login?register=1`, "Sign in" → `/login`, the theme button; euro always; prerendered); splash prevents authed users flashing the landing |
+| `/` | `bootstrapping ? AuthSplash : isAuthenticated ? DashboardPage : LandingPage` | Split by auth state (App.tsx:73-81) | Landing = public "Product tour" page (31 Oct 2026: "Create free account" → `/login?register=1` and "Sign in" → `/login` side by side in the hero and the closing band, the header's "Sign in", the theme button; euro always; prerendered); splash prevents authed users flashing the landing |
 | `/transactions` | `TransactionsPage` | `RequireAuth` | |
 | `/accounts` | `AccountsPage` | `RequireAuth` + `features.accounts` (App.tsx:90-99) | Flag off ⇒ route unmounted ⇒ `*` redirect to `/` |
 | `/accounts/:id` | `AccountDetailPage` | `RequireAuth` + `features.accounts` | Way back: the top bar's "Back to Accounts" chevron link (AppShell `back`) |

@@ -30,31 +30,26 @@ for (const theme of ['light', 'dark'] as const) {
   })
 }
 
-// The landing in the sign-in pages' look (restyle PR 15, decluttered): the room with the wordmark, a
-// quiet "Sign in" and the theme button; the line; the short card with the page's one primary; the
-// links to today's targets.
+// The landing's "Product tour" (31 Oct 2026): the header row with the wordmark, a quiet "Sign in"
+// and the theme button; the hero with the line, both buttons side by side and a slice of the app;
+// the links to today's targets.
 test.describe('public landing page', () => {
-  test('one primary button on the first screen, and one Sign in link in the header', async ({ page }) => {
+  test('both buttons side by side on the first screen, Sign in in the header too', async ({ page }) => {
     await signedOut(page, 'light')
     await page.goto('/')
-    const primary = page.getByRole('link', { name: 'Create your free account' })
-    await expect(primary).toHaveCount(1)
-    await expect(primary).toHaveAttribute('href', '/login?register=1')
-    const signIn = page.getByRole('link', { name: 'Sign in' })
-    await expect(signIn).toHaveCount(1)
+    const hero = page.getByRole('region', { name: 'Give every euro a job.' })
+    const create = hero.getByRole('link', { name: 'Create free account' })
+    const signIn = hero.getByRole('link', { name: 'Sign in' })
+    await expect(create).toHaveAttribute('href', '/login?register=1')
     await expect(signIn).toHaveAttribute('href', '/login')
+    await page.evaluate(() => document.fonts.ready)
+    // Side by side, on the first screen (1280x720, Desktop Chrome).
+    const c = (await create.boundingBox())!
+    const s = (await signIn.boundingBox())!
+    expect(Math.abs(c.y - s.y)).toBeLessThan(2)
+    expect(s.x).toBeGreaterThan(c.x + c.width)
+    expect(s.y + s.height).toBeLessThan(720)
     await expect(page.getByRole('banner').getByRole('link', { name: 'Sign in' })).toBeVisible()
-    // The card is short: its primary sits above the shelf's plank.
-    const box = await primary.boundingBox()
-    expect(box!.y + box!.height).toBeLessThan(345)
-    // The first screen (1280x720, Desktop Chrome) holds exactly one filled green button: the hero's.
-    const inView = await page.locator('.bg-brand-600').evaluateAll((els) =>
-      els.filter((el) => {
-        const r = el.getBoundingClientRect()
-        return r.bottom > 0 && r.top < window.innerHeight
-      }).length,
-    )
-    expect(inView).toBe(1)
     // "Sign in" is a link, not a button.
     expect(await page.getByRole('button', { name: 'Sign in' }).count()).toBe(0)
     // Privacy and Terms in the footer.
@@ -82,11 +77,12 @@ test.describe('public landing page', () => {
   test('the CTAs open the login page on the right tab', async ({ page }) => {
     await signedOut(page, 'light')
     await page.goto('/')
-    await page.getByRole('link', { name: 'Create your free account' }).click()
+    const hero = page.getByRole('region', { name: 'Give every euro a job.' })
+    await hero.getByRole('link', { name: 'Create free account' }).click()
     await expect(page).toHaveURL(/\/login\?register=1$/)
     await expect(page.getByLabel('First name')).toBeVisible()
     await page.goto('/')
-    await page.getByRole('link', { name: 'Sign in' }).click()
+    await hero.getByRole('link', { name: 'Sign in' }).click()
     await expect(page).toHaveURL(/\/login$/)
     await expect(page.getByLabel('Password')).toBeVisible()
     await expect(page.getByLabel('First name')).toHaveCount(0)
@@ -97,7 +93,7 @@ test.describe('public landing page', () => {
     await page.goto('/')
     // A marker on the window survives an in-app page switch and is lost on a reload.
     await page.evaluate(() => ((window as unknown as { stayed?: boolean }).stayed = true))
-    await page.getByRole('link', { name: 'Sign in' }).click()
+    await page.getByRole('banner').getByRole('link', { name: 'Sign in' }).click()
     await expect(page).toHaveURL(/\/login$/)
     await expect(page.getByLabel('Password')).toBeVisible()
     expect(await page.evaluate(() => (window as unknown as { stayed?: boolean }).stayed)).toBe(true)
