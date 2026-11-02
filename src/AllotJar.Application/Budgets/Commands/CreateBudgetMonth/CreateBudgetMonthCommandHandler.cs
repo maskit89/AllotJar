@@ -61,6 +61,35 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                 .ThenByDescending(m => m.Month)
             .FirstOrDefaultAsync(cancellationToken);
 
+        // Rule 94: once a household has a budget, a new month only continues the most recent
+        // earlier one. A blank start or a template would drop that month's plan, so neither is
+        // made when there is a month to continue; and templates are for the very first budget,
+        // so not even before the earliest month once one exists (a blank one still may be: the
+        // Dashboard offers that when only later months exist). Refused before anything is
+        // settled or saved. The browser never asks for these (DashboardPage), so this only
+        // guards a hand-made request.
+        var wantsTemplate = !string.IsNullOrWhiteSpace(request.TemplateKey);
+        if (previous is not null && (wantsTemplate || !request.CopyFromPrevious))
+        {
+            var key = wantsTemplate ? nameof(request.TemplateKey) : nameof(request.CopyFromPrevious);
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [key] = new[]
+                {
+                    $"{request.Year:D4}-{request.Month:D2} continues {previous.Year:D4}-{previous.Month:D2}: " +
+                    "a blank start or a template is only for the first budget.",
+                },
+            });
+        }
+        if (wantsTemplate
+            && await _db.BudgetMonths.AnyAsync(m => m.OwnerId == userId, cancellationToken))
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                [nameof(request.TemplateKey)] = new[] { "A template is only for the first budget." },
+            });
+        }
+
         // Every active jar takes part in month creation: a jar with a schedule (a deadline
         // plan or a fixed monthly amount, rule 17) gets this month's planned contribution from
         // the planner; a jar with no usable plan copies its line flat; and any jar without a

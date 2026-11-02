@@ -85,6 +85,8 @@ public record ImportCandidate(
 /// upload that sniffs as a known bank export (e.g. HSBC) is routed to that adapter so the
 /// same file always yields the same payees and idempotency references.
 /// <see cref="UnreadLines"/> is the number of lines with an amount that were not read.
+/// <see cref="PendingEntries"/> is the number of entries left out because the bank had not booked
+/// them yet (CAMT.053 PDNG or INFO).
 /// </summary>
 public record ImportPreviewResult(
     int TotalEntries,
@@ -95,4 +97,5 @@ public record ImportPreviewResult(
     IReadOnlyList<ImportCandidate> Items,
     CsvLayout? Layout = null,
     string DetectedFormat = nameof(StatementFormat.GenericCsv),
-    int UnreadLines = 0);
+    int UnreadLines = 0,
+    int PendingEntries = 0);

@@ -1037,3 +1037,41 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Steps:** Upload it as **Bank CSV or PDF**.
 - **Expected:** The rows import as they would from a UTF-8 copy of the same file.
 - **Automated:** No
+
+## Statement parsing fixes (holistic review, 2 November 2026)
+
+### IMP-107 - A camt.053 date-time books on the day the bank wrote
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Holistic review 2 Nov 2026, M1
+- **Preconditions:** A camt.053 file whose entries give `<BookgDt><DtTm>` instead of `<Dt>`: `2026-10-01T00:15:00+02:00`, `2026-09-30T22:30:00-05:00`, `2026-10-01T18:00:00` (no offset) and `2026-10-31T23:30:00+01:00`; also a `<Dt>` with a time zone, `2026-10-01+02:00`.
+- **Steps:** Import it as **CAMT.053**.
+- **Expected:** Each entry is dated the calendar day written in the file (1 Oct, 30 Sep, 1 Oct, 31 Oct, 1 Oct), whatever the server's clock or daylight saving. An entry without a bank reference gets the same reference whether the file gives its date as `Dt` or `DtTm`, so a re-import skips it.
+- **Automated:** Yes (StatementParsingReviewFixesTests.cs)
+
+### IMP-108 - A camt.053 file with several statements imports all of them
+- **Priority:** P1
+- **Type:** Functional
+- **Origin:** Holistic review 2 Nov 2026, M2
+- **Preconditions:** A camt.053 file with one `<Stmt>` per day for the same account; a second file whose statements are for two different IBANs (or account numbers, or two currencies of one account); a third file holding the same statement twice (or with its DUPL copy); a fourth whose statements' `FrToDt` periods overlap.
+- **Steps:** Import each as **CAMT.053**.
+- **Expected:** The first file lists every entry of every statement. The same IBAN written with spaces or in lower case counts as one account. The second file is refused: "This file holds statements for more than one account. Export each account on its own and import them one at a time." The account numbers are compared in memory only and never stored. The third file lists each entry once. The fourth is refused: "This file holds statements for overlapping periods. Export each period once and import it again." Daily statements whose periods only touch are read.
+- **Automated:** Yes (StatementParsingReviewFixesTests.cs)
+
+### IMP-109 - Pending camt.053 entries are left out
+- **Priority:** P2
+- **Type:** Functional
+- **Origin:** Holistic review 2 Nov 2026 (lower-confidence observation)
+- **Preconditions:** A camt.053 file with a booked entry and an entry whose status is `PDNG` or `INFO` (as `<Sts>PDNG</Sts>` or `<Sts><Cd>PDNG</Cd></Sts>`); a file holding only pending entries.
+- **Steps:** Import each as **CAMT.053**.
+- **Expected:** Only the booked entry is listed; the bank shows the pending one booked in a later statement. The file strip says **1 pending**, and its hint says the entry was left out and to import the period again once it is booked (rows already imported are skipped). On a phone the count takes its own line. An entry marked BOOK, FUTR, with another code or with no status imports as before. The file with only pending entries says: "This statement holds only entries the bank has not booked yet. Import it again once they are booked." An entry with no usable amount, date or direction is counted as **N not read** (a 0.00 entry is not).
+- **Automated:** Yes (StatementParsingReviewFixesTests.cs, ImportPage.test.tsx)
+
+### IMP-110 - A CSV description with a line break inside quotes
+- **Priority:** P2
+- **Type:** Regression
+- **Origin:** Holistic review 2 Nov 2026, L2
+- **Preconditions:** A bank CSV with a row `05/10/2026,"Payment` / `ref 123",-45.00` (a line break inside the quoted description), saved with LF, CRLF or CR line ends; a semicolon file whose quoted description holds `""` and a line break; a file with an inch mark (`12" pizza`) or a quote that is never closed.
+- **Steps:** Upload each as **Bank CSV or PDF**.
+- **Expected:** The row imports once, for €45.00 money out, with the description "Payment ref 123", and nothing is counted as not read. A quote in the middle of a field, one never closed, one still open after 10 lines, or one "closed" by a quoted field on a later line (`05/10/2026,"Hi,-12.00` above `06/10/2026,"Shop",-5.00`) does not join the rows below it; the row with the stray quote is counted as **1 not read**.
+- **Automated:** Yes (StatementParsingReviewFixesTests.cs)

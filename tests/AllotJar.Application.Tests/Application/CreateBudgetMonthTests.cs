@@ -85,13 +85,14 @@ public class CreateBudgetMonthTests
         SeedJune(db, "user-1");
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
 
-        var july = await handler.Handle(
-            new CreateBudgetMonthCommand(2026, 7, CopyFromPrevious: false), CancellationToken.None);
+        // Rule 94: with June there, a blank start is only for a month before it.
+        var may = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 5, CopyFromPrevious: false), CancellationToken.None);
 
-        july.Categories.Should().ContainSingle();
-        july.Categories[0].Kind.Should().Be("Income");
-        july.Categories[0].Items.Should().BeEmpty();
-        july.TotalIncome.Should().Be(0m);
+        may.Categories.Should().ContainSingle();
+        may.Categories[0].Kind.Should().Be("Income");
+        may.Categories[0].Items.Should().BeEmpty();
+        may.TotalIncome.Should().Be(0m);
     }
 
     [Fact]
@@ -378,9 +379,12 @@ public class CreateBudgetMonthTests
             .Select(i => (i.Name, i.PlannedAmount, i.MemberId))
             .Should().Equal(("Pay", 3000m, (Guid?)null));
 
-        // A template month carries the template's own income lines, all at zero.
+        // A template month carries the template's own income lines, all at zero. Templates are
+        // for the first budget only (rule 94), so this is a household with no month yet.
+        await using var fresh = NewContext();
+        SeedMember(fresh, "user-1", "Alex", 4000m, order: 0);
         var template = BudgetTemplates.All.First();
-        var august = await handler.Handle(
+        var august = await new CreateBudgetMonthCommandHandler(fresh, new CurrentUserStub("user-1")).Handle(
             new CreateBudgetMonthCommand(2026, 8, CopyFromPrevious: false, TemplateKey: template.Key), CancellationToken.None);
         var templateIncome = august.Categories.Single(c => c.Kind == "Income");
         templateIncome.Items.Select(i => i.Name).Should().Equal(template.Groups.Single(g => g.Kind == CategoryKind.Income).Lines);
