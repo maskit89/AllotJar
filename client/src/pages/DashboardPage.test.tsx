@@ -748,6 +748,38 @@ describe('DashboardPage month navigation', () => {
     )
   })
 
+  it('re-reads the months when a blank start is refused, so the card offers to continue', { timeout: 15000 }, async () => {
+    // Rule 94 on the server (#418 review P3-1): another tab started an earlier month since this
+    // one read the list, so the blank start is refused and the card must switch to "Start".
+    const now = new Date()
+    const cy = now.getFullYear()
+    const cm = now.getMonth() + 1
+    const py = cm === 1 ? cy - 1 : cy
+    const pm = cm === 1 ? 12 : cm - 1
+    let monthsReads = 0
+
+    mockGet.mockImplementation((url: string) => {
+      if (url === '/budget/months') {
+        monthsReads += 1
+        return Promise.resolve({ data: monthsReads === 1 ? [] : [{ year: py, month: pm, key: `${py}-${pm}` }] })
+      }
+      if (url === '/budget/templates') return Promise.resolve({ data: [] })
+      if (url === `/budget/${cy}/${cm}`) return Promise.reject({ response: { status: 404 } })
+      if (url.includes('wrap-up')) return Promise.reject({ response: { status: 500 } })
+      return Promise.resolve({ data: budget() })
+    })
+    mockPost.mockRejectedValue({ response: { status: 400, data: { errors: { CopyFromPrevious: ['refused'] } } } })
+    const user = userEvent.setup()
+
+    renderPage()
+
+    await user.click(await screen.findByRole('button', { name: 'Start a blank budget' }, { timeout: 5000 }))
+
+    expect(await screen.findByRole('button', { name: /^Start (?!a blank)/ }, { timeout: 5000 })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start a blank budget' })).not.toBeInTheDocument()
+    expect(screen.getByText('Could not create that budget.')).toBeInTheDocument()
+  })
+
   function sharedHousehold() {
     return {
       members: [
