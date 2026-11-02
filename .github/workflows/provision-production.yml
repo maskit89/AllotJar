@@ -15,7 +15,9 @@ name: Provision production stack
 # DNS cutover, run it again with trim_staging_bindings=true to strip the retired
 # hostnames (catch-all/apex/www/app) off the staging site.
 #
-# Runs only by hand (workflow_dispatch) because it reshapes live IIS/SQL state. The
+# Runs only by hand (workflow_dispatch) because it reshapes live IIS/SQL state, and only
+# from main with CI passed on that commit (ci-passed.yml, the same gate as a production
+# deploy): a run started from any other branch fails before it touches the VPS. The
 # `production` environment's required reviewer no longer applies: GitHub ignores
 # environment protection rules on a private repo on the Free, Pro and Team plans.
 on:
@@ -32,8 +34,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci-passed:
+    name: CI passed
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/ci-passed.yml
+
   provision:
     name: provision on VPS
+    needs: ci-passed
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
