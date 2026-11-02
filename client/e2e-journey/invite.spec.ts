@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { JOURNEY_PASSWORD, personAction, register, rowAction, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
+import { confirmOwnEmail, JOURNEY_PASSWORD, personAction, register, rowAction, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * The household invite journey (H1), end-to-end: an owner adds a person, emails them a one-time invite
@@ -14,7 +14,8 @@ test('an owner invites a new person who accepts and lands in the shared househol
   // --- Inviter: register, add a person, create an invite link ---
   // Start the month from a template: the guest below asserts the shared budget renders after
   // joining, which needs the inviter's household to have a budget month.
-  await register(page, { firstName: 'Ada', starterBudget: true })
+  const { email: adaEmail } = await register(page, { firstName: 'Ada', starterBudget: true })
+  await confirmOwnEmail(page, adaEmail) // an owner confirms their email before inviting
 
   await page.goto('/people')
   // exact — the dialog's Cancel button is aria-labelled "Cancel add person" (contains "Add person").

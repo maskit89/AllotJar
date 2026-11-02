@@ -760,6 +760,7 @@ public partial class AuthController : ControllerBase
     [EnableRateLimiting("auth")]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     [ProducesResponseType(StatusCodes.Status503ServiceUnavailable)]
     public async Task<IActionResult> SendPasswordLink(CancellationToken ct)
     {
@@ -770,10 +771,14 @@ public partial class AuthController : ControllerBase
             return Unauthorized();
         }
 
-        return await _accountEmails.TrySendPasswordLinkAsync(user.Email, ct)
-            ? NoContent()
-            : StatusCode(StatusCodes.Status503ServiceUnavailable,
-                new { error = "We couldn't send the email just now. Try again later." });
+        return await _accountEmails.TrySendPasswordLinkAsync(user.Email, ct) switch
+        {
+            PasswordLinkResult.Sent => NoContent(),
+            PasswordLinkResult.TooSoon => StatusCode(StatusCodes.Status429TooManyRequests,
+                new { error = PasswordLinkAllowance.Refused }),
+            _ => StatusCode(StatusCodes.Status503ServiceUnavailable,
+                new { error = "We couldn't send the email just now. Try again later." }),
+        };
     }
 
     /// <summary>

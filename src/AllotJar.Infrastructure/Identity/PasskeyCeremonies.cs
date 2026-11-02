@@ -36,6 +36,13 @@ public sealed class PasskeyCeremonies
     /// <summary>Wrong answers a second-step ticket takes before it is dropped and sign-in starts over.</summary>
     public const int MaxFailures = 5;
 
+    /// <summary>
+    /// Ceremonies held at once. Starting one is anonymous (sign in with a passkey), so past this the
+    /// store refuses rather than grow on the 4 GB box (security review #7). Each entry lives at most
+    /// <see cref="Lifetime"/>, so real use stays far below it.
+    /// </summary>
+    public const int MaxEntries = 10_000;
+
     private sealed class Entry(PasskeyCeremony ceremony)
     {
         public PasskeyCeremony Ceremony { get; } = ceremony;
@@ -48,9 +55,14 @@ public sealed class PasskeyCeremonies
 
     public PasskeyCeremonies(TimeProvider time) => _time = time;
 
+    /// <exception cref="PasskeyCeremoniesBusyException">When <see cref="MaxEntries"/> are already live.</exception>
     public string Start(PasskeyCeremonyKind kind, string? userId, string state)
     {
         Prune();
+        if (_entries.Count >= MaxEntries)
+        {
+            throw new PasskeyCeremoniesBusyException();
+        }
         var id = Base64Url(RandomNumberGenerator.GetBytes(32));
         _entries[id] = new Entry(new PasskeyCeremony(kind, userId, state, _time.GetUtcNow() + Lifetime));
         return id;
@@ -121,3 +133,7 @@ public sealed class PasskeyCeremonies
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
+
+/// <summary>Too many passkey ceremonies are live at once; the caller is told to try again shortly.</summary>
+public sealed class PasskeyCeremoniesBusyException()
+    : Exception("Passkey sign-in is busy just now. Try again in a minute.");
