@@ -155,7 +155,7 @@ public class JarDrawReplantTests
         await PayBillAsync(db, account, jar);
 
         await CreateMonthAsync(db, M1);
-        await CreateMonthAsync(db, M2, copy: false);
+        await CreateMonthAsync(db, M2);
 
         PlannedIn(db, jar.Id, M0).Should().Be(10m);
         PlannedIn(db, jar.Id, M1).Should().Be(10m);

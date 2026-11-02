@@ -220,11 +220,12 @@ public static class JarMapping
         {
             status = "Unscheduled";
         }
-        else if (deadline is { } due && (due < asOf || (due == asOf && JarSchedule.LateFrom(due, f.MonthOnly) != due)))
+        else if (deadline is { } due && due <= asOf)
         {
-            // A Goal past its deadline (a Recurring jar's is the Deadline-missed state above), or
-            // a jar due in a month that has begun without the money in it: the warning while the
-            // month runs, from its 1st.
+            // A Goal whose deadline has come without the money (a Recurring jar's is the
+            // Deadline-missed state above). The deadline day itself counts (rule 82: the money had
+            // to be there the day before), for a full date as for a month whose 1st has come,
+            // which reads as the warning while that month runs.
             status = "Behind";
         }
         else
