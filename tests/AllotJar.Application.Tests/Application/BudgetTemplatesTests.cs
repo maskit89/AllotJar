@@ -68,10 +68,21 @@ public class BudgetTemplatesTests
     }
 
     [Fact]
-    public async Task CreateMonth_TemplateWinsOverCopyFromPrevious()
+    public async Task CreateMonth_FirstBudget_TemplateWinsOverCopyFromPrevious()
     {
+        // With no month yet there is nothing to copy, so a template asked for together with the
+        // copy still builds the template (#418 review P3-3).
         await using var db = NewContext();
-        // A previous month the copy path *would* use if the template didn't take precedence.
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var dto = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: true, TemplateKey: "student"),
+            CancellationToken.None);
+
+        dto.Categories.Should().Contain(c => c.Name == "Study");
+    }
+
+    private static void SeedMay(AllotJar.Infrastructure.Persistence.ApplicationDbContext db) =>
         db.BudgetMonths.Add(new BudgetMonth
         {
             OwnerId = "user-1",
@@ -84,15 +95,51 @@ public class BudgetTemplatesTests
                     Items = new List<BudgetItem> { new() { Name = "Old Line", PlannedAmount = 99m } } },
             },
         });
+
+    [Theory]
+    [InlineData(true, "student")]  // a template, even with the copy asked for too
+    [InlineData(false, "student")] // a template
+    [InlineData(false, null)]      // a blank start
+    public async Task CreateMonth_WithAnEarlierMonth_OnlyContinuesIt_ABlankOrTemplateStartIsRefused(
+        bool copyFromPrevious, string? templateKey)
+    {
+        // Rule 94 (holistic review 2026-11-02, L1): once there is a budget, a new month continues
+        // the most recent earlier one. The server refuses the rest, not just the Dashboard, so a
+        // hand-made request can't drop May's plan; nothing is saved.
+        await using var db = NewContext();
+        SeedMay(db);
         await db.SaveChangesAsync();
-
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
-        var dto = await handler.Handle(
-            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: true, TemplateKey: "student"),
-            CancellationToken.None);
 
-        dto.Categories.Should().NotContain(c => c.Name == "Old Group"); // not copied
-        dto.Categories.Should().Contain(c => c.Name == "Study"); // from the student template
+        var refused = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(
+            new CreateBudgetMonthCommand(2026, 6, copyFromPrevious, templateKey), CancellationToken.None));
+
+        refused.Errors.Keys.Should().ContainSingle()
+            .Which.Should().Be(templateKey is null ? "CopyFromPrevious" : "TemplateKey");
+        refused.Errors.Values.Single().Single().Should().Contain("2026-05");
+        (await db.BudgetMonths.CountAsync()).Should().Be(1);
+
+        var june = await handler.Handle(new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: true), CancellationToken.None);
+        june.Categories.Should().Contain(c => c.Name == "Old Group");
+    }
+
+    [Fact]
+    public async Task CreateMonth_BeforeTheEarliestMonth_MayStartBlank_ButNotFromATemplate()
+    {
+        // A month before the first has nothing to continue, so it may start blank (the Dashboard
+        // offers that); templates are for the household's very first budget only.
+        await using var db = NewContext();
+        SeedMay(db);
+        await db.SaveChangesAsync();
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var refused = await Assert.ThrowsAsync<ValidationException>(() => handler.Handle(
+            new CreateBudgetMonthCommand(2026, 4, CopyFromPrevious: false, TemplateKey: "student"), CancellationToken.None));
+        refused.Errors.Keys.Should().ContainSingle().Which.Should().Be("TemplateKey");
+
+        var april = await handler.Handle(new CreateBudgetMonthCommand(2026, 4, CopyFromPrevious: false), CancellationToken.None);
+        april.Categories.Should().ContainSingle().Which.Kind.Should().Be("Income");
+        (await db.BudgetMonths.CountAsync()).Should().Be(2);
     }
 
     [Fact]

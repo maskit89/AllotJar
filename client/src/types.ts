@@ -504,6 +504,8 @@ export interface ImportPreviewResult {
   detectedFormat?: string
   /** Lines with an amount the server could not read as a transaction (no date, or text in the amount column). */
   unreadLines?: number
+  /** CAMT.053 entries left out because the bank had not booked them yet (pending or information only). */
+  pendingEntries?: number
 }
 
 /** One slice of a split import row sent to the commit endpoint. */

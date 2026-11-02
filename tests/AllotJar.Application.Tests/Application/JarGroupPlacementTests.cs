@@ -195,18 +195,18 @@ public class JarGroupPlacementTests
     {
         // Last month, back-filled from the month before, has a Holidays group to match; a blank month
         // has none, so its line goes in a new "Savings" group, as before: month creation never makes
-        // a named group.
+        // a named group. A blank month is only ever one before the earliest (rule 94).
         await using var db = NewContext();
         SeedMonth(db, "user-1", ThisMonth.AddMonths(-2), "Savings", "Holidays");
         var october = SeedMonth(db, "user-1", ThisMonth, "Savings", "Holidays");
         var jarId = await CreateJar(db, Group(october, "Holidays").Id);
         var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
         var lastMonth = ThisMonth.AddMonths(-1);
-        var nextMonth = ThisMonth.AddMonths(1);
+        var firstMonth = ThisMonth.AddMonths(-3);
 
         await handler.Handle(new CreateBudgetMonthCommand(lastMonth.Year, lastMonth.Month, CopyFromPrevious: true), CancellationToken.None);
-        await handler.Handle(new CreateBudgetMonthCommand(nextMonth.Year, nextMonth.Month, CopyFromPrevious: false), CancellationToken.None);
+        await handler.Handle(new CreateBudgetMonthCommand(firstMonth.Year, firstMonth.Month, CopyFromPrevious: false), CancellationToken.None);
 
-        LineGroups(db, jarId).Should().Equal("Holidays", "Holidays", "Savings");
+        LineGroups(db, jarId).Should().Equal("Savings", "Holidays", "Holidays");
     }
 }

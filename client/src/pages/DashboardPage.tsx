@@ -337,6 +337,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         refreshJars() // the month's seeded contribution lines are the shelf's plan (rule 14)
         track(EVENTS.budgetMonthCreated, { source: copyFromPrevious ? 'copy' : 'blank' })
       } catch {
+        // The server refuses a blank or template start once an earlier month exists (rule 94).
+        // If another tab or member started one since, re-reading the months turns this card
+        // into "Start <month>" instead of leaving the same refused buttons in place.
+        refreshMonths()
         setError('Could not create that budget.')
       } finally {
         setCreating(false)
@@ -365,6 +369,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         refreshJars()
         track(EVENTS.budgetMonthCreated, { source: 'template' })
       } catch {
+        refreshMonths() // as above
         setError('Could not create that budget.')
       } finally {
         setCreating(false)

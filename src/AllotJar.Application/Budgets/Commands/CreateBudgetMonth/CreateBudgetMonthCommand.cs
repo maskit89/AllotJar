@@ -11,6 +11,8 @@ namespace AllotJar.Application.Budgets.Commands.CreateBudgetMonth;
 ///   3. otherwise a blank budget is created: a single Income group holding one line per
 ///      active person with a saved Default income, attributed to them (empty when nobody
 ///      has one).
+/// Rule 94: once an earlier month exists, only the copy is allowed (a blank or template request
+/// is refused), and a template only when the household has no month at all.
 /// Returns the new month.
 /// </summary>
 public record CreateBudgetMonthCommand(

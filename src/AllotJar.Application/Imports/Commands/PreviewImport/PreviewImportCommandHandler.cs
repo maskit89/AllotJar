@@ -223,7 +223,8 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             Items: items,
             Layout: layout,
             DetectedFormat: detectedFormat.ToString(),
-            UnreadLines: statement.UnreadLines);
+            UnreadLines: statement.UnreadLines,
+            PendingEntries: statement.PendingEntries);
     }
 
     /// <summary>
