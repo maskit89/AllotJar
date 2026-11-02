@@ -15,7 +15,8 @@ import { LeaveHouseholdDialog } from '../components/settings/LeaveHouseholdDialo
 import { DeleteAccountDialog, type DeletePreview, type DeleteProof } from '../components/settings/DeleteAccountDialog'
 import { DownloadDataCard } from '../components/settings/DownloadDataCard'
 import { DevicesCard } from '../components/settings/DevicesCard'
-import { PasskeyRows } from '../components/settings/PasskeyRows'
+import { ConfirmItsYouDialog, PasskeyRows } from '../components/settings/PasskeyRows'
+import { proofAsked, type ProofKinds } from '../lib/ownerProof'
 import { GoogleMark, OUTLINE_SM, ROW, ROW_HINT, ROW_TITLE, SAVE_BUTTON, Tile } from '../components/settings/parts'
 import { useAuth } from '../auth/AuthContext'
 import { useHousehold } from '../features/HouseholdContext'
@@ -189,6 +190,10 @@ export function AccountPage() {
     }
   }
 
+  // A login without a password proves it's them (passkey, recovery code, or signing in again) when
+  // the server asks: the typed email alone is only a typo guard (audit A07-001).
+  const [deleteProofAsked, setDeleteProofAsked] = useState<{ kinds: ProofKinds; typed: DeleteProof } | null>(null)
+
   async function onDeleteAccount(proof: DeleteProof) {
     setDeleteError(null)
     setDeleteBusy(true)
@@ -196,7 +201,13 @@ export function AccountPage() {
       await deleteAccount(proof)
       // On success the app leaves for the sign-in page (full navigation).
     } catch (err) {
-      setDeleteError(deleteRefusal(err) ?? 'Could not delete your account. Please try again.')
+      const kinds = proofAsked(err)
+      if (kinds) {
+        setConfirmDelete(false)
+        setDeleteProofAsked({ kinds, typed: proof })
+      } else {
+        setDeleteError(deleteRefusal(err) ?? 'Could not delete your account. Please try again.')
+      }
       setDeleteBusy(false)
     }
   }
@@ -748,6 +759,19 @@ export function AccountPage() {
           onDelete={(proof) => void onDeleteAccount(proof)}
           onClose={() => setConfirmDelete(false)}
           onDownload={() => void onDownloadFirst()}
+        />
+      )}
+
+      {deleteProofAsked && (
+        <ConfirmItsYouDialog
+          kinds={deleteProofAsked.kinds}
+          signInAgainReason="Sign in again first, then delete your account."
+          onProof={async (proof) => {
+            // Throws on a refused proof, which the dialog shows; success leaves the page.
+            const typed = deleteProofAsked.typed
+            await deleteAccount('confirmEmail' in typed ? { ...typed, proof } : typed)
+          }}
+          onClose={() => setDeleteProofAsked(null)}
         />
       )}
 

@@ -1,12 +1,14 @@
 using System.Security.Claims;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using AllotJar.Application.Common.Interfaces;
@@ -24,6 +26,9 @@ namespace AllotJar.Infrastructure;
 /// </summary>
 public static class DependencyInjection
 {
+    /// <summary>HttpContext.Items key: this request's security-stamp check could not run (answered 503).</summary>
+    public const string StampCheckUnavailableKey = "AllotJar.StampCheckUnavailable";
+
     public static IServiceCollection AddInfrastructure(
         this IServiceCollection services,
         IConfiguration configuration)
@@ -268,12 +273,33 @@ public static class DependencyInjection
                                 context.Fail("This session has been revoked.");
                             }
                         }
-                        catch (Exception)
+                        catch (Exception ex) when (!context.HttpContext.RequestAborted.IsCancellationRequested)
                         {
-                            // Fail OPEN on a transient datastore error — a DB blip must not log
-                            // every signed-in user out. Only a definite stamp mismatch revokes.
+                            // Fail CLOSED: a token whose revocation can't be checked is not accepted
+                            // (audit A10-001). The answer is a 503, not a 401 (see OnChallenge), so the
+                            // app neither refreshes nor signs anyone out over a database blip: the
+                            // request simply fails and the next one checks again.
+                            context.HttpContext.Items[StampCheckUnavailableKey] = true;
+                            context.HttpContext.RequestServices.GetRequiredService<ILoggerFactory>()
+                                .CreateLogger("AllotJar.Authentication")
+                                .LogWarning(ex, "Could not check a token's security stamp; the request was refused with 503.");
+                            context.Fail("The session could not be checked.");
                         }
-                    }
+                    },
+                    OnChallenge = async context =>
+                    {
+                        if (context.HttpContext.Items.ContainsKey(StampCheckUnavailableKey))
+                        {
+                            context.HandleResponse();
+                            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+                            context.Response.Headers.RetryAfter = "5";
+                            await context.Response.WriteAsJsonAsync(new
+                            {
+                                status = StatusCodes.Status503ServiceUnavailable,
+                                title = "AllotJar couldn't check your sign-in just now. Try again in a moment.",
+                            });
+                        }
+                    },
                 };
             });
 
