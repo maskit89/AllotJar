@@ -1,5 +1,4 @@
 import { useEffect, useId, useState, type FormEvent } from 'react'
-import axios from 'axios'
 import { Check, Copy, Download, KeyRound, ListChecks, Monitor, Smartphone, Tablet } from 'lucide-react'
 import { Modal } from '../Modal'
 import { Button, Input } from '../ui'
@@ -7,6 +6,7 @@ import { InfoHint } from '../InfoHint'
 import { StatusChip } from '../StatusChip'
 import { useAuth } from '../../auth/AuthContext'
 import { api } from '../../lib/api'
+import { proofAsked, type Proof, type ProofKinds } from '../../lib/ownerProof'
 import { createPasskey, getPasskey, passkeyError, passkeysSupported } from '../../lib/passkeys'
 import {
   DIALOG_ACTIONS,
@@ -35,14 +35,6 @@ interface PasskeyList {
   recoveryCodesLeft: number
 }
 
-/** What the login can prove it is the owner with, when the server asks (a 403 with `proof`). */
-interface ProofKinds {
-  password: boolean
-  passkey: boolean
-  recoveryCode: boolean
-}
-
-type Proof = { password?: string; recoveryCode?: string; ceremony?: string; credential?: string }
 
 const STEEL = 'var(--color-steel)'
 const SUB = 'text-[13px] leading-[1.45] text-slate-500'
@@ -58,11 +50,6 @@ function addedOn(iso: string): string {
   return `Added ${new Date(iso).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}`
 }
 
-/** The server's 403 that asks for proof first: which kinds this login can give. */
-function proofAsked(err: unknown): ProofKinds | null {
-  if (!axios.isAxiosError(err) || err.response?.status !== 403) return null
-  return (err.response.data as { proof?: ProofKinds } | undefined)?.proof ?? null
-}
 
 /**
  * The Sign-in card's passkey rows (two-factor sign-in, fix 14): one to add a passkey, one per
@@ -294,12 +281,15 @@ function RemoveDialog({
  * passkey when there is one, else the password; a recovery code as the way out. A Google-only login
  * with no passkey signs in again instead (it just did, so the change then goes through).
  */
-function ConfirmItsYouDialog({
+export function ConfirmItsYouDialog({
   kinds,
   onProof,
   onClose,
+  signInAgainReason = 'To change passkeys, sign in again first.',
 }: {
   kinds: ProofKinds
+  /** What a login with nothing to prove with is told before signing in again. */
+  signInAgainReason?: string
   onProof: (proof: Proof) => Promise<void>
   onClose: () => void
 }) {
@@ -360,7 +350,7 @@ function ConfirmItsYouDialog({
           </div>
         }
       >
-        <p className={DIALOG_BODY}>To change passkeys, sign in again first.</p>
+        <p className={DIALOG_BODY}>{signInAgainReason}</p>
       </Modal>
     )
   }
