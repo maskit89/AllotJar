@@ -144,9 +144,11 @@ public record DeleteAccountPreviewResponse(bool OwnsHousehold, int OthersInHouse
 
 /// <summary>
 /// Deletes the signed-in login and its data. A login with a password confirms with it
-/// (<c>Password</c>); a Google-only login types its email (<c>ConfirmEmail</c>).
+/// (<c>Password</c>, counted toward lockout). A login without one types its email
+/// (<c>ConfirmEmail</c>, a typo guard only) and, unless it signed in within minutes, proves it is its
+/// owner with a passkey or a recovery code (<c>Proof</c>), or signs in again (audit A07-001).
 /// </summary>
-public record DeleteAccountRequest(string? ConfirmEmail = null, string? Password = null);
+public record DeleteAccountRequest(string? ConfirmEmail = null, string? Password = null, PasskeyProof? Proof = null);
 
 /// <summary>
 /// One sign-in still in force, for the list of signed-in devices: the device it was made on (null

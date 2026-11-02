@@ -98,6 +98,52 @@ describe('AccountPage: Delete account', () => {
     await waitFor(() => expect(mockPost).toHaveBeenCalledWith('/auth/delete-account', { confirmEmail: 'alex@x.coM' }))
   })
 
+  // Audit A07-001: the typed email is only a typo guard. Long after signing in, the server asks a
+  // login without a password for proof (a passkey or recovery code), or to sign in again.
+  const proofAsked = (kinds: object) => ({ isAxiosError: true, response: { status: 403, data: { error: "Confirm it's you first.", proof: kinds } } })
+
+  it('asks a Google-only login without a passkey to sign in again when the server wants proof', async () => {
+    meData = { ...ownerMe, hasPassword: false, hasGoogle: true }
+    mockPost.mockRejectedValue(proofAsked({ password: false, passkey: false, recoveryCode: false }))
+    const user = userEvent.setup()
+    renderPage()
+
+    const dialog = await openDelete(user)
+    await user.type(within(dialog).getByLabelText('Type your email to confirm'), ownerMe.email)
+    await user.click(within(dialog).getByRole('button', { name: 'Delete for good' }))
+
+    const again = await screen.findByRole('dialog', { name: 'Sign in again' }, W)
+    expect(within(again).getByText(/Sign in again first, then delete your account/)).toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: 'Delete your account?' })).not.toBeInTheDocument()
+    expect(assign).not.toHaveBeenCalled()
+  })
+
+  it('finishes the delete with a recovery code when the server asks for proof', async () => {
+    meData = { ...ownerMe, hasPassword: false, hasGoogle: true }
+    mockPost
+      .mockRejectedValueOnce(proofAsked({ password: false, passkey: true, recoveryCode: true }))
+      .mockResolvedValue({ data: null })
+    const user = userEvent.setup()
+    renderPage()
+
+    const dialog = await openDelete(user)
+    await user.type(within(dialog).getByLabelText('Type your email to confirm'), ownerMe.email)
+    await user.click(within(dialog).getByRole('button', { name: 'Delete for good' }))
+
+    const confirm = await screen.findByRole('dialog', { name: "Confirm it's you" }, W)
+    await user.click(within(confirm).getByRole('button', { name: 'Use a recovery code' }))
+    await user.type(within(confirm).getByLabelText('Recovery code'), 'abcde-fghjk')
+    await user.click(within(confirm).getByRole('button', { name: 'Continue' }))
+
+    await waitFor(() =>
+      expect(mockPost).toHaveBeenLastCalledWith('/auth/delete-account', {
+        confirmEmail: ownerMe.email,
+        proof: { recoveryCode: 'abcde-fghjk' },
+      }),
+    )
+    await waitFor(() => expect(assign).toHaveBeenCalledWith('/login?reason=deleted'))
+  })
+
   it('while others share the budget, says to remove them first and offers no delete', async () => {
     preview = { ownsHousehold: true, othersInHousehold: 2 }
     const user = userEvent.setup()

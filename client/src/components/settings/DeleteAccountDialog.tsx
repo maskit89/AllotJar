@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { Link } from 'react-router-dom'
+import type { Proof } from '../../lib/ownerProof'
 import { Modal } from '../Modal'
 import { Button } from '../ui'
 import {
@@ -19,8 +20,11 @@ export interface DeletePreview {
   othersInHousehold: number
 }
 
-/** How the login proves it's them: its password, or (Google only) its email typed. */
-export type DeleteProof = { password: string } | { confirmEmail: string }
+/**
+ * How the login proves it's them: its password, or (no password) its email typed, plus, when the
+ * server asks, a passkey or recovery code (`proof`).
+ */
+export type DeleteProof = { password: string } | { confirmEmail: string; proof?: Proof }
 
 /**
  * Account settings' Delete account dialog (compliance fix 5): a centred card on a wide screen, a

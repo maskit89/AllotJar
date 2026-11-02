@@ -883,6 +883,13 @@ public partial class AuthController : ControllerBase
             return BadRequest(new { errors = new[] { "Choose a new password that is different from your current one." } });
         }
 
+        // The current password is checked here, with lockout, before Identity changes it: Identity's own
+        // check never counts a failure, which made this a password-guessing oracle (audit A07-002).
+        if (await CheckPasswordCountingFailuresAsync(user, request.CurrentPassword) is { } refused)
+        {
+            return refused;
+        }
+
         var result = await _userManager.ChangePasswordAsync(user, request.CurrentPassword, request.NewPassword);
         if (!result.Succeeded)
         {
@@ -951,14 +958,25 @@ public partial class AuthController : ControllerBase
         if (await _userManager.HasPasswordAsync(user))
         {
             // Proof it is the login's owner at the keyboard, not just an unlocked session (#370 review P3-1).
-            if (string.IsNullOrEmpty(request.Password) || !await _userManager.CheckPasswordAsync(user, request.Password))
+            // A wrong password counts toward lockout, so this is no guessing oracle (audit A07-002).
+            if (await CheckPasswordCountingFailuresAsync(user, request.Password) is { } refused)
             {
-                return BadRequest(new { error = "That password isn't right." });
+                return refused;
             }
         }
-        else if (!string.Equals(request.ConfirmEmail?.Trim(), user.Email, StringComparison.OrdinalIgnoreCase))
+        else
         {
-            return BadRequest(new { error = "That isn't your email. Type it exactly to delete your account." });
+            // The typed email only guards against a slip: anyone holding the session can read it.
+            if (!string.Equals(request.ConfirmEmail?.Trim(), user.Email, StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new { error = "That isn't your email. Type it exactly to delete your account." });
+            }
+            // The proof is a recent sign-in, a passkey or a recovery code, as for changing passkeys
+            // (audit A07-001); a Google-only login without a passkey signs in again.
+            if (await RefuseWithoutProofAsync(user, request.Proof, ct) is { } unproved)
+            {
+                return unproved;
+            }
         }
 
         if (!await deletion.DeleteAsync(userId, ct))
@@ -969,6 +987,35 @@ public partial class AuthController : ControllerBase
         ClearRefreshCookie();
         return NoContent();
     }
+
+    /// <summary>
+    /// Null when <paramref name="password"/> is the login's; otherwise a 400 to return. A wrong password
+    /// counts toward the same lockout as signing in, and a locked login is refused before any check,
+    /// so a signed-in session can't be used to guess the password (audit A07-002).
+    /// </summary>
+    private async Task<IActionResult?> CheckPasswordCountingFailuresAsync(ApplicationUser user, string? password)
+    {
+        if (!await _userManager.GetLockoutEnabledAsync(user))
+        {
+            await _userManager.SetLockoutEnabledAsync(user, true);
+        }
+        if (await _userManager.IsLockedOutAsync(user))
+        {
+            return BadRequest(new { error = LockedOutMessage, errors = new[] { LockedOutMessage } });
+        }
+        if (!string.IsNullOrEmpty(password) && await _userManager.CheckPasswordAsync(user, password))
+        {
+            await _userManager.ResetAccessFailedCountAsync(user);
+            return null;
+        }
+
+        await _userManager.AccessFailedAsync(user);
+        const string wrong = "That password isn't right.";
+        return BadRequest(new { error = wrong, errors = new[] { wrong } });
+    }
+
+    public const string LockedOutMessage =
+        "Too many wrong passwords. Your account is locked for a few minutes; try again then.";
 
     public const string DeleteRefusedWhileShared = "Others share your budget. Remove them in People first.";
 

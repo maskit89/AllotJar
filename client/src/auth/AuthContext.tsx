@@ -10,6 +10,7 @@ import {
 } from '../lib/api'
 import { broadcastSignOut, onSignOutBroadcast } from '../lib/authChannel'
 import { getPasskey, type SecondStep } from '../lib/passkeys'
+import type { Proof } from '../lib/ownerProof'
 import { setMoneyFormat, detectLocaleDefaults, DEFAULT_CURRENCY_CODE, DEFAULT_FORMAT_KEY } from '../lib/money'
 import { HouseholdRole, type AuthResponse, type HouseholdSummary, type MeResponse, type PreferencesResponse } from '../types'
 
@@ -92,7 +93,7 @@ interface AuthState {
   /** Leaves a joined household; `privateAccounts` is the count the leaver was warned about (D4). */
   leaveHousehold: (ownerId: string, privateAccounts?: number) => Promise<void>
   /** Deletes this login and its data for good (proved by its password, or a Google-only login's email typed), then signs out to the sign-in page. */
-  deleteAccount: (proof: { password: string } | { confirmEmail: string }) => Promise<void>
+  deleteAccount: (proof: { password: string } | { confirmEmail: string; proof?: Proof }) => Promise<void>
   /** False when the login has no password (Google-created) — the account page adapts. */
   hasPassword: boolean
   /** True when a Google identity is linked to this login. */
@@ -547,7 +548,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     window.location.assign('/?left=1')
   }
 
-  async function deleteAccount(proof: { password: string } | { confirmEmail: string }) {
+  async function deleteAccount(proof: { password: string } | { confirmEmail: string; proof?: Proof }) {
     await api.post('/auth/delete-account', proof)
     // The login is gone and the server cleared its cookie: forget it here and in every other tab.
     clearAuthState()
