@@ -52,7 +52,8 @@ jobs:
           HOST: ${{ secrets.VPS_HOST }}
         run: |
           set -euo pipefail
-          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1)
+          # First line only, with stray spaces from copy-paste trimmed.
+          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           case "$HOST_KEY" in
             "ssh-ed25519 AAAA"*) ;;
             *) echo "::error::Secret VPS_HOST_KEY must hold the VPS's public host key line, starting 'ssh-ed25519 AAAA'."; exit 1 ;;
