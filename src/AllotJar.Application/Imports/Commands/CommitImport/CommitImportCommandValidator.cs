@@ -8,7 +8,7 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
 {
     public CommitImportCommandValidator()
     {
-        RuleFor(x => x.Items).NotNull()
+        RuleFor(x => x.Items).Cascade(CascadeMode.Stop).NotNull()
             .Must(items => items.Count <= ImportLimits.MaxRows)
             .WithMessage(c => ImportLimits.TooManyRows(c.Items.Count));
 

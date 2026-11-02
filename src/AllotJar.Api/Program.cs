@@ -113,6 +113,18 @@ builder.Services.Configure<ForwardedHeadersOptions>(options => ClientAddress.Con
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // The import screen shows the server's title; without one it would blame the file. Other
+    // endpoints keep the bare 429 their screens already handle.
+    options.OnRejected = (context, cancellationToken) =>
+    {
+        if (!context.HttpContext.Request.Path.StartsWithSegments("/api/import"))
+        {
+            return ValueTask.CompletedTask;
+        }
+        context.HttpContext.Response.ContentType = "application/json";
+        return new ValueTask(context.HttpContext.Response.WriteAsync(
+            """{"status":429,"title":"Too many imports in a minute. Wait a moment and try again."}""", cancellationToken));
+    };
     options.AddPolicy(AuthRateLimitPolicy, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: ClientAddress.PartitionKey(httpContext),
@@ -168,7 +180,8 @@ builder.Services.AddRateLimiter(options =>
 
 // A commit that runs too long is stopped: its request is cancelled, the handler stops at the
 // next row and the ledger write rolls back, so nothing of it is saved and the account's lock is
-// let go. The limit is under the proxies' own (IIS ARR, Cloudflare), so this answer reaches the
+// let go. (Stopped in the last moment, after the save, the rows are in: the answer says to import
+// again, and the saved rows are then skipped as already imported.) The limit is under the proxies' own (IIS ARR, Cloudflare), so this answer reaches the
 // browser. Configurable only so a test can see a commit stopped (Import__CommitTimeLimitSeconds).
 var commitTimeLimit = TimeSpan.FromSeconds(
     builder.Configuration.GetValue("Import:CommitTimeLimitSeconds", ImportLimits.CommitTimeLimit.TotalSeconds));
@@ -181,7 +194,7 @@ builder.Services.AddRequestTimeouts(options =>
         {
             context.Response.ContentType = "application/json";
             return context.Response.WriteAsync(
-                """{"status":504,"title":"The import took too long, so nothing was saved. Import fewer rows at a time."}""");
+                """{"status":504,"title":"The import took too long and was stopped. Import again with fewer rows: rows already saved are skipped."}""");
         },
     }));
 

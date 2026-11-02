@@ -159,6 +159,8 @@ public sealed class ImportCommitRateLimitHttpTests : IAsyncLifetime
         using var limited = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/import/commit", token,
             new { accountId, items = ImportHttp.Rows(1, "c10-") });
         limited.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
+        (await HttpApiFixture.ReadJsonAsync(limited)).RootElement.GetProperty("title").GetString()
+            .Should().Be("Too many imports in a minute. Wait a moment and try again.");
     }
 }
 
@@ -186,7 +188,7 @@ public sealed class ImportCommitTimeoutHttpTests : IAsyncLifetime
 
         response.StatusCode.Should().Be(HttpStatusCode.GatewayTimeout, await response.Content.ReadAsStringAsync());
         (await HttpApiFixture.ReadJsonAsync(response)).RootElement.GetProperty("title").GetString()
-            .Should().Contain("nothing was saved");
+            .Should().Contain("was stopped");
         (await ImportHttp.TransactionCountAsync(client, token)).Should().Be(0);
 
         // The account's lock was let go: a small commit goes straight in (on a host with the
