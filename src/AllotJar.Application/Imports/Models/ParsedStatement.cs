@@ -24,11 +24,15 @@ public record ParsedStatementEntry(
 /// <see cref="ResolvedDateFormat"/> is set by the generic CSV importer when it had to auto-detect
 /// the file's date format — surfaced so the UI can show (and pin) what was actually applied.
 /// <see cref="UnreadLines"/> counts lines with an amount the generic CSV importer could not read
-/// as a transaction (no date, or text where the amount should be), so nothing is lost unseen.
+/// as a transaction (no date, or text where the amount should be), or CAMT.053 entries it could not
+/// trust, so nothing is lost unseen. <see cref="PendingEntries"/> counts CAMT.053 entries the bank
+/// had not booked yet (PDNG or INFO), which are left out.
 /// </summary>
 public record ParsedStatement(
     IReadOnlyList<ParsedStatementEntry> Entries,
     string? ResolvedDateFormat = null)
 {
     public int UnreadLines { get; init; }
+
+    public int PendingEntries { get; init; }
 }

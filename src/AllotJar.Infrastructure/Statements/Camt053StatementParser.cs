@@ -72,6 +72,8 @@ public partial class Camt053StatementParser : IStatementParser
             throw new StatementParseException("No <Stmt> element found — is this a CAMT.053 statement?");
         }
         RefuseMixedAccounts(statements);
+        statements = WithoutRepeats(statements);
+        RefuseOverlaps(statements);
 
         // One malformed entry must not abort an otherwise-valid statement (the CSV parsers skip
         // bad rows the same way), so parse per entry and drop the ones we can't trust.
@@ -87,6 +89,7 @@ public partial class Camt053StatementParser : IStatementParser
         // One counter over the whole file: statements in one file cover different days, so an entry
         // is numbered exactly as it would be if its day's statement came as a file of its own.
         var notBooked = 0;
+        var unread = 0;
         foreach (var ntry in statements.SelectMany(s => s.Descendants().Where(e => e.Name.LocalName == "Ntry")))
         {
             if (!IsBooked(ntry))
@@ -100,6 +103,12 @@ public partial class Camt053StatementParser : IStatementParser
             var entry = TryParseEntry(ntry);
             if (entry is null)
             {
+                // Counted, as the CSV importer counts its unread lines, unless it is a 0.00 entry
+                // (the app has no zero-amount transactions; nothing is lost).
+                if (!IsZeroAmount(ntry))
+                {
+                    unread++;
+                }
                 continue;
             }
 
@@ -138,7 +147,54 @@ public partial class Camt053StatementParser : IStatementParser
                 : "No usable transactions were found in this statement.");
         }
 
-        return new ParsedStatement(entries);
+        return new ParsedStatement(entries) { UnreadLines = unread, PendingEntries = notBooked };
+    }
+
+    private static bool IsZeroAmount(XElement ntry) =>
+        decimal.TryParse(Value(Child(ntry, "Amt")), NumberStyles.Number, CultureInfo.InvariantCulture, out var amount)
+        && amount == 0m;
+
+    /// <summary>
+    /// The statements without one that repeats an earlier one entry for entry (the same statement
+    /// twice, or an original with its COPY or DUPL): its entries would otherwise import twice,
+    /// since a repeat in one file is numbered as a second occurrence.
+    /// </summary>
+    private static List<XElement> WithoutRepeats(List<XElement> statements)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return statements.Where(stmt =>
+        {
+            var entries = stmt.Descendants().Where(e => e.Name.LocalName == "Ntry").ToList();
+            return entries.Count == 0
+                || seen.Add(string.Join("\n", entries.Select(e => e.ToString(SaveOptions.DisableFormatting))));
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Refuse a file whose statements cover overlapping periods (<c>FrToDt</c>): an entry in the
+    /// overlap could be in both and import twice. A statement without a period is not compared;
+    /// periods that only touch (one ends as the next starts) do not overlap.
+    /// </summary>
+    private static void RefuseOverlaps(List<XElement> statements)
+    {
+        var periods = new List<(DateTimeOffset From, DateTimeOffset To)>();
+        foreach (var stmt in statements)
+        {
+            var period = Child(stmt, "FrToDt");
+            if (TryParseInstant(Value(Child(period, "FrDtTm")), out var from)
+                && TryParseInstant(Value(Child(period, "ToDtTm")), out var to))
+            {
+                if (periods.Any(p => from < p.To && p.From < to))
+                {
+                    throw new StatementParseException(
+                        "This file holds statements for overlapping periods. Export each period once and import it again.");
+                }
+                periods.Add((from, to));
+            }
+        }
+
+        static bool TryParseInstant(string? text, out DateTimeOffset instant) =>
+            DateTimeOffset.TryParse(text?.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out instant);
     }
 
     /// <summary>

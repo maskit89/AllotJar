@@ -158,6 +158,43 @@ public class StatementParsingReviewFixesTests
     }
 
     [Fact]
+    public void Camt_same_statement_twice_imports_its_entries_once()
+    {
+        var day = Stmt(Ntry("10.00", "DBIT", "<Dt>2026-10-01</Dt>", "R1") + Ntry("10.00", "DBIT", "<Dt>2026-10-01</Dt>", "R1"));
+        var copy = day.Replace("<Id>S</Id>", "<Id>S-COPY</Id><CpyDplctInd>DUPL</CpyDplctInd>");
+
+        var entries = _camt.Parse(Document(day, copy, Stmt(Ntry("20.00", "DBIT", "<Dt>2026-10-02</Dt>", "R2")))).Entries;
+
+        // The day's two identical entries stay two (R1 and R1#1); its copy adds none.
+        Assert.Equal(new[] { "R1", "R1#1", "R2" }, entries.Select(e => e.Reference));
+    }
+
+    [Fact]
+    public void Camt_refuses_statements_for_overlapping_periods()
+    {
+        static string Period(string from, string to, string entry) =>
+            Stmt(entry).Replace("<Id>S</Id>", $"<Id>S</Id><FrToDt><FrDtTm>{from}</FrDtTm><ToDtTm>{to}</ToDtTm></FrToDt>");
+        var xml = Document(
+            Period("2026-10-01T00:00:00", "2026-10-15T23:59:59", Ntry("10.00", "DBIT", "<Dt>2026-10-10</Dt>", "R1")),
+            Period("2026-10-10T00:00:00", "2026-10-31T23:59:59", Ntry("10.00", "DBIT", "<Dt>2026-10-10</Dt>", "R1") + Ntry("5.00", "DBIT", "<Dt>2026-10-20</Dt>", "R2")));
+
+        var ex = Assert.Throws<StatementParseException>(() => _camt.Parse(xml));
+        Assert.Contains("overlapping periods", ex.Message);
+    }
+
+    [Fact]
+    public void Camt_daily_statements_whose_periods_touch_are_read()
+    {
+        static string Period(string from, string to, string entry) =>
+            Stmt(entry).Replace("<Id>S</Id>", $"<Id>S</Id><FrToDt><FrDtTm>{from}</FrDtTm><ToDtTm>{to}</ToDtTm></FrToDt>");
+        var xml = Document(
+            Period("2026-10-01T00:00:00+02:00", "2026-10-02T00:00:00+02:00", Ntry("10.00", "DBIT", "<Dt>2026-10-01</Dt>", "R1")),
+            Period("2026-10-02T00:00:00+02:00", "2026-10-03T00:00:00+02:00", Ntry("20.00", "DBIT", "<Dt>2026-10-02</Dt>", "R2")));
+
+        Assert.Equal(2, _camt.Parse(xml).Entries.Count);
+    }
+
+    [Fact]
     public void Camt_one_statement_reads_as_before()
     {
         var statement = _camt.Parse(Camt053Samples.ThreeEntries);
@@ -178,9 +215,11 @@ public class StatementParsingReviewFixesTests
             Ntry("10.00", "DBIT", "<Dt>2026-10-01</Dt>", "BOOKED", "<Sts>BOOK</Sts>")
             + Ntry("99.00", "DBIT", "<Dt>2026-10-02</Dt>", "PENDING", status)));
 
-        var entry = Assert.Single(_camt.Parse(xml).Entries);
+        var statement = _camt.Parse(xml);
 
-        Assert.Equal("BOOKED", entry.Reference);
+        Assert.Equal("BOOKED", Assert.Single(statement.Entries).Reference);
+        Assert.Equal(1, statement.PendingEntries); // shown as "1 pending", never lost unseen
+        Assert.Equal(0, statement.UnreadLines);
     }
 
     [Theory]
@@ -193,7 +232,24 @@ public class StatementParsingReviewFixesTests
     {
         var xml = Document(Stmt(Ntry("10.00", "DBIT", "<Dt>2026-10-01</Dt>", "R1", status)));
 
-        Assert.Single(_camt.Parse(xml).Entries);
+        var statement = _camt.Parse(xml);
+        Assert.Single(statement.Entries);
+        Assert.Equal(0, statement.PendingEntries);
+    }
+
+    [Fact]
+    public void Camt_entries_it_cannot_trust_are_counted_as_not_read()
+    {
+        var xml = Document(Stmt(
+            Ntry("10.00", "DBIT", "<Dt>2026-10-01</Dt>", "OK")
+            + Ntry("abc", "DBIT", "<Dt>2026-10-01</Dt>", "BAD-AMOUNT")
+            + Ntry("12.00", "DBIT", "<DtTm>2026-10-01T24:00:00</DtTm>", "BAD-DATE")
+            + Ntry("0.00", "DBIT", "<Dt>2026-10-01</Dt>", "ZERO")));
+
+        var statement = _camt.Parse(xml);
+
+        Assert.Equal("OK", Assert.Single(statement.Entries).Reference);
+        Assert.Equal(2, statement.UnreadLines); // a 0.00 entry is not money, so not counted
     }
 
     [Fact]
@@ -275,6 +331,39 @@ public class StatementParsingReviewFixesTests
         var statement = _csv.Parse(csv, mapping);
 
         Assert.Equal(new[] { 4, 6, 7 }, statement.Entries.Select(e => e.BookingDate.Day));
+        Assert.Equal(1, statement.UnreadLines); // the broken row is counted, not lost unseen
+    }
+
+    [Fact]
+    public void Csv_stray_quote_closed_by_another_field_on_a_later_line_joins_nothing()
+    {
+        // Review of #419, P2-1: the quote before "Shop" opens that field; it must not close "Hi.
+        var csv = "Date,Description,Amount\n"
+            + "05/10/2026,\"Hi,-12.00\n"
+            + "06/10/2026,\"Shop\",-5.00\n"
+            + "07/10/2026,Bread,-2.00\n";
+        var mapping = _csv.Detect(csv).Suggested;
+
+        var statement = _csv.Parse(csv, mapping);
+
+        Assert.Equal(new[] { 5.00m, 2.00m }, statement.Entries.Select(e => e.Amount));
+        Assert.Equal(1, statement.UnreadLines); // the €12 row with the stray quote
+    }
+
+    [Fact]
+    public void Csv_every_field_quoted_with_a_line_break_in_one()
+    {
+        var csv = "\"Date\",\"Description\",\"Amount\"\n"
+            + "\"04/10/2026\",\"Coffee\",\"-3.20\"\n"
+            + "\"05/10/2026\",\"Payment\nref 123\" ,\"-45.00\"\n"
+            + "\"06/10/2026\",\"Salary\",\"1500.00\"\n";
+        var mapping = _csv.Detect(csv).Suggested;
+
+        var statement = _csv.Parse(csv, mapping);
+
+        Assert.Equal(new[] { 3.20m, 45.00m, 1500.00m }, statement.Entries.Select(e => e.Amount));
+        Assert.Equal("Payment ref 123", statement.Entries[1].Payee);
+        Assert.Equal(0, statement.UnreadLines);
     }
 
     [Fact]

@@ -629,6 +629,21 @@ describe('ImportPage', () => {
     expect(await openHint(user, 'About lines not read')).toHaveTextContent(/2 lines with an amount were left out/)
   })
 
+  it('says how many camt.053 entries are pending or not read', { timeout: 15000 }, async () => {
+    mockPreview.mockResolvedValue({ ...csvPreview(), detectedFormat: 'Camt053', unreadLines: 1, pendingEntries: 3 })
+    const user = userEvent.setup()
+    renderPage()
+
+    await user.upload(await screen.findByLabelText(/^Statement file/), csv())
+    await user.click(screen.getByRole('button', { name: 'Review transactions' }))
+    await screen.findByLabelText('Include TESCO on 2026-06-20')
+
+    expect(screen.getByText('3 pending')).toBeInTheDocument()
+    expect(await openHint(user, 'About pending entries')).toHaveTextContent(/3 entries are not booked by your bank yet/)
+    expect(screen.getByText('1 not read')).toBeInTheDocument()
+    expect(await openHint(user, 'About lines not read')).toHaveTextContent(/One entry had no usable date, amount or direction/)
+  })
+
   it('shows real money sums (not counts) on the success screen', { timeout: 15000 }, async () => {
     const user = userEvent.setup()
     renderPage()

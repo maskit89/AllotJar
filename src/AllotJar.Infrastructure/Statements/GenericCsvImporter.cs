@@ -153,6 +153,12 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             }
             if (!TryReadAmount(row, mapping, out var signed))
             {
+                // A dated row that ends before its amount column, with an amount in its text (a
+                // stray quote ran it together, "05/10/2026,"Broken,-45.00"): counted, not lost.
+                if (EndsBeforeAmount(row, mapping) && row.Any(c => AmountInText().IsMatch(c)))
+                {
+                    unread++;
+                }
                 continue;
             }
             if (unmarkedOut && signed > 0m && TryCell(row, mapping.AmountColumn, out var bare) && !DirectionMarker().IsMatch(bare.Trim()))
@@ -252,6 +258,14 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         mapping.SplitAmounts
         && new[] { mapping.DebitColumn!.Value, mapping.CreditColumn!.Value }.All(c =>
             TryCell(row, c, out var cell) && TryParseSignedAmount(cell, mapping.DecimalStyle, out var a) && a != 0m);
+
+    private static bool EndsBeforeAmount(List<string> row, CsvMapping mapping) =>
+        mapping.SplitAmounts
+            ? mapping.DebitColumn!.Value >= row.Count && mapping.CreditColumn!.Value >= row.Count
+            : mapping.AmountColumn >= row.Count;
+
+    [GeneratedRegex(@"\d[.,]\d{2}(?!\d)", RegexOptions.CultureInvariant)]
+    private static partial Regex AmountInText();
 
     private static bool HasAmount(List<string> row, CsvMapping mapping)
     {
@@ -905,9 +919,10 @@ public sealed partial class GenericCsvImporter : ICsvImporter
     /// Where the record that starts at <paramref name="start"/> ends: the first line break outside
     /// quotes. A quote opens a field only at the start of one (after a delimiter, the line start or
     /// spaces after them), as RFC 4180 has it, so an inch mark in <c>12" pizza</c> never swallows the
-    /// lines below it. A quote that is never closed, or still open after
-    /// <see cref="MaxBreaksInQuotedField"/> line breaks, is a stray: the record ends at its first
-    /// line break, as every record did before.
+    /// lines below it. A quote that is never closed, still open after
+    /// <see cref="MaxBreaksInQuotedField"/> line breaks, or closed by a quote that does not end the
+    /// field (<c>"Shop"</c> on a later line closing a stray <c>"Hi</c>), is a stray: the record ends
+    /// at its first line break, as every record did before.
     /// </summary>
     private static int RecordEnd(string text, int start)
     {
@@ -928,6 +943,15 @@ public sealed partial class GenericCsvImporter : ICsvImporter
                     }
                     else
                     {
+                        // A field that ran over a line break holds only when its closing quote
+                        // ends the field (a delimiter, the line end or the file end follows, after
+                        // any spaces). Otherwise the quote that opened it was a stray, and the
+                        // quote here belongs to another field: the record ends at its first line
+                        // break, so the rows below are never joined to it.
+                        if (firstBreak >= 0 && !EndsField(text, i + 1))
+                        {
+                            return firstBreak;
+                        }
                         inQuotes = false;
                         fieldStart = false;
                     }
@@ -962,6 +986,16 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             }
         }
         return inQuotes && firstBreak >= 0 ? firstBreak : text.Length;
+    }
+
+    /// <summary>Whether a field ends at <paramref name="i"/>: only spaces, then a delimiter, a line break or the end.</summary>
+    private static bool EndsField(string text, int i)
+    {
+        while (i < text.Length && text[i] == ' ')
+        {
+            i++;
+        }
+        return i >= text.Length || text[i] is '\n' or '\r' || Array.IndexOf(CandidateDelimiters, text[i]) >= 0;
     }
 
     private static bool TryCell(List<string> row, int index, out string value)
