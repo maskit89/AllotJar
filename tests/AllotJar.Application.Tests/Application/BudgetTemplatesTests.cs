@@ -67,6 +67,21 @@ public class BudgetTemplatesTests
         db.Jars.Should().BeEmpty();
     }
 
+    [Fact]
+    public async Task CreateMonth_FirstBudget_TemplateWinsOverCopyFromPrevious()
+    {
+        // With no month yet there is nothing to copy, so a template asked for together with the
+        // copy still builds the template (#418 review P3-3).
+        await using var db = NewContext();
+        var handler = new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"));
+
+        var dto = await handler.Handle(
+            new CreateBudgetMonthCommand(2026, 6, CopyFromPrevious: true, TemplateKey: "student"),
+            CancellationToken.None);
+
+        dto.Categories.Should().Contain(c => c.Name == "Study");
+    }
+
     private static void SeedMay(AllotJar.Infrastructure.Persistence.ApplicationDbContext db) =>
         db.BudgetMonths.Add(new BudgetMonth
         {
