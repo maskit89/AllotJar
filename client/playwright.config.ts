@@ -14,6 +14,9 @@ export default defineConfig({
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: 'http://localhost:4173',
+    // Pin the browser clock's timezone to UTC, the server's day (holistic review M9): otherwise a
+    // runner's local time can put the browser on a different date from the API near midnight.
+    timezoneId: 'UTC',
     trace: 'on-first-retry',
     // The app's prefers-reduced-motion block (index.css) collapses CSS transitions to ~0ms.
     // Without it, axe can scan mid-transition under CI contention and report phantom

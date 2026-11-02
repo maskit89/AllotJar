@@ -13,18 +13,20 @@ public class GetJarScheduleQueryHandler : IRequestHandler<GetJarScheduleQuery, J
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public GetJarScheduleQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetJarScheduleQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<JarScheduleDto> Handle(GetJarScheduleQuery request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
 
         // The definition being previewed, as the create/update handlers would store it. For an
         // edit it keeps the stored jar's identity and account so the ledger finds its balance.

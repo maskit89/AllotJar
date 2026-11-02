@@ -16,17 +16,19 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
     private readonly IIdentityService? _identity;
 
     // identity stays optional (DI supplies it in production) so the many handler tests that
     // don't care about currency keep constructing the handler with two arguments — without it
     // a first month falls back to the EUR default, exactly the pre-existing test behaviour.
     public CreateBudgetMonthCommandHandler(
-        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null)
+        IApplicationDbContext db, ICurrentUser currentUser, IIdentityService? identity = null, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
         _identity = identity;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<BudgetMonthDto> Handle(CreateBudgetMonthCommand request, CancellationToken cancellationToken)
@@ -34,7 +36,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
         // Read once: the cycles are settled and the month planned on the same day (SC-P3-3).
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
 
         var alreadyExists = await _db.BudgetMonths
             .AnyAsync(m => m.OwnerId == userId && m.Year == request.Year && m.Month == request.Month,
@@ -309,7 +311,7 @@ public class CreateBudgetMonthCommandHandler : IRequestHandler<CreateBudgetMonth
                 .ThenInclude(c => c.Items)
             .FirstAsync(m => m.Id == budget.Id, cancellationToken);
 
-        await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken);
+        await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken, today: today);
 
         return month.ToDto();
     }

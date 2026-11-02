@@ -10,11 +10,13 @@ public class PreviewIncomeAllocationQueryHandler
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public PreviewIncomeAllocationQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public PreviewIncomeAllocationQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<AllocationResultDto> Handle(
@@ -24,7 +26,8 @@ public class PreviewIncomeAllocationQueryHandler
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
 
         var plan = await AllocationPlanner.PlanAsync(
-            _db, userId, request.Year, request.Month, request.ProfileId, cancellationToken);
+            _db, userId, request.Year, request.Month, request.ProfileId, cancellationToken,
+            DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime));
 
         return plan.Result.ToDto(
             plan.EnvelopesTotal, plan.JarsTotal,
