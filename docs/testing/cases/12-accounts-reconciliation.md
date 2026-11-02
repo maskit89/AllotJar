@@ -669,7 +669,7 @@ a phone). It is read-only.
 - **Preconditions:** Owner.
 - **Steps:**
   1. Open Add account. 2. Edit an existing account. 3. Download my data.
-- **Expected:** 1 and 2: no IBAN, BIC, sort code or account number fields. 3: accounts.csv has no bank-detail columns. Since 27 Oct 2026 (RemoveBankDetails migration) AllotJar keeps no bank details; rule 76 is retired.
+- **Expected:** 1 and 2: no IBAN, BIC, sort code or account number fields. 3: accounts.csv has no bank-detail columns. Since 27 Oct 2026 (RemoveBankDetails migration) AllotJar keeps no bank details; rule 76 now says no bank identifiers are kept.
 - **Automated:** Yes (AccountsPage.test.tsx — "asks for no bank details on add or edit"; DataExportTests)
 
 ### ACCT-064 - An account holding jars cannot be deleted

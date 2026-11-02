@@ -181,7 +181,8 @@ app.UseMiddleware<DatabaseStartupGateMiddleware>();
 // Apply any pending EF Core migrations on startup so the configured SQL Server
 // schema is always current — in Development against LocalDB, and in Production
 // against the SQL Server service on the VPS right after a deploy. Migrations are
-// additive and idempotent: they never drop existing data. If SQL Server still doesn't
+// idempotent and normally additive (a deliberate exception such as RemoveBankDetails may drop
+// columns, and says so in its own header). If SQL Server still doesn't
 // answer after the first retries, the API starts anyway with its gate closed and keeps
 // retrying in the background, rather than failing to start.
 if (await ApplyMigrationsAsync(app))

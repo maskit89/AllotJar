@@ -192,12 +192,11 @@ Any expense line can be tracked as a **bill**:
 ## Accounts & balances
 
 `Account` is a "where my money is" view alongside the budget (a current account,
-savings pot, cash, or credit card — `AccountType`).
+savings pot, or cash — `AccountType`; credit cards are not accounts, rule 75).
 
 - An account's balance is **never stored**: `AccountBalances` derives it at read time
   as `OpeningBalance + Σ(income) − Σ(expense)` of the transactions assigned to it, in
-  the account's own currency. (The opening balance can be negative — e.g. a credit
-  card's debt.)
+  the account's own currency. (No account may go negative, rule 74.)
 - `GET /api/accounts` returns accounts with their current balances;
   `POST/PUT/DELETE /api/accounts/{id}` manage them (currency is immutable once set;
   deleting an account unlinks its transactions rather than removing them). The account
