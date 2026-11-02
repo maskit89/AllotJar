@@ -114,7 +114,7 @@ public class JarPlannerTests
         LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 40m, Today, JarAllocationKind.Reallocation);
         (await handler.Handle(new CreateBudgetMonthCommand(Current.Year, Current.Month, CopyFromPrevious: false), CancellationToken.None))
             .Categories.Single(c => c.Kind == "Savings").Items.Single().PlannedAmount.Should().Be(50m);
-        var nextMonth = await handler.Handle(new CreateBudgetMonthCommand(next.Year, next.Month, CopyFromPrevious: false), CancellationToken.None);
+        var nextMonth = await handler.Handle(new CreateBudgetMonthCommand(next.Year, next.Month, CopyFromPrevious: true), CancellationToken.None);
         nextMonth.Categories.Single(c => c.Kind == "Savings").Items.Single().PlannedAmount.Should().Be(50m);
 
         var line = db.BudgetItems.Single(i => i.SavingsId == jar.Id && i.BudgetCategory.BudgetMonth.Month == Current.Month);
@@ -157,7 +157,7 @@ public class JarPlannerTests
 
         LedgerFixtures.Allocate(db, "user-1", account.Id, jar.Id, 50m, Current.AddDays(-2));
         var next = Current.AddMonths(1);
-        var nextMonth = await handler.Handle(new CreateBudgetMonthCommand(next.Year, next.Month, CopyFromPrevious: false), CancellationToken.None);
+        var nextMonth = await handler.Handle(new CreateBudgetMonthCommand(next.Year, next.Month, CopyFromPrevious: true), CancellationToken.None);
         nextMonth.Categories.Single(c => c.Kind == "Savings").Items.Single().PlannedAmount.Should().Be(0m);
     }
 
