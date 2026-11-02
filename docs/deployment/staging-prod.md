@@ -264,8 +264,8 @@ be bypassed by hitting the VPS directly.
 
 1. **Merge the pipeline PR.** The next `main` build auto-deploys the
    staging-flagged bundle to the existing stack.
-2. **Provision production**: Actions → *Provision production stack* → run (no approval
-   gate; the repo is private on GitHub Free). Idempotent; creates dirs/pools/sites/SNI-bindings/DB/settings/backup
+2. **Provision production**: Actions → *Provision production stack* → run
+   (no approval gate: environment required reviewers do not apply on private GitHub Free). Idempotent; creates dirs/pools/sites/SNI-bindings/DB/settings/backup
    tasks. The prod API dir is empty until the first deploy.
 3. **First production deploy**: hand-start a Deploy run on `main` with **Also deploy to
    production** ticked (only when CI passed on that commit). Health check: `http://127.0.0.1:5001/health`
