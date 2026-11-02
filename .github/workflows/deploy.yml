@@ -123,50 +123,60 @@ jobs:
       # through the remote shell, which fails against Windows OpenSSH + a PowerShell
       # default shell. Native scp/ssh use the SFTP subsystem and a single command,
       # which is shell-independent and works on Windows.
-      - name: Write SSH key
+      # The VPS's own ed25519 host key is pinned from the VPS_HOST_KEY secret, so the
+      # runner refuses to talk to anything else answering at VPS_HOST (no trust on
+      # first use). Every ssh/scp below goes through the "vps" alias in ~/.ssh/config.
+      - name: Write SSH key and pinned host key
         env:
           KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
         run: |
+          set -euo pipefail
+          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1)
+          case "$HOST_KEY" in
+            "ssh-ed25519 AAAA"*) ;;
+            *) echo "::error::Secret VPS_HOST_KEY must hold the VPS's public host key line, starting 'ssh-ed25519 AAAA'."; exit 1 ;;
+          esac
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          printf 'allotjar-vps %s\n' "$HOST_KEY" > ~/.ssh/known_hosts_vps
+          {
+            echo 'Host vps'
+            echo "  HostName $HOST"
+            echo "  Port $PORT"
+            echo "  User $USER"
+            echo '  IdentityFile ~/.ssh/deploy_key'
+            echo '  IdentitiesOnly yes'
+            echo '  HostKeyAlias allotjar-vps'
+            echo '  UserKnownHostsFile ~/.ssh/known_hosts_vps'
+            echo '  GlobalKnownHostsFile /dev/null'
+            echo '  StrictHostKeyChecking yes'
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
 
       # The scp below writes straight into C:\deploy\incoming-staging, so that folder
       # (and the release folder the extract step expands into) must exist, or the scp
       # fails with "dest open ...: No such file or directory".
       - name: Ensure VPS deploy dirs exist
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$USER@$HOST" \
+          ssh vps \
             'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-staging, C:\deploy\release-staging | Out-Null"'
 
       - name: Copy release to VPS
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          scp -i ~/.ssh/deploy_key -P "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            release.zip "$USER@$HOST:C:/deploy/incoming-staging/release.zip"
+          scp \
+            release.zip vps:C:/deploy/incoming-staging/release.zip
 
       # Deploy.ps1's defaults are the staging stack; they are passed anyway so this job
       # and the production one below read the same way. -AspNetEnvironment Staging makes
       # the API read appsettings.Staging.json.
       - name: Extract and deploy on VPS
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$USER@$HOST" \
+          ssh vps \
             'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-staging\release.zip -DestinationPath C:\deploy\release-staging -Force; & C:\deploy\release-staging\Deploy.ps1 -ApiDir C:\inetpub\allotjar-staging\api -WebDir C:\inetpub\allotjar-staging\web -ApiPool AllotJar-Staging-Api -WebPool AllotJar-Staging-Web -HealthUrl http://127.0.0.1:5000/health -ApiProxyPort 5000 -AspNetEnvironment Staging"'
 
   # Production ships only a commit whose CI on main passed. Journey and a11y run on
@@ -352,46 +362,56 @@ jobs:
         with:
           name: release-production
 
-      - name: Write SSH key
+      # The VPS's own ed25519 host key is pinned from the VPS_HOST_KEY secret, so the
+      # runner refuses to talk to anything else answering at VPS_HOST (no trust on
+      # first use). Every ssh/scp below goes through the "vps" alias in ~/.ssh/config.
+      - name: Write SSH key and pinned host key
         env:
           KEY: ${{ secrets.VPS_SSH_KEY }}
+          HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
+          PORT: ${{ secrets.VPS_SSH_PORT }}
+          USER: ${{ secrets.VPS_SSH_USER }}
+          HOST: ${{ secrets.VPS_HOST }}
         run: |
+          set -euo pipefail
+          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1)
+          case "$HOST_KEY" in
+            "ssh-ed25519 AAAA"*) ;;
+            *) echo "::error::Secret VPS_HOST_KEY must hold the VPS's public host key line, starting 'ssh-ed25519 AAAA'."; exit 1 ;;
+          esac
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
+          printf 'allotjar-vps %s\n' "$HOST_KEY" > ~/.ssh/known_hosts_vps
+          {
+            echo 'Host vps'
+            echo "  HostName $HOST"
+            echo "  Port $PORT"
+            echo "  User $USER"
+            echo '  IdentityFile ~/.ssh/deploy_key'
+            echo '  IdentitiesOnly yes'
+            echo '  HostKeyAlias allotjar-vps'
+            echo '  UserKnownHostsFile ~/.ssh/known_hosts_vps'
+            echo '  GlobalKnownHostsFile /dev/null'
+            echo '  StrictHostKeyChecking yes'
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
 
       - name: Ensure VPS deploy dirs exist
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$USER@$HOST" \
+          ssh vps \
             'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-production, C:\deploy\release-production | Out-Null"'
 
       - name: Copy release to VPS
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          scp -i ~/.ssh/deploy_key -P "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            release.zip "$USER@$HOST:C:/deploy/incoming-production/release.zip"
+          scp \
+            release.zip vps:C:/deploy/incoming-production/release.zip
 
       # The production stack is Deploy.ps1 with the production dirs/pools/ports; the SQL
       # database is never touched by a deploy. -ApiProxyPort patches the copied
       # web.config so the front site proxies /api to the prod API on :5001, and
       # -AspNetEnvironment Production makes the API read appsettings.Production.json.
       - name: Extract and deploy on VPS
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$USER@$HOST" \
+          ssh vps \
             'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-production\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-production\release.zip -DestinationPath C:\deploy\release-production -Force; & C:\deploy\release-production\Deploy.ps1 -ApiDir C:\inetpub\allotjar-prod\api -WebDir C:\inetpub\allotjar-prod\web -ApiPool AllotJar-Prod-Api -WebPool AllotJar-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001 -AspNetEnvironment Production"'
