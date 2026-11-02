@@ -159,7 +159,7 @@ public sealed class KnownReferences
 public static class StatementReferences
 {
     /// <summary>The longest reference the columns hold (TransactionConfiguration).</summary>
-    private const int MaxReferenceLength = 140;
+    public const int MaxReferenceLength = 140;
 
     public static async Task<KnownReferences> KnownAsync(
         IApplicationDbContext db, string ownerId, Guid? accountId, CancellationToken cancellationToken)

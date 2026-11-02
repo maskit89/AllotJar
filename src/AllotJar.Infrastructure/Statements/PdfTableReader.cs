@@ -26,7 +26,8 @@ namespace AllotJar.Infrastructure.Statements;
 /// another transaction on the same day. Lines above the header and below the table are left out.
 ///
 /// A PDF is a program for drawing a page, and a small file can ask for a great deal of work. Only
-/// one is read at a time; each stream may inflate only so far; each page's text is measured
+/// one is read at a time, and each person has at most one waiting or being read
+/// (<see cref="PdfReadSlots"/>); each stream may inflate only so far; each page's text is measured
 /// before it is drawn; and the whole read has a time limit.
 /// </summary>
 public sealed partial class PdfTableReader : IPdfTableReader
@@ -53,10 +54,15 @@ public sealed partial class PdfTableReader : IPdfTableReader
     private const long MaxDecodedBytes = 96L * 1024 * 1024;
 
     private static readonly TimeSpan TimeLimit = TimeSpan.FromSeconds(20);
-    private static readonly TimeSpan GateWait = TimeSpan.FromSeconds(3);
 
-    /// <summary>One PDF at a time: the server has one CPU and 4 GB for production, staging and SQL Server.</summary>
-    private static readonly SemaphoreSlim Gate = new(1, 1);
+    /// <summary>
+    /// How long a PDF waits for the one before it: a little longer than that read may take, so
+    /// the next in the queue is read rather than turned away.
+    /// </summary>
+    private static readonly TimeSpan TurnWait = TimeLimit + TimeSpan.FromSeconds(5);
+
+    /// <summary>One PDF at a time, one per person: the server has one CPU and 4 GB for production, staging and SQL Server.</summary>
+    private readonly PdfReadSlots _slots = new(TurnWait);
 
     private const string TooHeavy = "This PDF is too large to read as a statement.";
 
@@ -67,28 +73,20 @@ public sealed partial class PdfTableReader : IPdfTableReader
         return head.IndexOf("%PDF-"u8) >= 0;
     }
 
-    public string ReadAsCsv(byte[] pdf, CancellationToken cancellationToken)
+    public Task<string> ReadAsCsvAsync(byte[] pdf, string person, CancellationToken cancellationToken) =>
+        _slots.RunAsync(person, () => ReadWithinTimeLimit(pdf, cancellationToken), cancellationToken);
+
+    private static string ReadWithinTimeLimit(byte[] pdf, CancellationToken cancellationToken)
     {
-        if (!Gate.Wait(GateWait, cancellationToken))
-        {
-            throw new StatementParseException("Another PDF is being read. Try again in a moment.");
-        }
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        deadline.CancelAfter(TimeLimit);
         try
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            deadline.CancelAfter(TimeLimit);
-            try
-            {
-                return Read(pdf, deadline.Token);
-            }
-            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
-            {
-                throw new StatementParseException("This PDF took too long to read.");
-            }
+            return Read(pdf, deadline.Token);
         }
-        finally
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
-            Gate.Release();
+            throw new StatementParseException("This PDF took too long to read.");
         }
     }
 
