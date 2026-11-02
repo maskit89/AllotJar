@@ -516,5 +516,5 @@ public class JarLifecycleW04Tests
     }
 
     private static Task<Budgets.Dtos.BudgetMonthDto> CreateMonthAsync(ApplicationDbContext db, DateOnly month) =>
-        new CreateBudgetMonthCommandHandler(db, User()).Handle(new CreateBudgetMonthCommand(month.Year, month.Month, CopyFromPrevious: false), CancellationToken.None);
+        new CreateBudgetMonthCommandHandler(db, User()).Handle(new CreateBudgetMonthCommand(month.Year, month.Month, CopyFromPrevious: true), CancellationToken.None);
 }

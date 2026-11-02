@@ -71,6 +71,25 @@ public class JarLifecycleTests
     }
 
     [Fact]
+    public void Status_GoalShortOnItsOwnDeadlineDay_ReadsBehind_LikeTheSameGoalByMonth()
+    {
+        // Rule 82: the deadline day is never a contribution day, so a Goal still short on it is
+        // Behind, not On track, as the month-only version of the same Goal already reads
+        // (holistic review 2026-11-02, L3). The day before, it is still on track.
+        var due = new DateOnly(2026, 12, 15);
+        var goal = new Jar { Kind = JarKind.Goal, TargetAmount = 900m, TargetDate = due };
+
+        goal.ToDto(currentBalance: 100m, balanceAtMonthStart: 100m, storedPlanThisMonth: null, asOf: due.AddDays(-1))
+            .Status.Should().Be("OnTrack");
+        goal.ToDto(currentBalance: 100m, balanceAtMonthStart: 100m, storedPlanThisMonth: null, asOf: due)
+            .Status.Should().Be("Behind");
+
+        var byMonth = new Jar { Kind = JarKind.Goal, TargetAmount = 900m, TargetDate = new DateOnly(2026, 12, 1), MonthOnly = true };
+        byMonth.ToDto(currentBalance: 100m, balanceAtMonthStart: 100m, storedPlanThisMonth: null, asOf: new DateOnly(2026, 12, 1))
+            .Status.Should().Be("Behind");
+    }
+
+    [Fact]
     public void Status_FundedGoal_ReadsFullyFunded()
     {
         var goal = new Jar { Kind = JarKind.Goal, TargetAmount = 900m };

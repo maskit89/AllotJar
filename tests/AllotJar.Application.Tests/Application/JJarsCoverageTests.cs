@@ -131,7 +131,7 @@ public class JJarsCoverageTests
             .Handle(new ArchiveJarCommand(id, Archived: false), CancellationToken.None);
 
         var afterRestore = await new CreateBudgetMonthCommandHandler(db, new CurrentUserStub("user-1"))
-            .Handle(new CreateBudgetMonthCommand(2026, 8, CopyFromPrevious: false), CancellationToken.None);
+            .Handle(new CreateBudgetMonthCommand(2026, 8, CopyFromPrevious: true), CancellationToken.None);
         afterRestore.Categories.Single(c => c.Kind == "Savings").Items
             .Should().ContainSingle(i => i.Name == "Holiday");
     }
