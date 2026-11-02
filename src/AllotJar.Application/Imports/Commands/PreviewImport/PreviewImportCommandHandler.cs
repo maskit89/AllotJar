@@ -136,6 +136,11 @@ public class PreviewImportCommandHandler : IRequestHandler<PreviewImportCommand,
             }
         }
         var skipped = statement.Entries.Count - fresh.Count;
+        // A commit takes so many rows at a time: offer no more than it can take.
+        if (fresh.Count > ImportLimits.MaxRows)
+        {
+            throw new StatementParseException(ImportLimits.TooManyRows(fresh.Count));
+        }
 
         // Content-level duplicate hints for the rows whose reference did NOT match (e.g. the same
         // statement previously imported through a different format or column mapping).

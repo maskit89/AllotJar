@@ -8,8 +8,11 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
 {
     public CommitImportCommandValidator()
     {
-        RuleFor(x => x.Items).NotNull();
+        RuleFor(x => x.Items).NotNull()
+            .Must(items => items.Count <= ImportLimits.MaxRows)
+            .WithMessage(c => ImportLimits.TooManyRows(c.Items.Count));
 
+        // The rows are checked one by one only when there are not too many of them.
         RuleForEach(x => x.Items).ChildRules(item =>
         {
             item.RuleFor(i => i.Amount)
@@ -18,6 +21,9 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                 .NotEmpty().Length(3).WithMessage("Currency must be a 3-letter ISO code.");
             item.RuleFor(i => i.Payee)
                 .MaximumLength(200);
+            // As long as the stored reference may be (a statement's own are much shorter).
+            item.RuleFor(i => i.Reference)
+                .MaximumLength(StatementReferences.MaxReferenceLength);
 
             // When a row is split, it needs at least two slices that add up to its amount.
             item.RuleFor(i => i.Splits!)
@@ -87,7 +93,7 @@ public class CommitImportCommandValidator : AbstractValidator<CommitImportComman
                            && i.JarAllocations is not { Count: > 0 } && i.Fee is null)
                 .When(i => i.ReturnOfTransferId is not null)
                 .WithMessage("Money coming back from a transfer is confirmed on its own, as money received with nothing else chosen.");
-        });
+        }).When(x => x.Items is { Count: <= ImportLimits.MaxRows });
 
         // Transfers need to know which account the statement belongs to.
         RuleFor(x => x)

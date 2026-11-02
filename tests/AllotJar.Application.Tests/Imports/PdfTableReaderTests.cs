@@ -20,6 +20,8 @@ public class PdfTableReaderTests
     private readonly PdfTableReader _reader = new();
     private readonly GenericCsvImporter _importer = new();
 
+    private string Read(byte[] pdf) => _reader.ReadAsCsvAsync(pdf, "test", default).GetAwaiter().GetResult();
+
     /// <summary>A line of words, each at its own x, on one baseline.</summary>
     private sealed record Text(double Y, params (double X, string Word)[] Words);
 
@@ -59,7 +61,7 @@ public class PdfTableReaderTests
     [Fact]
     public void A_card_statement_reads_as_a_table_with_one_header_and_its_rows()
     {
-        var csv = _reader.ReadAsCsv(Pdf(CardStatement), default);
+        var csv = Read(Pdf(CardStatement));
 
         var lines = csv.TrimEnd('\n').Split('\n');
         lines.Should().Contain("Transaction Date,Posting Date,Detail,Amount in EUR");
@@ -72,7 +74,7 @@ public class PdfTableReaderTests
     [Fact]
     public void A_card_statement_imports_through_the_column_detection()
     {
-        var csv = _reader.ReadAsCsv(Pdf(CardStatement), default);
+        var csv = Read(Pdf(CardStatement));
 
         var layout = _importer.Detect(csv);
         var m = layout.Suggested;
@@ -104,7 +106,7 @@ public class PdfTableReaderTests
                 new(685, (40, "5 Sep 2026"), (110, "Cash withdrawal"), (330, "50.00"), (470, "3,026.60")),
             ]);
 
-        var csv = _reader.ReadAsCsv(pdf, default);
+        var csv = Read(pdf);
         var layout = _importer.Detect(csv);
         var m = layout.Suggested;
         layout.Columns[m.DebitColumn!.Value].Should().Be("Debit");
@@ -121,7 +123,7 @@ public class PdfTableReaderTests
 
     private IReadOnlyList<(DateOnly Date, bool In, decimal Amount, string Payee)> Import(byte[] pdf)
     {
-        var csv = _reader.ReadAsCsv(pdf, default);
+        var csv = Read(pdf);
         var m = _importer.Detect(csv).Suggested;
         return _importer.Parse(csv, m with { DefaultCurrency = "EUR" }).Entries
             .Select(e => (e.BookingDate, e.IsCredit, e.Amount, e.Payee)).ToList();
@@ -280,12 +282,12 @@ public class PdfTableReaderTests
     public void A_same_day_payment_equal_to_the_rows_above_is_shown_as_not_read()
     {
         // Review #405 round 3 (R7): taken for a subtotal, but counted, never lost unseen.
-        var csv = _reader.ReadAsCsv(Pdf([
+        var csv = Read(Pdf([
             new Text(700, (40, "Date"), (110, "Description"), (420, "Amount")),
             new(685, (40, "01/09/2026"), (110, "Coffee"), (420, "-2.50")),
             new(670, (110, "Coffee"), (420, "-2.50")),
             new(655, (110, "Lunch"), (420, "-5.00")),
-        ]), default);
+        ]));
         var m = _importer.Detect(csv).Suggested;
         var parsed = _importer.Parse(csv, m with { DefaultCurrency = "EUR" });
 
@@ -297,7 +299,7 @@ public class PdfTableReaderTests
     public void An_undated_amount_line_further_under_the_table_is_shown_as_not_read()
     {
         // Review #405 round 3 (R9).
-        var csv = _reader.ReadAsCsv(Pdf(Table(new Text(620, (110, "Card fee"), (330, "2.00")))), default);
+        var csv = Read(Pdf(Table(new Text(620, (110, "Card fee"), (330, "2.00")))));
         var m = _importer.Detect(csv).Suggested;
 
         _importer.Parse(csv, m with { DefaultCurrency = "EUR" }).UnreadLines.Should().Be(1);
@@ -337,13 +339,13 @@ public class PdfTableReaderTests
     public void An_account_block_close_above_the_header_is_not_header()
     {
         // Review #405 P3-2 (A10).
-        var csv = _reader.ReadAsCsv(Pdf([
+        var csv = Read(Pdf([
             new(722, (40, "Account"), (110, "40012345678"), (330, "Period"), (400, "01/09/2026"), (470, "30/09/2026")),
             new(711, (40, "IBAN"), (110, "MT00XXXX0000000000000000000"), (330, "Opening"), (470, "1,000.00")),
             Header(700),
             new(685, (40, "01/09/2026"), (110, "Supermarket"), (330, "23.40"), (470, "976.60")),
             new(670, (40, "02/09/2026"), (110, "Salary"), (400, "2,100.00"), (470, "3,076.60")),
-        ]), default);
+        ]));
 
         _importer.Detect(csv).Columns.Should().Equal("Date", "Description", "Debit", "Credit", "Balance");
     }
@@ -395,7 +397,7 @@ public class PdfTableReaderTests
     private void RefusedQuickly(byte[] pdf)
     {
         var watch = Stopwatch.StartNew();
-        var act = () => _reader.ReadAsCsv(pdf, default);
+        var act = () => Read(pdf);
         act.Should().Throw<StatementParseException>().WithMessage("This PDF is too large to read as a statement.");
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
     }
@@ -456,12 +458,12 @@ public class PdfTableReaderTests
     [Fact]
     public void An_ordinary_statement_page_reads_well_within_the_limits()
     {
-        var csv = _reader.ReadAsCsv(Raw(
+        var csv = Read(Raw(
             Catalog,
             "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
             PageOf(5),
             Helvetica,
-            "<< /Length 80 >>\nstream\nBT /F1 9 Tf 40 700 Td (01/09/2026) Tj 100 0 Td (Shop) Tj 200 0 Td (12.50) Tj ET\nendstream"), default);
+            "<< /Length 80 >>\nstream\nBT /F1 9 Tf 40 700 Td (01/09/2026) Tj 100 0 Td (Shop) Tj 200 0 Td (12.50) Tj ET\nendstream"));
 
         csv.Should().Be("01/09/2026,Shop,12.50\n");
     }
@@ -472,7 +474,7 @@ public class PdfTableReaderTests
         var builder = new PdfDocumentBuilder();
         builder.AddPage(PageSize.A4);
 
-        var act = () => _reader.ReadAsCsv(builder.Build(), default);
+        var act = () => Read(builder.Build());
 
         act.Should().Throw<StatementParseException>().WithMessage("*no text in it, so it may be a scan*");
     }
@@ -480,7 +482,7 @@ public class PdfTableReaderTests
     [Fact]
     public void A_pdf_without_dates_has_no_transactions()
     {
-        var act = () => _reader.ReadAsCsv(Pdf([new Text(700, (40, "Thank"), (80, "you"))]), default);
+        var act = () => Read(Pdf([new Text(700, (40, "Thank"), (80, "you"))]));
 
         act.Should().Throw<StatementParseException>().WithMessage("No transactions were found in this PDF.");
     }
@@ -488,7 +490,7 @@ public class PdfTableReaderTests
     [Fact]
     public void A_password_protected_pdf_is_refused_with_what_to_do()
     {
-        var act = () => _reader.ReadAsCsv(Convert.FromBase64String(EncryptedBlankPdf), default);
+        var act = () => Read(Convert.FromBase64String(EncryptedBlankPdf));
 
         act.Should().Throw<StatementParseException>().WithMessage("This PDF is password-protected*");
     }
@@ -496,7 +498,7 @@ public class PdfTableReaderTests
     [Fact]
     public void A_damaged_pdf_is_refused_without_the_readers_error()
     {
-        var act = () => _reader.ReadAsCsv(Encoding.ASCII.GetBytes("%PDF-1.7\nnot really a pdf"), default);
+        var act = () => Read(Encoding.ASCII.GetBytes("%PDF-1.7\nnot really a pdf"));
 
         act.Should().Throw<StatementParseException>().WithMessage("This PDF could not be read.");
     }
@@ -506,7 +508,7 @@ public class PdfTableReaderTests
     {
         var pages = Enumerable.Range(0, 61).Select(_ => new[] { new Text(700, (40, "01/09/2026")) }).ToArray();
 
-        var act = () => _reader.ReadAsCsv(Pdf(pages), default);
+        var act = () => Read(Pdf(pages));
 
         act.Should().Throw<StatementParseException>().WithMessage("This PDF has 61 pages*");
     }

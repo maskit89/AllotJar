@@ -2,16 +2,19 @@ using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
 using Microsoft.OpenApi;
+using AllotJar.Api.Controllers;
 using AllotJar.Api.Features;
 using AllotJar.Api.Middleware;
 using AllotJar.Api.Services;
 using AllotJar.Application;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Imports;
 using AllotJar.Infrastructure;
 using AllotJar.Infrastructure.Alerts;
 using AllotJar.Infrastructure.Email;
@@ -103,6 +106,9 @@ var authPermitLimit = builder.Configuration.GetValue("RateLimiting:AuthPermitLim
 // Silent refresh has its own, larger bucket, so a burst of sign-in attempts from a visitor never
 // ends the sessions already open there (the SPA renews every few minutes per tab).
 var refreshPermitLimit = builder.Configuration.GetValue("RateLimiting:RefreshPermitLimit", authPermitLimit * 3);
+// Import commits per visitor a minute (below). Configurable so the serial journey run, which
+// imports statement after statement, can raise it via RateLimiting__ImportCommitPermitLimit.
+var importCommitPermitLimit = builder.Configuration.GetValue("RateLimiting:ImportCommitPermitLimit", 10);
 builder.Services.Configure<ForwardedHeadersOptions>(options => ClientAddress.Configure(options, builder.Configuration));
 builder.Services.AddRateLimiter(options =>
 {
@@ -137,6 +143,18 @@ builder.Services.AddRateLimiter(options =>
                 Window = TimeSpan.FromMinutes(1),
                 QueueLimit = 0,
             }));
+    // Committing an import writes up to ImportLimits.MaxRows rows with the account locked. A
+    // person commits once per statement (and again for rows held back), so a few a minute is
+    // plenty, and preview's column changes never use them up.
+    options.AddPolicy("import-commit", httpContext =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: ClientAddress.PartitionKey(httpContext),
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = importCommitPermitLimit,
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0,
+            }));
     options.AddPolicy(RefreshRateLimitPolicy, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: ClientAddress.PartitionKey(httpContext),
@@ -147,6 +165,25 @@ builder.Services.AddRateLimiter(options =>
                 QueueLimit = 0,
             }));
 });
+
+// A commit that runs too long is stopped: its request is cancelled, the handler stops at the
+// next row and the ledger write rolls back, so nothing of it is saved and the account's lock is
+// let go. The limit is under the proxies' own (IIS ARR, Cloudflare), so this answer reaches the
+// browser. Configurable only so a test can see a commit stopped (Import__CommitTimeLimitSeconds).
+var commitTimeLimit = TimeSpan.FromSeconds(
+    builder.Configuration.GetValue("Import:CommitTimeLimitSeconds", ImportLimits.CommitTimeLimit.TotalSeconds));
+builder.Services.AddRequestTimeouts(options =>
+    options.AddPolicy(ImportController.CommitTimeoutPolicy, new RequestTimeoutPolicy
+    {
+        Timeout = commitTimeLimit,
+        TimeoutStatusCode = StatusCodes.Status504GatewayTimeout,
+        WriteTimeoutResponse = context =>
+        {
+            context.Response.ContentType = "application/json";
+            return context.Response.WriteAsync(
+                """{"status":504,"title":"The import took too long, so nothing was saved. Import fewer rows at a time."}""");
+        },
+    }));
 
 // --- Swagger with JWT bearer support ----------------------------------------
 builder.Services.AddEndpointsApiExplorer();
@@ -231,6 +268,8 @@ app.UseCors(SpaCorsPolicy);
 // Throttle abusive bursts before they reach authentication. Only endpoints tagged with the
 // [EnableRateLimiting("auth")] or ("auth-refresh") policy are limited; everything else is unaffected.
 app.UseRateLimiter();
+// After routing (implicit, at the start), so the endpoint's [RequestTimeout] policy is known.
+app.UseRequestTimeouts();
 
 app.UseAuthentication();
 app.UseAuthorization();

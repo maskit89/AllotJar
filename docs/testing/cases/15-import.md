@@ -783,8 +783,8 @@
 - **Preconditions:** A statement file larger than 10 MB.
 - **Steps:**
   1. `POST /import/preview` with the large file.
-- **Expected:** **413 Payload Too Large** — the preview endpoint carries `[RequestSizeLimit(10 * 1024 * 1024)]`. (`/commit` has no explicit override; a pathologically huge JSON body falls back to the default limit.) HSBC `CanParse` samples only the first 50 data rows, so sniffing a large-but-in-limit file is cheap.
-- **Automated:** No
+- **Expected:** **413 Payload Too Large** with "This is too large to send at once. Import a shorter date range." — the preview endpoint carries `[RequestSizeLimit(10 * 1024 * 1024)]`, and `/commit` its own 4 MB limit (IMP-107). HSBC `CanParse` samples only the first 50 data rows, so sniffing a large-but-in-limit file is cheap.
+- **Automated:** Partial (commit side: ImportLimitsHttpTests.cs)
 
 ### IMP-081 - Invalid column-mapping JSON is rejected
 - **Priority:** P2
@@ -1026,8 +1026,8 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Origin:** PDF import, 28 Oct 2026
 - **Preconditions:** A scanned (image-only) PDF; a password-protected PDF; a damaged file named .pdf; a PDF of more than 60 pages; a PDF with no dates in it; a PDF uploaded with the HSBC or CAMT.053 format chosen; a small PDF that asks for a huge amount of drawing (millions of letters, pages sharing one heavy stream, a stream inflating to hundreds of megabytes); two PDFs uploaded at the same moment.
 - **Steps:** Upload each.
-- **Expected:** Scan: "This PDF has no text in it, so it may be a scan. Download the statement from your internet banking instead." Password: "This PDF is password-protected. Save it without a password and upload it again." Damaged: "This PDF could not be read." Too long: "This PDF has N pages, which is too long for a statement." No dates: "No transactions were found in this PDF." Wrong format: "A PDF statement is imported as Bank CSV or PDF." Too much drawing: "This PDF is too large to read as a statement.", within a second or two and without the server's memory growing by more than about 100 MB. Over 20 seconds: "This PDF took too long to read." The second of two at once waits up to 3 seconds, then: "Another PDF is being read. Try again in a moment." Nothing is saved in any case.
-- **Automated:** Partial (PdfTableReaderTests.cs)
+- **Expected:** Scan: "This PDF has no text in it, so it may be a scan. Download the statement from your internet banking instead." Password: "This PDF is password-protected. Save it without a password and upload it again." Damaged: "This PDF could not be read." Too long: "This PDF has N pages, which is too long for a statement." No dates: "No transactions were found in this PDF." Wrong format: "A PDF statement is imported as Bank CSV or PDF." Too much drawing: "This PDF is too large to read as a statement.", within a second or two and without the server's memory growing by more than about 100 MB. Over 20 seconds: "This PDF took too long to read." One PDF is read at a time: a second person's PDF waits its turn (up to 25 seconds) and is read next, and people waiting are read in the order they came. A second PDF from the same person while their first is waiting or being read: "Your other PDF is still being read. Try again when it has finished." More than three waiting, or a turn that does not come within 25 seconds: "Another PDF is being read. Try again in a moment." Nothing is saved in any case.
+- **Automated:** Partial (PdfTableReaderTests.cs, PdfReadSlotsTests.cs)
 
 ### IMP-106 - A CSV saved as UTF-16 imports
 - **Priority:** P2
@@ -1037,3 +1037,14 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
 - **Steps:** Upload it as **Bank CSV or PDF**.
 - **Expected:** The rows import as they would from a UTF-8 copy of the same file.
 - **Automated:** No
+
+### IMP-107 - A statement import has a size limit, a rate limit and a time limit
+- **Priority:** P2
+- **Type:** Boundary
+- **Origin:** Holistic review M3, 2 Nov 2026
+- **Preconditions:** A bank CSV with more than 2,500 rows not yet imported; direct API access for the commit cases.
+- **Steps:**
+  1. Upload the CSV.
+  2. `POST /import/commit` with 2,501 rows; with a body over 4 MB; eleven times in one minute; with a row whose reference is over 140 characters.
+- **Expected:** The preview answers **422** "This statement has N new rows, and up to 2,500 are imported at a time. Export a shorter date range from your bank and import it in parts." Commit: 2,501 rows is **400** with the same message, 2,500 rows go in; over 4 MB is **413**; the eleventh commit in a minute from one visitor is **429** (preview keeps its own 30 a minute); the long reference is **400**. A commit still running after 30 seconds is stopped with **504** "The import took too long, so nothing was saved. Import fewer rows at a time.", nothing of it is saved and the account takes the next commit at once. Nothing is saved in any refused case.
+- **Automated:** Yes (ImportLimitsHttpTests.cs)
