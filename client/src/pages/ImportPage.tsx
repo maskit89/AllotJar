@@ -2328,6 +2328,8 @@ export function ImportPage() {
     : ''
   const formatHint = `${FORMATS[format].hint} ${DUPES}`
   const unreadLines = preview?.unreadLines ?? 0
+  const pendingEntries = preview?.pendingEntries ?? 0
+  const readAsCamt = format === 'camt' || preview?.detectedFormat === 'Camt053'
   const detected = format === 'generic' && preview?.detectedFormat ? DETECTED_FORMAT_LABELS[preview.detectedFormat] : undefined
   const FileIcon = format === 'camt' ? FileCode : FileSpreadsheet
 
@@ -2511,7 +2513,7 @@ export function ImportPage() {
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <b className="truncate text-sm font-semibold text-slate-900">{file?.name}</b>
-              <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500">
+              <span className="flex min-w-0 items-center gap-1.5 text-[13px] text-slate-500 max-[699.98px]:flex-wrap max-[699.98px]:gap-y-0.5">
                 <span className="shrink-0">{format === 'generic' && isPdf(file) ? 'PDF' : FORMAT_SHORT[format]}</span>
                 {detected && (
                   <InfoHint fixed label="About the format" buttonClassName={ROW_HINT}>
@@ -2547,17 +2549,39 @@ export function ImportPage() {
                     )}
                   </>
                 )}
-                {unreadLines > 0 && (
-                  <>
-                    <span aria-hidden className="text-slate-400">
-                      ·
-                    </span>
-                    <span className="shrink-0 text-warn">{unreadLines} not read</span>
-                    <InfoHint fixed label="About lines not read" buttonClassName={`${LINE_HINT} text-warn`}>
-                      {unreadLines === 1 ? 'One line' : `${unreadLines} lines`} with an amount were left out: a total or balance, no date beside
-                      it, or text where the amount should be. Check them against your statement, or change the columns.
-                    </InfoHint>
-                  </>
+                {(unreadLines > 0 || pendingEntries > 0) && (
+                  // What was left out. On a phone it takes a line of its own, so the account name is never cut short.
+                  <span className="flex shrink-0 items-center gap-1.5 max-[699.98px]:basis-full">
+                    {unreadLines > 0 && (
+                      <>
+                        <span aria-hidden className="text-slate-400 max-[699.98px]:hidden">
+                          ·
+                        </span>
+                        <span className="shrink-0 text-warn">{unreadLines} not read</span>
+                        <InfoHint fixed label="About lines not read" buttonClassName={`${LINE_HINT} text-warn`}>
+                          {readAsCamt
+                            ? `${unreadLines === 1 ? 'One entry' : `${unreadLines} entries`} had no usable date, amount or direction and ${
+                                unreadLines === 1 ? 'was' : 'were'
+                              } left out. Check them against your statement.`
+                            : `${unreadLines === 1 ? 'One line' : `${unreadLines} lines`} with an amount were left out: a total or balance, no date beside it, or text where the amount should be. Check them against your statement, or change the columns.`}
+                        </InfoHint>
+                      </>
+                    )}
+                    {pendingEntries > 0 && (
+                      <>
+                        <span aria-hidden className={`text-slate-400${unreadLines > 0 ? '' : ' max-[699.98px]:hidden'}`}>
+                          ·
+                        </span>
+                        <span className="shrink-0 text-warn">{pendingEntries} pending</span>
+                        <InfoHint fixed label="About pending entries" buttonClassName={`${LINE_HINT} text-warn`}>
+                          {pendingEntries === 1
+                            ? 'One entry is not booked by your bank yet, so it was left out. Import this period again once it is booked.'
+                            : `${pendingEntries} entries are not booked by your bank yet, so they were left out. Import this period again once they are booked.`}{' '}
+                          Rows you already imported are skipped.
+                        </InfoHint>
+                      </>
+                    )}
+                  </span>
                 )}
               </span>
             </div>

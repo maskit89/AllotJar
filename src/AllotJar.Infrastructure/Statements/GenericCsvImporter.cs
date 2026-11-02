@@ -153,6 +153,12 @@ public sealed partial class GenericCsvImporter : ICsvImporter
             }
             if (!TryReadAmount(row, mapping, out var signed))
             {
+                // A dated row that ends before its amount column, with an amount in its text (a
+                // stray quote ran it together, "05/10/2026,"Broken,-45.00"): counted, not lost.
+                if (EndsBeforeAmount(row, mapping) && row.Any(c => AmountInText().IsMatch(c)))
+                {
+                    unread++;
+                }
                 continue;
             }
             if (unmarkedOut && signed > 0m && TryCell(row, mapping.AmountColumn, out var bare) && !DirectionMarker().IsMatch(bare.Trim()))
@@ -252,6 +258,14 @@ public sealed partial class GenericCsvImporter : ICsvImporter
         mapping.SplitAmounts
         && new[] { mapping.DebitColumn!.Value, mapping.CreditColumn!.Value }.All(c =>
             TryCell(row, c, out var cell) && TryParseSignedAmount(cell, mapping.DecimalStyle, out var a) && a != 0m);
+
+    private static bool EndsBeforeAmount(List<string> row, CsvMapping mapping) =>
+        mapping.SplitAmounts
+            ? mapping.DebitColumn!.Value >= row.Count && mapping.CreditColumn!.Value >= row.Count
+            : mapping.AmountColumn >= row.Count;
+
+    [GeneratedRegex(@"\d[.,]\d{2}(?!\d)", RegexOptions.CultureInvariant)]
+    private static partial Regex AmountInText();
 
     private static bool HasAmount(List<string> row, CsvMapping mapping)
     {
@@ -873,15 +887,116 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
     // --- Parsing primitives --------------------------------------------------
 
-    private static List<string> NonEmptyLines(string content) =>
-        (content ?? string.Empty)
-            // A UTF-8 BOM that survived decoding would corrupt the first cell (and its reference).
-            .TrimStart('\uFEFF')
-            // Split on BOTH \n and \r: handles CRLF (the empties are filtered), LF, and the rare
-            // bare-CR (classic Mac) export that would otherwise collapse into one giant line.
-            .Split('\n', '\r')
-            .Where(l => l.Trim().Length > 0)
-            .ToList();
+    /// <summary>
+    /// The file's non-blank records: one per line, except that a line break inside a quoted field
+    /// stays in its record (RFC 4180), so <c>05/10/2026,"Payment&#10;ref 123",-45.00</c> is one row
+    /// and not a dated row with no amount plus a stray amount (holistic review L2). Line breaks are
+    /// \n, \r\n and the rare bare \r (classic Mac). Description cells collapse the kept break to a
+    /// space (<see cref="Normalize"/>).
+    /// </summary>
+    private static List<string> NonEmptyLines(string content)
+    {
+        // A UTF-8 BOM that survived decoding would corrupt the first cell (and its reference).
+        var text = (content ?? string.Empty).TrimStart('\uFEFF');
+        var records = new List<string>();
+        var start = 0;
+        while (start < text.Length)
+        {
+            var end = RecordEnd(text, start);
+            if (text.AsSpan(start, end - start).Trim().Length > 0)
+            {
+                records.Add(text[start..end]);
+            }
+            start = end + 1;
+        }
+        return records;
+    }
+
+    /// <summary>A quoted field may span this many line breaks before its quote is taken as a stray.</summary>
+    private const int MaxBreaksInQuotedField = 10;
+
+    /// <summary>
+    /// Where the record that starts at <paramref name="start"/> ends: the first line break outside
+    /// quotes. A quote opens a field only at the start of one (after a delimiter, the line start or
+    /// spaces after them), as RFC 4180 has it, so an inch mark in <c>12" pizza</c> never swallows the
+    /// lines below it. A quote that is never closed, still open after
+    /// <see cref="MaxBreaksInQuotedField"/> line breaks, or closed by a quote that does not end the
+    /// field (<c>"Shop"</c> on a later line closing a stray <c>"Hi</c>), is a stray: the record ends
+    /// at its first line break, as every record did before.
+    /// </summary>
+    private static int RecordEnd(string text, int start)
+    {
+        var inQuotes = false;
+        var fieldStart = true;
+        var breaks = 0;
+        var firstBreak = -1;
+        for (var i = start; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (inQuotes)
+            {
+                if (c == '"')
+                {
+                    if (i + 1 < text.Length && text[i + 1] == '"')
+                    {
+                        i++; // an escaped quote
+                    }
+                    else
+                    {
+                        // A field that ran over a line break holds only when its closing quote
+                        // ends the field (a delimiter, the line end or the file end follows, after
+                        // any spaces). Otherwise the quote that opened it was a stray, and the
+                        // quote here belongs to another field: the record ends at its first line
+                        // break, so the rows below are never joined to it.
+                        if (firstBreak >= 0 && !EndsField(text, i + 1))
+                        {
+                            return firstBreak;
+                        }
+                        inQuotes = false;
+                        fieldStart = false;
+                    }
+                }
+                else if (c is '\n' or '\r')
+                {
+                    if (firstBreak < 0)
+                    {
+                        firstBreak = i;
+                    }
+                    // \r\n is one break.
+                    if (!(c == '\r' && i + 1 < text.Length && text[i + 1] == '\n') && ++breaks > MaxBreaksInQuotedField)
+                    {
+                        return firstBreak;
+                    }
+                }
+                continue;
+            }
+
+            if (c is '\n' or '\r')
+            {
+                return i;
+            }
+            if (c == '"' && fieldStart)
+            {
+                inQuotes = true;
+                continue;
+            }
+            if (c != ' ')
+            {
+                fieldStart = Array.IndexOf(CandidateDelimiters, c) >= 0;
+            }
+        }
+        return inQuotes && firstBreak >= 0 ? firstBreak : text.Length;
+    }
+
+    /// <summary>Whether a field ends at <paramref name="i"/>: only spaces, then a delimiter, a line break or the end.</summary>
+    private static bool EndsField(string text, int i)
+    {
+        while (i < text.Length && text[i] == ' ')
+        {
+            i++;
+        }
+        return i >= text.Length || text[i] is '\n' or '\r' || Array.IndexOf(CandidateDelimiters, text[i]) >= 0;
+    }
 
     private static bool TryCell(List<string> row, int index, out string value)
     {
@@ -1014,7 +1129,8 @@ public sealed partial class GenericCsvImporter : ICsvImporter
 
     /// <summary>
     /// Minimal RFC-4180 splitter parameterised by delimiter: unquoted delimiters split fields, a
-    /// quoted field may contain the delimiter, and "" is an escaped quote. One record per line.
+    /// quoted field may contain the delimiter or a line break, and "" is an escaped quote. One record
+    /// per call (<see cref="NonEmptyLines"/> keeps a quoted line break inside its record).
     /// </summary>
     private static List<string> SplitLine(string line, char delimiter)
     {

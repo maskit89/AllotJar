@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using AllotJar.Application.Common.Exceptions;
@@ -14,7 +15,7 @@ namespace AllotJar.Infrastructure.Statements;
 /// element local name so the same code handles every camt.053.001.xx namespace
 /// version without binding to a specific schema.
 /// </summary>
-public class Camt053StatementParser : IStatementParser
+public partial class Camt053StatementParser : IStatementParser
 {
     public StatementFormat Format => StatementFormat.Camt053;
 
@@ -60,9 +61,19 @@ public class Camt053StatementParser : IStatementParser
         var root = doc.Root
             ?? throw new StatementParseException("The statement document is empty.");
 
-        var stmt = Descendant(root, "Stmt")
-            ?? throw new StatementParseException(
-                "No <Stmt> element found — is this a CAMT.053 statement?");
+        // A file may hold several statements (one per day, or one per period): every one is read
+        // (holistic review M2). They must all be for the same account, since the import books every
+        // entry into the one account the user picked.
+        var statements = root.DescendantsAndSelf()
+            .Where(e => e.Name.LocalName == "Stmt" && !e.Ancestors().Any(a => a.Name.LocalName == "Stmt"))
+            .ToList();
+        if (statements.Count == 0)
+        {
+            throw new StatementParseException("No <Stmt> element found — is this a CAMT.053 statement?");
+        }
+        RefuseMixedAccounts(statements);
+        statements = WithoutRepeats(statements);
+        RefuseOverlaps(statements);
 
         // One malformed entry must not abort an otherwise-valid statement (the CSV parsers skip
         // bad rows the same way), so parse per entry and drop the ones we can't trust.
@@ -75,11 +86,29 @@ public class Camt053StatementParser : IStatementParser
         var occurrences = new Dictionary<string, int>(StringComparer.Ordinal);
         var contentReferences = new SignatureReferences("camt:");
 
-        foreach (var ntry in stmt.Descendants().Where(e => e.Name.LocalName == "Ntry"))
+        // One counter over the whole file: statements in one file cover different days, so an entry
+        // is numbered exactly as it would be if its day's statement came as a file of its own.
+        var notBooked = 0;
+        var unread = 0;
+        foreach (var ntry in statements.SelectMany(s => s.Descendants().Where(e => e.Name.LocalName == "Ntry")))
         {
+            if (!IsBooked(ntry))
+            {
+                // A pending (PDNG) or information-only (INFO) entry is not on the account yet: the
+                // bank shows it booked, with its final amount and date, in a later statement.
+                notBooked++;
+                continue;
+            }
+
             var entry = TryParseEntry(ntry);
             if (entry is null)
             {
+                // Counted, as the CSV importer counts its unread lines, unless it is a 0.00 entry
+                // (the app has no zero-amount transactions; nothing is lost).
+                if (!IsZeroAmount(ntry))
+                {
+                    unread++;
+                }
                 continue;
             }
 
@@ -113,10 +142,110 @@ public class Camt053StatementParser : IStatementParser
 
         if (entries.Count == 0)
         {
-            throw new StatementParseException("No usable transactions were found in this statement.");
+            throw new StatementParseException(notBooked > 0
+                ? "This statement holds only entries the bank has not booked yet. Import it again once they are booked."
+                : "No usable transactions were found in this statement.");
         }
 
-        return new ParsedStatement(entries);
+        return new ParsedStatement(entries) { UnreadLines = unread, PendingEntries = notBooked };
+    }
+
+    private static bool IsZeroAmount(XElement ntry) =>
+        decimal.TryParse(Value(Child(ntry, "Amt")), NumberStyles.Number, CultureInfo.InvariantCulture, out var amount)
+        && amount == 0m;
+
+    /// <summary>
+    /// The statements without one that repeats an earlier one entry for entry (the same statement
+    /// twice, or an original with its COPY or DUPL): its entries would otherwise import twice,
+    /// since a repeat in one file is numbered as a second occurrence.
+    /// </summary>
+    private static List<XElement> WithoutRepeats(List<XElement> statements)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        return statements.Where(stmt =>
+        {
+            var entries = stmt.Descendants().Where(e => e.Name.LocalName == "Ntry").ToList();
+            return entries.Count == 0
+                || seen.Add(string.Join("\n", entries.Select(e => e.ToString(SaveOptions.DisableFormatting))));
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Refuse a file whose statements cover overlapping periods (<c>FrToDt</c>): an entry in the
+    /// overlap could be in both and import twice. A statement without a period is not compared;
+    /// periods that only touch (one ends as the next starts) do not overlap.
+    /// </summary>
+    private static void RefuseOverlaps(List<XElement> statements)
+    {
+        var periods = new List<(DateTimeOffset From, DateTimeOffset To)>();
+        foreach (var stmt in statements)
+        {
+            var period = Child(stmt, "FrToDt");
+            if (TryParseInstant(Value(Child(period, "FrDtTm")), out var from)
+                && TryParseInstant(Value(Child(period, "ToDtTm")), out var to))
+            {
+                if (periods.Any(p => from < p.To && p.From < to))
+                {
+                    throw new StatementParseException(
+                        "This file holds statements for overlapping periods. Export each period once and import it again.");
+                }
+                periods.Add((from, to));
+            }
+        }
+
+        static bool TryParseInstant(string? text, out DateTimeOffset instant) =>
+            DateTimeOffset.TryParse(text?.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out instant);
+    }
+
+    /// <summary>
+    /// Refuse a file whose statements name different accounts (another IBAN or account number, or
+    /// another currency of a multi-currency account): its entries can't all go into one account.
+    /// The identifiers are compared here and nowhere else; AllotJar keeps no bank details. A
+    /// statement that names no account, or no currency, is not compared on that part.
+    /// </summary>
+    private static void RefuseMixedAccounts(List<XElement> statements)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        var currencies = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var stmt in statements)
+        {
+            var acct = Child(stmt, "Acct");
+            var idEl = Child(acct, "Id");
+            var id = Value(Child(idEl, "IBAN")) ?? Value(Child(Child(idEl, "Othr"), "Id"));
+            if (!string.IsNullOrWhiteSpace(id))
+            {
+                ids.Add(string.Concat(id.Where(c => !char.IsWhiteSpace(c))).ToUpperInvariant());
+            }
+            var ccy = Value(Child(acct, "Ccy"));
+            if (!string.IsNullOrWhiteSpace(ccy))
+            {
+                currencies.Add(ccy.Trim().ToUpperInvariant());
+            }
+        }
+
+        if (ids.Count > 1 || currencies.Count > 1)
+        {
+            throw new StatementParseException(
+                "This file holds statements for more than one account. Export each account on its own and import them one at a time.");
+        }
+    }
+
+    /// <summary>
+    /// Whether the bank has booked the entry. <c>Sts</c> is a bare code up to camt.053.001.07 and
+    /// <c>&lt;Sts&gt;&lt;Cd&gt;…&lt;/Cd&gt;&lt;/Sts&gt;</c> from .08. Only PDNG (pending) and INFO (shown for
+    /// information, never booked) are left out; BOOK, FUTR, a code we don't know and a missing
+    /// status import as before.
+    /// </summary>
+    private static bool IsBooked(XElement ntry)
+    {
+        var sts = Child(ntry, "Sts");
+        if (sts is null)
+        {
+            return true;
+        }
+        var code = (Value(Child(sts, "Cd")) ?? (sts.HasElements ? null : sts.Value))?.Trim();
+        return !(string.Equals(code, "PDNG", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(code, "INFO", StringComparison.OrdinalIgnoreCase));
     }
 
     /// <summary>
@@ -248,27 +377,38 @@ public class Camt053StatementParser : IStatementParser
             return null;
         }
 
-        var dt = Value(Child(dateContainer, "Dt"));
+        var dt = Value(Child(dateContainer, "Dt"))?.Trim();
         if (dt is not null && DateOnly.TryParse(dt, CultureInfo.InvariantCulture, out var date))
         {
             return date;
         }
-
-        var dtTm = Value(Child(dateContainer, "DtTm"));
-        if (dtTm is not null && DateTimeOffset.TryParse(dtTm, CultureInfo.InvariantCulture, DateTimeStyles.None, out var dto))
+        // An xs:date may carry a time zone ("2026-10-01+02:00", "2026-10-01Z"): the day is the
+        // day the bank wrote.
+        if (dt is not null && DateWithZone().IsMatch(dt)
+            && DateOnly.TryParseExact(dt.AsSpan(0, 10), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
         {
-            return DateOnly.FromDateTime(dto.UtcDateTime);
+            return date;
+        }
+
+        // A date-time is booked on the calendar day the bank wrote, never moved to UTC or to the
+        // server's clock (holistic review M1): "2026-10-01T00:15:00+02:00" is 1 October, not
+        // 30 September. AssumeUniversal only stops a time with no offset from being read in the
+        // server's zone; DateTime is then the clock time as written either way.
+        var dtTm = Value(Child(dateContainer, "DtTm"))?.Trim();
+        if (dtTm is not null && DateTimeOffset.TryParse(dtTm, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dto))
+        {
+            return DateOnly.FromDateTime(dto.DateTime);
         }
 
         return null;
     }
 
     // --- local-name navigation helpers --------------------------------------
-    private static XElement? Child(XElement parent, string localName) =>
-        parent.Elements().FirstOrDefault(e => e.Name.LocalName == localName);
+    private static XElement? Child(XElement? parent, string localName) =>
+        parent?.Elements().FirstOrDefault(e => e.Name.LocalName == localName);
 
-    private static XElement? Descendant(XElement parent, string localName) =>
-        parent.Descendants().FirstOrDefault(e => e.Name.LocalName == localName);
+    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}(Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant)]
+    private static partial Regex DateWithZone();
 
     private static string? Value(XElement? element) =>
         element is null ? null : element.Value;
