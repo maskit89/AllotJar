@@ -18,6 +18,7 @@ using AllotJar.Application.HouseholdAccess.Dtos;
 using AllotJar.Application.HouseholdAccess.Queries.GetMemberships;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
+using AllotJar.Infrastructure.Logging;
 
 namespace AllotJar.Api.Controllers;
 
@@ -51,6 +52,9 @@ public class HouseholdAccessController : ControllerBase
         _inviteAllowance = inviteAllowance;
         _currentUser = currentUser;
     }
+
+    /// <summary>The security log (audit A09-001).</summary>
+    private SecurityEvents Security => HttpContext.RequestServices.GetRequiredService<SecurityEvents>();
 
     /// <summary>Lists the logins with access to the household.</summary>
     [HttpGet("members")]
@@ -105,6 +109,8 @@ public class HouseholdAccessController : ControllerBase
             emailSent = result.InviteToken is { } token
                 ? await _accountEmails.TrySendInviteLinkAsync(email, InviterName(me), token, ct)
                 : await _accountEmails.TrySendPasswordLinkAsync(email, ct) == PasswordLinkResult.Sent;
+            Security.Write(SecurityEvent.InviteSent, me.Id,
+                $"membership {result.Membership.Id}, {result.Membership.Role}, email {(emailSent ? "sent" : "not sent")}");
             return Ok(new InviteResponse(result.Membership, emailSent));
         }
         finally
@@ -175,6 +181,10 @@ public class HouseholdAccessController : ControllerBase
                     return StatusCode(StatusCodes.Status429TooManyRequests, new { error = PasswordLinkTooSoon });
                 }
                 emailSent = sent == PasswordLinkResult.Sent;
+            }
+            if (emailSent)
+            {
+                Security.Write(SecurityEvent.InviteSent, me.Id, $"membership {id}, sent again");
             }
             return Ok(new ResendResponse(emailSent));
         }
@@ -267,6 +277,7 @@ public class HouseholdAccessController : ControllerBase
     public async Task<ActionResult<MembershipDto>> ChangeRole(Guid id, ChangeRoleRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(new ChangeMemberRoleCommand(id, request.Role), ct);
+        Security.Write(SecurityEvent.RoleChanged, User.FindFirstValue(ClaimTypes.NameIdentifier), $"membership {id} is now {request.Role}");
         return Ok(result);
     }
 
@@ -305,6 +316,7 @@ public class HouseholdAccessController : ControllerBase
     public async Task<IActionResult> Revoke(Guid id, CancellationToken ct)
     {
         await _mediator.Send(new RevokeMemberCommand(id), ct);
+        Security.Write(SecurityEvent.AccessRemoved, User.FindFirstValue(ClaimTypes.NameIdentifier), $"membership {id}");
         return NoContent();
     }
 }
