@@ -208,10 +208,10 @@ public class HouseholdAccessController : ControllerBase
 
     /// <summary>
     /// How the invite email names the person who sent it. The display name is free text the inviter
-    /// chose, so only a plain name goes in: letters, spaces, apostrophes, hyphens and a full stop
-    /// that ends a word (initials), cut to 40 characters. Anything else, a digit (a phone lure), a
-    /// dot inside a word ("evil.com", a wide dot after normalising), or a word such as "dot", "com"
-    /// or "www", makes it "Someone", so an invite can't carry a lure in AllotJar's name (audit A06-001,
+    /// chose, so only a plain name goes in: letters, spaces, apostrophes, hyphens, name middle dots
+    /// and a full stop that ends a word or sits between initials, cut to 40 characters. Anything else,
+    /// a digit (a phone lure), a dot inside a word ("evil.com", a wide dot after normalising), or a
+    /// word such as "com" or "www", makes it "Someone", so an invite can't carry a lure in AllotJar's name (audit A06-001,
     /// #423 review P3-1). The account's own confirmed email, used when it has no name, is kept as it is.
     /// </summary>
     public static string InviterName(ApplicationUser me)
@@ -235,12 +235,16 @@ public class HouseholdAccessController : ControllerBase
 
     public const int MaxInviterNameLength = 40;
 
-    // Letters (any script) and their marks, spaces, apostrophes, hyphens; a full stop only at the end of a word.
+    // Letters (any script) and their marks, spaces, apostrophes, hyphens, the middle dots of Catalan
+    // and Japanese names, and the zero-width (non-)joiners of Persian and Indic ones. A full stop only
+    // ends a word or sits between initials ("J.R."), never inside one ("evil.com").
     private static readonly System.Text.RegularExpressions.Regex PlainName = new(
-        @"^(?:[\p{L}\p{M}'\u2019\- ]|\.(?=\s|$))+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+        @"^(?:[\p{L}\p{M}'\u2019\- \u00B7\u30FB\u200C\u200D]|\.(?=\s|$|\p{Lu}(?:\.|\s|$)))+$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
+    // "dot" alone is a real nickname; "evil dot com" is still caught by "com".
     private static readonly System.Text.RegularExpressions.Regex LinkWord = new(
-        @"\b(?:dot|com|net|org|www|http|https|click|verify|login)\b",
+        @"\b(?:com|net|org|www|http|https|click|verify|login)\b",
         System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>Cuts on whole characters (an emoji or accented letter is never split; review P3-2).</summary>

@@ -116,6 +116,12 @@ public class SendLimitsHttpTests
     [InlineData("Call 0800 123 456", "Someone")]
     [InlineData("Zo\u00EB O\u2019Brien-Smith", "Zo\u00EB O\u2019Brien-Smith")]
     [InlineData("Ren\u00E9e", "Ren\u00E9e")]
+    [InlineData("J.R. Smith", "J.R. Smith")]
+    [InlineData("Dot Cotton", "Dot Cotton")]
+    [InlineData("Gal\u00B7la", "Gal\u00B7la")]
+    [InlineData("\u30B8\u30E7\u30F3\u30FB\u30B9\u30DF\u30B9", "\u30B8\u30E7\u30F3\u30FB\u30B9\u30DF\u30B9")]
+    [InlineData("\u0645\u06CC\u200C\u0631\u0648\u0645", "\u0645\u06CC\u200C\u0631\u0648\u0645")]
+    [InlineData("evil.Com", "Someone")]
     [InlineData("Bartholomew Montgomery-Fitzwilliam Smythe the Third", "Bartholomew Montgomery-Fitzwilliam Smyth…")]
     public void The_inviters_name_is_cut_short_and_dropped_when_it_looks_like_a_link(string displayName, string expected)
     {
