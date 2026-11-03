@@ -71,7 +71,7 @@ public class ExceptionHandlingMiddleware
         }
         catch (PasskeyCeremoniesBusyException ex)
         {
-            _logger.LogWarning("Passkey ceremony store full ({Max}); refused a new one.", PasskeyCeremonies.MaxEntries);
+            _logger.LogWarning("Passkey ceremony store full ({Max}); refused a new one.", PasskeyCeremonies.MaxSignInEntries);
             context.Response.Headers.RetryAfter = "60";
             await WriteProblem(context, StatusCodes.Status503ServiceUnavailable, ex.Message);
         }

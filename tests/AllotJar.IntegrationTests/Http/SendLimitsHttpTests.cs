@@ -109,11 +109,27 @@ public class SendLimitsHttpTests
     [InlineData("example.com refunds", "Someone")]
     [InlineData("pay@example", "Someone")]
     [InlineData("a/b", "Someone")]
+    [InlineData("evil\uFF0Ecom", "Someone")] // a full-width dot normalises to "."
+    [InlineData("evil . com", "Someone")]
+    [InlineData("evil[.]com", "Someone")]
+    [InlineData("evil dot com", "Someone")]
+    [InlineData("Call 0800 123 456", "Someone")]
+    [InlineData("Zo\u00EB O\u2019Brien-Smith", "Zo\u00EB O\u2019Brien-Smith")]
+    [InlineData("Ren\u00E9e", "Ren\u00E9e")]
     [InlineData("Bartholomew Montgomery-Fitzwilliam Smythe the Third", "Bartholomew Montgomery-Fitzwilliam Smyth…")]
     public void The_inviters_name_is_cut_short_and_dropped_when_it_looks_like_a_link(string displayName, string expected)
     {
         var me = new AllotJar.Infrastructure.Identity.ApplicationUser { DisplayName = displayName, Email = "owner@limits.test" };
         HouseholdAccessController.InviterName(me).Should().Be(expected);
+    }
+
+    [Fact]
+    public void A_long_name_is_never_cut_through_a_character()
+    {
+        // 39 letters, then a q with a combining acute (no precomposed form) across positions 39 and 40.
+        var name = new string('a', 39) + "q\u0301 tail";
+        var me = new AllotJar.Infrastructure.Identity.ApplicationUser { DisplayName = name, Email = "owner@limits.test" };
+        HouseholdAccessController.InviterName(me).Should().Be(new string('a', 39) + "\u2026");
     }
 
     [Fact]

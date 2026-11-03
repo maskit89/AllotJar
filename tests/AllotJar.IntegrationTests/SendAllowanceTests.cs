@@ -90,11 +90,11 @@ public class SendAllowanceTests
     }
 
     [Fact]
-    public void Passkey_ceremonies_refuse_new_ones_past_the_cap_until_old_ones_expire()
+    public void Anonymous_passkey_sign_ins_are_refused_past_the_cap_until_old_ones_expire()
     {
         var clock = new Clock();
         var ceremonies = new PasskeyCeremonies(clock);
-        for (var i = 0; i < PasskeyCeremonies.MaxEntries; i++)
+        for (var i = 0; i < PasskeyCeremonies.MaxSignInEntries; i++)
         {
             ceremonies.Start(PasskeyCeremonyKind.SignIn, null, "state");
         }
@@ -104,5 +104,22 @@ public class SendAllowanceTests
 
         clock.Now += PasskeyCeremonies.Lifetime;
         ceremonies.Start(PasskeyCeremonyKind.SignIn, null, "state").Should().NotBeEmpty();
+    }
+
+    [Theory]
+    [InlineData(PasskeyCeremonyKind.SecondStep)]
+    [InlineData(PasskeyCeremonyKind.Register)]
+    [InlineData(PasskeyCeremonyKind.Proof)]
+    public void A_store_full_of_anonymous_sign_ins_never_blocks_a_signed_in_or_second_step_ceremony(PasskeyCeremonyKind kind)
+    {
+        // #423 review P2-1: a flood of anonymous starts must not lock out logins that use 2FA.
+        var ceremonies = new PasskeyCeremonies(new Clock());
+        for (var i = 0; i < PasskeyCeremonies.MaxSignInEntries; i++)
+        {
+            ceremonies.Start(PasskeyCeremonyKind.SignIn, null, "state");
+        }
+
+        var id = ceremonies.Start(kind, "user-1", "state");
+        ceremonies.Find(id, kind).Should().NotBeNull();
     }
 }

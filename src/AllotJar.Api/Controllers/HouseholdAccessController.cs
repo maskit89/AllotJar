@@ -208,41 +208,52 @@ public class HouseholdAccessController : ControllerBase
 
     /// <summary>
     /// How the invite email names the person who sent it. The display name is free text the inviter
-    /// chose, so it is cut short and dropped when it looks like a link or an address: an invite
-    /// can't carry "Visit evil.example to claim your refund" in AllotJar's name (audit A06-001).
+    /// chose, so only a plain name goes in: letters, spaces, apostrophes, hyphens and a full stop
+    /// that ends a word (initials), cut to 40 characters. Anything else, a digit (a phone lure), a
+    /// dot inside a word ("evil.com", a wide dot after normalising), or a word such as "dot", "com"
+    /// or "www", makes it "Someone", so an invite can't carry a lure in AllotJar's name (audit A06-001,
+    /// #423 review P3-1). The account's own confirmed email, used when it has no name, is kept as it is.
     /// </summary>
     public static string InviterName(ApplicationUser me)
     {
         var name = me.DisplayName?.Trim();
         if (string.IsNullOrEmpty(name))
         {
-            name = me.Email;
+            return string.IsNullOrWhiteSpace(me.Email) ? "Someone" : me.Email;
         }
-        if (string.IsNullOrWhiteSpace(name))
-        {
-            return "Someone";
-        }
-        // The account's own (now confirmed) email is fine as-is; anything else is checked.
         if (string.Equals(name, me.Email, StringComparison.OrdinalIgnoreCase))
         {
             return name;
         }
-        if (LooksLikeLink(name))
+        name = name.Normalize(System.Text.NormalizationForm.FormKC);
+        if (!PlainName.IsMatch(name) || LinkWord.IsMatch(name))
         {
             return "Someone";
         }
-        return name.Length <= MaxInviterNameLength ? name : name[..MaxInviterNameLength].TrimEnd() + "\u2026";
+        return Shorten(name, MaxInviterNameLength);
     }
 
     public const int MaxInviterNameLength = 40;
 
-    private static bool LooksLikeLink(string name) =>
-        name.Contains("://", StringComparison.Ordinal)
-        || name.Contains("www.", StringComparison.OrdinalIgnoreCase)
-        || name.Contains('@')
-        || name.Contains('/')
-        || name.Contains('\\')
-        || System.Text.RegularExpressions.Regex.IsMatch(name, @"[A-Za-z0-9-]\.[A-Za-z]{2,}");
+    // Letters (any script) and their marks, spaces, apostrophes, hyphens; a full stop only at the end of a word.
+    private static readonly System.Text.RegularExpressions.Regex PlainName = new(
+        @"^(?:[\p{L}\p{M}'\u2019\- ]|\.(?=\s|$))+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly System.Text.RegularExpressions.Regex LinkWord = new(
+        @"\b(?:dot|com|net|org|www|http|https|click|verify|login)\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Cuts on whole characters (an emoji or accented letter is never split; review P3-2).</summary>
+    private static string Shorten(string name, int max)
+    {
+        var elements = System.Globalization.StringInfo.ParseCombiningCharacters(name);
+        if (name.Length <= max)
+        {
+            return name;
+        }
+        var cut = elements.LastOrDefault(start => start <= max);
+        return name[..cut].TrimEnd() + "\u2026";
+    }
 
     /// <summary>Changes a member's access level. Owner-only.</summary>
     [HttpPut("members/{id:guid}/role")]
