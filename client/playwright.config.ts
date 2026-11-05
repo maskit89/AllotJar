@@ -10,7 +10,10 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Two workers on CI: the suite is ~300 independent tests and one worker left the runner's second CPU idle.
+  workers: process.env.CI ? 2 : undefined,
+  // A hung run fails with a report instead of waiting for the job's 15-minute limit.
+  globalTimeout: process.env.CI ? 13 * 60_000 : undefined,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: 'http://localhost:4173',
