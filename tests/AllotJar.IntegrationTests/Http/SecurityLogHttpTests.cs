@@ -5,6 +5,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Logging;
 
 namespace AllotJar.IntegrationTests.Http;
@@ -73,7 +74,7 @@ public class SecurityLogHttpTests
         lines.Count(l => l.StartsWith($"Security event SignInFailed for login {userId} ")).Should().Be(4);
         lines.Should().ContainSingle(l => l.StartsWith($"Security event LockedOut for login {userId} "));
         lines.Should().ContainSingle(l => l.StartsWith($"Security event SignInWhileLocked for login {userId} "));
-        lines.Should().OnlyContain(l => l.Contains(" on /api/auth/login"));
+        lines.Should().OnlyContain(l => l.Contains(" on api/Auth/login"), "the route pattern, as the controller names it");
         logs.Lines.Should().NotContain(l => l.Message.Contains(email), "no log line carries the email address");
         lines.Should().NotContain(l => l.Contains("@"), "security lines never name an address, even masked");
 
@@ -82,5 +83,37 @@ public class SecurityLogHttpTests
         (await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/auth/sign-out-everywhere", token))
             .StatusCode.Should().Be(HttpStatusCode.NoContent);
         logs.Security().Should().ContainSingle(l => l.StartsWith($"Security event SignedOutEverywhere for login {userId} "));
+    }
+
+    [Fact]
+    public async Task A_refused_invite_and_a_sent_one_are_both_logged()
+    {
+        var logs = new CapturedLogs();
+        using var client = _fixture.CreateClient(b => b.ConfigureLogging(l => l.AddProvider(logs)));
+        var email = $"inv-{Guid.NewGuid():N}"[..14] + "@securitylog.test";
+        var register = await client.PostAsJsonAsync("/api/auth/register", new
+        {
+            email, password = HttpApiFixture.StrongPassword(), firstName = "Ivy", lastName = "Te",
+            preferredCurrency = "EUR", numberFormat = (string?)null, acceptedTerms = true,
+        }, HttpApiFixture.Json);
+        register.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = (await HttpApiFixture.ReadJsonAsync(register)).RootElement;
+        var userId = body.GetProperty("userId").GetString()!;
+        var token = body.GetProperty("token").GetString()!;
+        var to = $"to-{Guid.NewGuid():N}"[..15] + "@securitylog.test";
+        Task<HttpResponseMessage> InviteAsync() => HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", token, new
+        {
+            email = to, role = (int)HouseholdRole.Admin, method = 1, tempPassword = (string?)null,
+            displayName = "Guest", memberId = (Guid?)null,
+        });
+
+        (await InviteAsync()).StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        logs.Security().Should().ContainSingle(l =>
+            l.StartsWith($"Security event InviteRefused for login {userId} ") && l.EndsWith("(inviter's email not confirmed)"));
+
+        await _fixture.ConfirmEmailAsync(email);
+        (await InviteAsync()).StatusCode.Should().Be(HttpStatusCode.OK);
+        logs.Security().Should().ContainSingle(l => l.StartsWith($"Security event InviteSent for login {userId} "));
+        logs.Security().Should().NotContain(l => l.Contains("@"), "neither address is ever logged");
     }
 }

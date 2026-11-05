@@ -2,6 +2,8 @@ using System.Collections.Concurrent;
 using System.Net;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using AllotJar.Infrastructure.Identity;
@@ -34,9 +36,12 @@ public class SecurityEventsTests
 
     private sealed class Clock : TimeProvider
     {
-        public DateTimeOffset Now { get; set; } = new(2026, 11, 3, 9, 0, 0, TimeSpan.Zero);
+        // The throttle reads the monotonic timestamp, so the test moves that, not the wall clock.
+        public TimeSpan Elapsed { get; set; } = TimeSpan.FromHours(1);
 
-        public override DateTimeOffset GetUtcNow() => Now;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() => Elapsed.Ticks;
     }
 
     internal static (SecurityEvents Events, CapturedLogs Logs) NewLog(TimeProvider? clock = null)
@@ -45,7 +50,8 @@ public class SecurityEventsTests
         var factory = LoggerFactory.Create(b => b.AddProvider(logs).SetMinimumLevel(LogLevel.Trace));
         var context = new DefaultHttpContext();
         context.Connection.RemoteIpAddress = IPAddress.Parse("203.0.113.7");
-        context.Request.Path = "/api/auth/login";
+        context.Request.Path = "/api/auth/login%0Aforged";
+        context.SetEndpoint(new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse("api/auth/login"), 0, null, null));
         return (new SecurityEvents(factory, new HttpContextAccessor { HttpContext = context }, clock), logs);
     }
 
@@ -59,7 +65,7 @@ public class SecurityEventsTests
         var line = logs.Lines.Should().ContainSingle().Subject;
         line.Category.Should().Be(SecurityEvents.Category);
         line.Level.Should().Be(LogLevel.Warning);
-        line.Message.Should().Be("Security event LockedOut for login user-42 from 203.0.113.7 on /api/auth/login");
+        line.Message.Should().Be("Security event LockedOut for login user-42 from 203.0.113.7 on api/auth/login", "the route's pattern is logged, never the visitor's path");
     }
 
     [Fact]
@@ -72,12 +78,16 @@ public class SecurityEventsTests
         {
             events.WriteRateLimited();
         }
-        logs.Lines.Should().ContainSingle().Which.Message.Should().Contain("(1 turned away since the last line)");
+        logs.Lines.Should().ContainSingle().Which.Message.Should().Contain("(1 turned away from all addresses since the last line)");
 
-        clock.Now += SecurityEvents.RateLimitedLogInterval;
+        clock.Elapsed += SecurityEvents.RateLimitedLogInterval - TimeSpan.FromTicks(1);
+        events.WriteRateLimited();
+        logs.Lines.Should().ContainSingle("the interval hasn't passed yet");
+
+        clock.Elapsed += TimeSpan.FromTicks(1);
         events.WriteRateLimited();
         logs.Lines.Should().HaveCount(2);
-        logs.Lines.Last().Message.Should().Contain("(50 turned away since the last line)");
+        logs.Lines.Last().Message.Should().Contain("(51 turned away from all addresses since the last line)");
     }
 
     [Fact]

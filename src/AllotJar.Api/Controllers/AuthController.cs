@@ -414,6 +414,7 @@ public partial class AuthController : ControllerBase
             }
 
             await _userManager.AddLoginAsync(raced, new UserLoginInfo(providerName, identity.Subject, providerName));
+            Security.Write(SecurityEvent.GoogleLinked, raced.Id, "account made at the same moment");
             return (raced, false);
         }
 
@@ -455,7 +456,10 @@ public partial class AuthController : ControllerBase
             existing.EmailConfirmed = true;
         }
 
-        if (!alreadyVerified && await _userManager.HasPasswordAsync(existing))
+        var removePassword = !alreadyVerified && await _userManager.HasPasswordAsync(existing);
+        Security.Write(SecurityEvent.GoogleLinked, existing.Id,
+            removePassword ? "password removed, every sign-in ended" : "password kept, every sign-in ended");
+        if (removePassword)
         {
             // The attacker's known password (if this was a pre-hijack) must stop working. With no
             // password left, an owner-set temporary one is no longer pending either.
@@ -554,6 +558,9 @@ public partial class AuthController : ControllerBase
         {
             DispatchVerificationEmail(result.UserId);
         }
+
+        Security.Write(SecurityEvent.InviteAccepted, result.UserId,
+            result.CreatedNewLogin ? "new login with its own password" : "existing login joined");
 
         var user = await _userManager.FindByIdAsync(result.UserId);
         var stamp = user is null ? null : await _userManager.GetSecurityStampAsync(user);

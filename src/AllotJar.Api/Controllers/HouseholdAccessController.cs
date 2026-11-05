@@ -89,11 +89,13 @@ public class HouseholdAccessController : ControllerBase
         var me = await CurrentLoginAsync();
         if (me is not { EmailConfirmed: true })
         {
+            Security.Write(SecurityEvent.InviteRefused, me?.Id, "inviter's email not confirmed");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ConfirmEmailFirst });
         }
         var household = _currentUser.OwnerId ?? string.Empty;
         if (!_inviteAllowance.TryClaim(household))
         {
+            Security.Write(SecurityEvent.InviteRefused, me.Id, "daily invite emails used up");
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = InviteEmailAllowance.Refused });
         }
 
@@ -110,7 +112,7 @@ public class HouseholdAccessController : ControllerBase
                 ? await _accountEmails.TrySendInviteLinkAsync(email, InviterName(me), token, ct)
                 : await _accountEmails.TrySendPasswordLinkAsync(email, ct) == PasswordLinkResult.Sent;
             Security.Write(SecurityEvent.InviteSent, me.Id,
-                $"membership {result.Membership.Id}, {result.Membership.Role}, email {(emailSent ? "sent" : "not sent")}");
+                $"membership {result.Membership.Id}, {result.Membership.Role}, {(result.InviteToken is null ? "temporary password set by the owner" : "invite link")}, email {(emailSent ? "sent" : "not sent")}");
             return Ok(new InviteResponse(result.Membership, emailSent));
         }
         finally
@@ -147,15 +149,18 @@ public class HouseholdAccessController : ControllerBase
         var me = await CurrentLoginAsync();
         if (me is not { EmailConfirmed: true })
         {
+            Security.Write(SecurityEvent.InviteRefused, me?.Id, "inviter's email not confirmed");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ConfirmEmailFirst });
         }
         var household = _currentUser.OwnerId ?? string.Empty;
         if (!_resendCooldown.TryClaim(household, id))
         {
+            Security.Write(SecurityEvent.InviteRefused, me.Id, $"membership {id}, sent again too soon");
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = ResendTooSoon });
         }
         if (!_inviteAllowance.TryClaim(household))
         {
+            Security.Write(SecurityEvent.InviteRefused, me.Id, $"membership {id}, daily invite emails used up");
             _resendCooldown.Release(household, id);
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = InviteEmailAllowance.Refused });
         }
@@ -178,6 +183,7 @@ public class HouseholdAccessController : ControllerBase
                 var sent = await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
                 if (sent == PasswordLinkResult.TooSoon)
                 {
+                    Security.Write(SecurityEvent.InviteRefused, me.Id, $"membership {id}, password links used up");
                     return StatusCode(StatusCodes.Status429TooManyRequests, new { error = PasswordLinkTooSoon });
                 }
                 emailSent = sent == PasswordLinkResult.Sent;

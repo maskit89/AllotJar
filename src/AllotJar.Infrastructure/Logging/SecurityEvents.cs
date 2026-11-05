@@ -40,6 +40,16 @@ public enum SecurityEvent
     GoogleUnlinked,
     AccountDeleted,
     InviteSent,
+
+    /// <summary>An invite or "Send again" refused: inviter's email unconfirmed, the daily allowance used, or too soon.</summary>
+    InviteRefused,
+
+    /// <summary>An invite accepted: a new login made with its own password, or an existing login joining.</summary>
+    InviteAccepted,
+
+    /// <summary>A Google identity linked to an existing account at sign-in (which may remove its password).</summary>
+    GoogleLinked,
+
     RoleChanged,
     AccessRemoved,
 
@@ -65,7 +75,7 @@ public sealed class SecurityEvents
     private readonly IHttpContextAccessor _http;
     private readonly TimeProvider _clock;
     private long _refusedSinceLastLine;
-    private long _nextRateLimitedLineTicks;
+    private long _nextRateLimitedLineTimestamp;
 
     public SecurityEvents(ILoggerFactory loggers, IHttpContextAccessor http, TimeProvider? clock = null)
     {
@@ -82,15 +92,18 @@ public sealed class SecurityEvents
     public void WriteRateLimited()
     {
         var refused = Interlocked.Increment(ref _refusedSinceLastLine);
-        var now = _clock.GetUtcNow().UtcTicks;
-        var due = Interlocked.Read(ref _nextRateLimitedLineTicks);
-        if (now < due
-            || Interlocked.CompareExchange(ref _nextRateLimitedLineTicks, now + RateLimitedLogInterval.Ticks, due) != due)
+        // The monotonic timestamp, not the wall clock, so a clock stepped backwards can't silence the line.
+        var now = _clock.GetTimestamp();
+        var due = Interlocked.Read(ref _nextRateLimitedLineTimestamp);
+        var interval = (long)(RateLimitedLogInterval.TotalSeconds * _clock.TimestampFrequency);
+        if ((due != 0 && now < due)
+            || Interlocked.CompareExchange(ref _nextRateLimitedLineTimestamp, now + interval, due) != due)
         {
             return;
         }
         Interlocked.Add(ref _refusedSinceLastLine, -refused);
-        Write(SecurityEvent.RateLimited, null, $"{refused} turned away since the last line");
+        // The count covers every address; the address on the line is only the request that wrote it.
+        Write(SecurityEvent.RateLimited, null, $"{refused} turned away from all addresses since the last line");
     }
 
     /// <param name="userId">The login's id, when it is known; never its email.</param>
@@ -99,7 +112,11 @@ public sealed class SecurityEvents
     {
         var context = _http.HttpContext;
         var address = context?.Connection.RemoteIpAddress?.ToString() ?? "unknown";
-        var path = context?.Request.Path.Value ?? "-";
+        // The route's pattern, not the visitor's decoded path: no visitor text (or control
+        // characters) reaches the log through it.
+        var path = context is null
+            ? "-"
+            : (context.GetEndpoint() as Microsoft.AspNetCore.Routing.RouteEndpoint)?.RoutePattern.RawText ?? "(no route)";
         _logger.LogWarning(
             "Security event {SecurityEvent} for login {UserId} from {ClientAddress} on {Path}{Detail}",
             securityEvent, userId ?? "unknown", address, path, detail is null ? "" : $" ({detail})");

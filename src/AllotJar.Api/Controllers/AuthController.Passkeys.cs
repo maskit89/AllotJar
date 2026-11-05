@@ -395,14 +395,18 @@ public partial class AuthController
 
         if (!string.IsNullOrEmpty(proof?.Password) && hasPassword)
         {
-            if (!await _userManager.IsLockedOutAsync(user) && await _userManager.CheckPasswordAsync(user, proof.Password))
+            var wasLocked = await _userManager.IsLockedOutAsync(user);
+            if (!wasLocked && await _userManager.CheckPasswordAsync(user, proof.Password))
             {
                 await _userManager.ResetAccessFailedCountAsync(user);
                 return Proved(user, current);
             }
             // A wrong password here counts toward lockout, as at sign-in, so this is no guessing oracle.
             await _userManager.AccessFailedAsync(user);
-            Security.Write(await _userManager.IsLockedOutAsync(user) ? SecurityEvent.LockedOut : SecurityEvent.PasswordCheckFailed, user.Id, "proof");
+            Security.Write(
+                wasLocked ? SecurityEvent.SignInWhileLocked
+                    : await _userManager.IsLockedOutAsync(user) ? SecurityEvent.LockedOut : SecurityEvent.PasswordCheckFailed,
+                user.Id, "proof");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "That password isn't right." });
         }
 
