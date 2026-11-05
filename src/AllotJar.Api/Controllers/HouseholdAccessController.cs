@@ -18,6 +18,7 @@ using AllotJar.Application.HouseholdAccess.Dtos;
 using AllotJar.Application.HouseholdAccess.Queries.GetMemberships;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Identity;
+using AllotJar.Infrastructure.Logging;
 
 namespace AllotJar.Api.Controllers;
 
@@ -52,6 +53,9 @@ public class HouseholdAccessController : ControllerBase
         _currentUser = currentUser;
     }
 
+    /// <summary>The security log (audit A09-001).</summary>
+    private SecurityEvents Security => HttpContext.RequestServices.GetRequiredService<SecurityEvents>();
+
     /// <summary>Lists the logins with access to the household.</summary>
     [HttpGet("members")]
     [ProducesResponseType(typeof(IReadOnlyList<MembershipDto>), StatusCodes.Status200OK)]
@@ -85,11 +89,13 @@ public class HouseholdAccessController : ControllerBase
         var me = await CurrentLoginAsync();
         if (me is not { EmailConfirmed: true })
         {
+            Security.Write(SecurityEvent.InviteRefused, me?.Id, "inviter's email not confirmed");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ConfirmEmailFirst });
         }
         var household = _currentUser.OwnerId ?? string.Empty;
         if (!_inviteAllowance.TryClaim(household))
         {
+            Security.Write(SecurityEvent.InviteRefused, me.Id, "daily invite emails used up");
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = InviteEmailAllowance.Refused });
         }
 
@@ -105,6 +111,8 @@ public class HouseholdAccessController : ControllerBase
             emailSent = result.InviteToken is { } token
                 ? await _accountEmails.TrySendInviteLinkAsync(email, InviterName(me), token, ct)
                 : await _accountEmails.TrySendPasswordLinkAsync(email, ct) == PasswordLinkResult.Sent;
+            Security.Write(SecurityEvent.InviteSent, me.Id,
+                $"membership {result.Membership.Id}, {result.Membership.Role}, {(result.InviteToken is null ? "temporary password set by the owner" : "invite link")}, email {(emailSent ? "sent" : "not sent")}");
             return Ok(new InviteResponse(result.Membership, emailSent));
         }
         finally
@@ -141,15 +149,18 @@ public class HouseholdAccessController : ControllerBase
         var me = await CurrentLoginAsync();
         if (me is not { EmailConfirmed: true })
         {
+            Security.Write(SecurityEvent.InviteRefused, me?.Id, "inviter's email not confirmed");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = ConfirmEmailFirst });
         }
         var household = _currentUser.OwnerId ?? string.Empty;
         if (!_resendCooldown.TryClaim(household, id))
         {
+            Security.Write(SecurityEvent.InviteRefused, me.Id, $"membership {id}, sent again too soon");
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = ResendTooSoon });
         }
         if (!_inviteAllowance.TryClaim(household))
         {
+            Security.Write(SecurityEvent.InviteRefused, me.Id, $"membership {id}, daily invite emails used up");
             _resendCooldown.Release(household, id);
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = InviteEmailAllowance.Refused });
         }
@@ -172,9 +183,14 @@ public class HouseholdAccessController : ControllerBase
                 var sent = await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
                 if (sent == PasswordLinkResult.TooSoon)
                 {
+                    Security.Write(SecurityEvent.InviteRefused, me.Id, $"membership {id}, password links used up");
                     return StatusCode(StatusCodes.Status429TooManyRequests, new { error = PasswordLinkTooSoon });
                 }
                 emailSent = sent == PasswordLinkResult.Sent;
+            }
+            if (emailSent)
+            {
+                Security.Write(SecurityEvent.InviteSent, me.Id, $"membership {id}, sent again");
             }
             return Ok(new ResendResponse(emailSent));
         }
@@ -267,6 +283,7 @@ public class HouseholdAccessController : ControllerBase
     public async Task<ActionResult<MembershipDto>> ChangeRole(Guid id, ChangeRoleRequest request, CancellationToken ct)
     {
         var result = await _mediator.Send(new ChangeMemberRoleCommand(id, request.Role), ct);
+        Security.Write(SecurityEvent.RoleChanged, User.FindFirstValue(ClaimTypes.NameIdentifier), $"membership {id} is now {request.Role}");
         return Ok(result);
     }
 
@@ -305,6 +322,7 @@ public class HouseholdAccessController : ControllerBase
     public async Task<IActionResult> Revoke(Guid id, CancellationToken ct)
     {
         await _mediator.Send(new RevokeMemberCommand(id), ct);
+        Security.Write(SecurityEvent.AccessRemoved, User.FindFirstValue(ClaimTypes.NameIdentifier), $"membership {id}");
         return NoContent();
     }
 }

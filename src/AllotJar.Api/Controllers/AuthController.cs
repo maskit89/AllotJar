@@ -19,6 +19,7 @@ using AllotJar.Application.HouseholdAccess.Commands.AcceptInvite;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
+using AllotJar.Infrastructure.Logging;
 using AllotJar.Infrastructure.Persistence;
 
 namespace AllotJar.Api.Controllers;
@@ -70,6 +71,9 @@ public partial class AuthController : ControllerBase
         _logger = logger;
         _identity = identity;
     }
+
+    /// <summary>The security log (audit A09-001): failures and account changes, at Warning, with the login id and address.</summary>
+    private SecurityEvents Security => HttpContext.RequestServices.GetRequiredService<SecurityEvents>();
 
     /// <summary>Creates an account (owner membership + owner member, plus a sample budget only when
     /// returns a JWT.</summary>
@@ -410,6 +414,7 @@ public partial class AuthController : ControllerBase
             }
 
             await _userManager.AddLoginAsync(raced, new UserLoginInfo(providerName, identity.Subject, providerName));
+            Security.Write(SecurityEvent.GoogleLinked, raced.Id, "account made at the same moment");
             return (raced, false);
         }
 
@@ -451,7 +456,10 @@ public partial class AuthController : ControllerBase
             existing.EmailConfirmed = true;
         }
 
-        if (!alreadyVerified && await _userManager.HasPasswordAsync(existing))
+        var removePassword = !alreadyVerified && await _userManager.HasPasswordAsync(existing);
+        Security.Write(SecurityEvent.GoogleLinked, existing.Id,
+            removePassword ? "password removed, every sign-in ended" : "password kept, every sign-in ended");
+        if (removePassword)
         {
             // The attacker's known password (if this was a pre-hijack) must stop working. With no
             // password left, an owner-set temporary one is no longer pending either.
@@ -525,6 +533,7 @@ public partial class AuthController : ControllerBase
         // sign-in carries on rather than starting again: disconnecting proves nothing, so it must not
         // count as a recent sign-in that lets passkeys change without proof.
         await ContinueRefreshCookieAsync(user.Id, ct);
+        Security.Write(SecurityEvent.GoogleUnlinked, user.Id);
         return Ok(await BuildResponseAsync(user, ct));
     }
 
@@ -549,6 +558,9 @@ public partial class AuthController : ControllerBase
         {
             DispatchVerificationEmail(result.UserId);
         }
+
+        Security.Write(SecurityEvent.InviteAccepted, result.UserId,
+            result.CreatedNewLogin ? "new login with its own password" : "existing login joined");
 
         var user = await _userManager.FindByIdAsync(result.UserId);
         var stamp = user is null ? null : await _userManager.GetSecurityStampAsync(user);
@@ -703,6 +715,7 @@ public partial class AuthController : ControllerBase
         }
 
         await _userManager.UpdateSecurityStampAsync(user);
+        Security.Write(SecurityEvent.DeviceSignedOut, user.Id, current ? "this device" : "another device");
         if (current)
         {
             ClearRefreshCookie();
@@ -726,6 +739,7 @@ public partial class AuthController : ControllerBase
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
         await _userManager.UpdateSecurityStampAsync(user);
+        Security.Write(SecurityEvent.SignedOutEverywhere, user.Id);
         ClearRefreshCookie();
         return NoContent();
     }
@@ -844,6 +858,7 @@ public partial class AuthController : ControllerBase
         }
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
+        Security.Write(SecurityEvent.PasswordReset, user.Id);
         // The emailed link proves the inbox, not the person: a login with a passkey still answers it
         // (or a recovery code) before this device signs in, so a reset never switches it off (fix 14).
         return await SignInOrAskForPasskeyAsync(user, ct);
@@ -902,6 +917,7 @@ public partial class AuthController : ControllerBase
         }
 
         await _refreshTokens.RevokeAllForUserAsync(user.Id, ct);
+        Security.Write(SecurityEvent.PasswordChanged, user.Id);
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
     }
@@ -988,7 +1004,7 @@ public partial class AuthController : ControllerBase
         {
             return Conflict(new { error = DeleteRefusedWhileShared });
         }
-        _logger.LogInformation("Account {UserId} was deleted by its own login.", userId);
+        Security.Write(SecurityEvent.AccountDeleted, userId);
         ClearRefreshCookie();
         return NoContent();
     }
@@ -1006,6 +1022,7 @@ public partial class AuthController : ControllerBase
         }
         if (await _userManager.IsLockedOutAsync(user))
         {
+            Security.Write(SecurityEvent.SignInWhileLocked, user.Id, "password re-check");
             return BadRequest(new { error = LockedOutMessage, errors = new[] { LockedOutMessage } });
         }
         if (!string.IsNullOrEmpty(password) && await _userManager.CheckPasswordAsync(user, password))
@@ -1015,6 +1032,7 @@ public partial class AuthController : ControllerBase
         }
 
         await _userManager.AccessFailedAsync(user);
+        Security.Write(await _userManager.IsLockedOutAsync(user) ? SecurityEvent.LockedOut : SecurityEvent.PasswordCheckFailed, user.Id);
         const string wrong = "That password isn't right.";
         return BadRequest(new { error = wrong, errors = new[] { wrong } });
     }
