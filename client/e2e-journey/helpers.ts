@@ -328,3 +328,15 @@ export async function waitForEmailLink(
     .not.toBe('')
   return link!
 }
+
+/**
+ * Confirm the address a journey registered, as its owner would by clicking the emailed link. An
+ * owner must have confirmed their own email before inviting anyone (audit A06-001).
+ */
+export async function confirmOwnEmail(page: Page, email: string): Promise<void> {
+  const link = new URL(await waitForEmailLink(page, email, '/confirm-email?'))
+  const res = await page.request.post('/api/auth/confirm-email', {
+    data: { email, token: link.searchParams.get('token') },
+  })
+  expect(res.status()).toBe(204)
+}

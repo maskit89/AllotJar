@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
-import { JOURNEY_PASSWORD, personAction, personCard, personCards, register, rowAction, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
+import { confirmOwnEmail, JOURNEY_PASSWORD, personAction, personCard, personCards, register, rowAction, suppressOnboarding, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * People & roles against the live stack (the PPL/ROLE deferred set): the owner-as-member-#1
@@ -98,7 +98,8 @@ test('adding a 2nd person flips solo→shared live, and a temp-password Limited 
   browser,
 }) => {
   // The Essentials template gives the shared household a real current month for the invitee to see.
-  await register(page, { firstName: 'Ivy', starterBudget: true })
+  const { email: ownerEmail } = await register(page, { firstName: 'Ivy', starterBudget: true })
+  await confirmOwnEmail(page, ownerEmail) // an owner confirms their email before inviting
 
   // --- Owner: solo state on /people ---
   await page.goto('/people')
@@ -239,7 +240,8 @@ test('a pure invitee starts their own budget (nothing seeded), switches househol
   browser,
 }) => {
   // The owner's display name becomes the joined household's label in the switcher.
-  await register(page, { firstName: 'Olive', starterBudget: true })
+  const { email: ownerEmail } = await register(page, { firstName: 'Olive', starterBudget: true })
+  await confirmOwnEmail(page, ownerEmail) // an owner confirms their email before inviting
   await page.goto('/people')
   await addPerson(page, 'Robin', '1000')
   const robinEmail = uniqueEmail('robin')

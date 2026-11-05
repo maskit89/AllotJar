@@ -48,6 +48,8 @@ builder.Services.AddScoped<HouseholdContext>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddSingleton<AccountEmails>();
 builder.Services.AddSingleton<ResendCooldown>();
+builder.Services.AddSingleton<InviteEmailAllowance>();
+builder.Services.AddSingleton<PasswordLinkAllowance>();
 
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();

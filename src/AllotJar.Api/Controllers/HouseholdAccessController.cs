@@ -37,16 +37,18 @@ public class HouseholdAccessController : ControllerBase
     private readonly AccountEmails _accountEmails;
     private readonly UserManager<ApplicationUser> _userManager;
     private readonly ResendCooldown _resendCooldown;
+    private readonly InviteEmailAllowance _inviteAllowance;
     private readonly ICurrentUser _currentUser;
 
     public HouseholdAccessController(
         ISender mediator, AccountEmails accountEmails, UserManager<ApplicationUser> userManager,
-        ResendCooldown resendCooldown, ICurrentUser currentUser)
+        ResendCooldown resendCooldown, InviteEmailAllowance inviteAllowance, ICurrentUser currentUser)
     {
         _mediator = mediator;
         _accountEmails = accountEmails;
         _userManager = userManager;
         _resendCooldown = resendCooldown;
+        _inviteAllowance = inviteAllowance;
         _currentUser = currentUser;
     }
 
@@ -73,23 +75,46 @@ public class HouseholdAccessController : ControllerBase
     [ProducesResponseType(typeof(InviteResponse), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status403Forbidden)]
+    [ProducesResponseType(StatusCodes.Status429TooManyRequests)]
     public async Task<ActionResult<InviteResponse>> Invite(InviteMemberRequest request, CancellationToken ct)
     {
         if (!_accountEmails.CanDeliver())
         {
             return BadRequest(new { error = EmailNotSetUp });
         }
+        var me = await CurrentLoginAsync();
+        if (me is not { EmailConfirmed: true })
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ConfirmEmailFirst });
+        }
+        var household = _currentUser.OwnerId ?? string.Empty;
+        if (!_inviteAllowance.TryClaim(household))
+        {
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = InviteEmailAllowance.Refused });
+        }
 
-        var result = await _mediator.Send(new InviteMemberCommand(
-            request.Email, request.Role, request.Method,
-            request.TempPassword, request.DisplayName, request.MemberId), ct);
+        var emailSent = false;
+        try
+        {
+            var result = await _mediator.Send(new InviteMemberCommand(
+                request.Email, request.Role, request.Method,
+                request.TempPassword, request.DisplayName, request.MemberId), ct);
 
-        var email = result.Membership.Email;
-        // The invite is saved either way; a failed send is reported, not hidden.
-        var emailSent = result.InviteToken is { } token
-            ? await _accountEmails.TrySendInviteLinkAsync(email, await InviterNameAsync(), token, ct)
-            : await _accountEmails.TrySendPasswordLinkAsync(email, ct);
-        return Ok(new InviteResponse(result.Membership, emailSent));
+            var email = result.Membership.Email;
+            // The invite is saved either way; a failed send is reported, not hidden.
+            emailSent = result.InviteToken is { } token
+                ? await _accountEmails.TrySendInviteLinkAsync(email, InviterName(me), token, ct)
+                : await _accountEmails.TrySendPasswordLinkAsync(email, ct) == PasswordLinkResult.Sent;
+            return Ok(new InviteResponse(result.Membership, emailSent));
+        }
+        finally
+        {
+            // Only emails that went out count towards the day's allowance.
+            if (!emailSent)
+            {
+                _inviteAllowance.Release(household);
+            }
+        }
     }
 
     /// <summary>
@@ -113,10 +138,20 @@ public class HouseholdAccessController : ControllerBase
         {
             return BadRequest(new { error = EmailNotSetUp });
         }
+        var me = await CurrentLoginAsync();
+        if (me is not { EmailConfirmed: true })
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { error = ConfirmEmailFirst });
+        }
         var household = _currentUser.OwnerId ?? string.Empty;
         if (!_resendCooldown.TryClaim(household, id))
         {
             return StatusCode(StatusCodes.Status429TooManyRequests, new { error = ResendTooSoon });
+        }
+        if (!_inviteAllowance.TryClaim(household))
+        {
+            _resendCooldown.Release(household, id);
+            return StatusCode(StatusCodes.Status429TooManyRequests, new { error = InviteEmailAllowance.Refused });
         }
 
         var emailSent = false;
@@ -125,7 +160,7 @@ public class HouseholdAccessController : ControllerBase
             var result = await _mediator.Send(new ResendInviteCommand(id), ct);
             if (result.InviteToken is { } token)
             {
-                emailSent = await _accountEmails.TrySendInviteLinkAsync(result.Email, await InviterNameAsync(), token, ct);
+                emailSent = await _accountEmails.TrySendInviteLinkAsync(result.Email, InviterName(me), token, ct);
                 // The new link replaces the old one only once its email went out (review P3-2).
                 if (emailSent)
                 {
@@ -134,7 +169,12 @@ public class HouseholdAccessController : ControllerBase
             }
             else
             {
-                emailSent = await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
+                var sent = await _accountEmails.TrySendPasswordLinkAsync(result.Email, ct);
+                if (sent == PasswordLinkResult.TooSoon)
+                {
+                    return StatusCode(StatusCodes.Status429TooManyRequests, new { error = PasswordLinkTooSoon });
+                }
+                emailSent = sent == PasswordLinkResult.Sent;
             }
             return Ok(new ResendResponse(emailSent));
         }
@@ -144,21 +184,79 @@ public class HouseholdAccessController : ControllerBase
             if (!emailSent)
             {
                 _resendCooldown.Release(household, id);
+                _inviteAllowance.Release(household);
             }
         }
     }
+
+    public const string PasswordLinkTooSoon =
+        "We've already sent this person a few password links. Give them time to arrive, or try again in 15 minutes.";
 
     public const string ResendTooSoon = "We sent that email less than a minute ago. Give it a moment to arrive.";
 
     public const string EmailNotSetUp =
         "Email isn't set up on this server yet, so invites can't be sent. Try again once it is.";
 
-    /// <summary>How the invite email names the person who sent it.</summary>
-    private async Task<string> InviterNameAsync()
+    public const string ConfirmEmailFirst =
+        "Confirm your own email address first (use the link we sent you), then you can invite people.";
+
+    private async Task<ApplicationUser?> CurrentLoginAsync()
     {
         var id = User.FindFirstValue(ClaimTypes.NameIdentifier);
-        var me = id is null ? null : await _userManager.FindByIdAsync(id);
-        return string.IsNullOrWhiteSpace(me?.DisplayName) ? me?.Email ?? "Someone" : me.DisplayName!;
+        return id is null ? null : await _userManager.FindByIdAsync(id);
+    }
+
+    /// <summary>
+    /// How the invite email names the person who sent it. The display name is free text the inviter
+    /// chose, so only a plain name goes in: letters, spaces, apostrophes, hyphens, name middle dots
+    /// and a full stop that ends a word or sits between initials, cut to 40 characters. Anything else,
+    /// a digit (a phone lure), a dot inside a word ("evil.com", a wide dot after normalising), or a
+    /// word such as "com" or "www", makes it "Someone", so an invite can't carry a lure in AllotJar's name (audit A06-001,
+    /// #423 review P3-1). The account's own confirmed email, used when it has no name, is kept as it is.
+    /// </summary>
+    public static string InviterName(ApplicationUser me)
+    {
+        var name = me.DisplayName?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            return string.IsNullOrWhiteSpace(me.Email) ? "Someone" : me.Email;
+        }
+        if (string.Equals(name, me.Email, StringComparison.OrdinalIgnoreCase))
+        {
+            return name;
+        }
+        name = name.Normalize(System.Text.NormalizationForm.FormKC);
+        if (!PlainName.IsMatch(name) || LinkWord.IsMatch(name))
+        {
+            return "Someone";
+        }
+        return Shorten(name, MaxInviterNameLength);
+    }
+
+    public const int MaxInviterNameLength = 40;
+
+    // Letters (any script) and their marks, spaces, apostrophes, hyphens, the middle dots of Catalan
+    // and Japanese names, and the zero-width (non-)joiners of Persian and Indic ones. A full stop only
+    // ends a word or sits between initials ("J.R."), never inside one ("evil.com").
+    private static readonly System.Text.RegularExpressions.Regex PlainName = new(
+        @"^(?:[\p{L}\p{M}'\u2019\- \u00B7\u30FB\u200C\u200D]|\.(?=\s|$|\p{Lu}(?:\.|\s|$)))+$",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    // "dot" alone is a real nickname; "evil dot com" is still caught by "com".
+    private static readonly System.Text.RegularExpressions.Regex LinkWord = new(
+        @"\b(?:com|net|org|www|http|https|click|verify|login)\b",
+        System.Text.RegularExpressions.RegexOptions.IgnoreCase | System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>Cuts on whole characters (an emoji or accented letter is never split; review P3-2).</summary>
+    private static string Shorten(string name, int max)
+    {
+        var elements = System.Globalization.StringInfo.ParseCombiningCharacters(name);
+        if (name.Length <= max)
+        {
+            return name;
+        }
+        var cut = elements.LastOrDefault(start => start <= max);
+        return name[..cut].TrimEnd() + "\u2026";
     }
 
     /// <summary>Changes a member's access level. Owner-only.</summary>

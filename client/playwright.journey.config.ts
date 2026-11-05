@@ -70,6 +70,9 @@ export default defineConfig({
         ConnectionStrings__DefaultConnection: CONNECTION,
         Jwt__Key: JWT_KEY,
         RateLimiting__AuthPermitLimit: '1000',
+        // Journeys invite and reset far more often than a household would; lift the email caps.
+        Limits__InviteEmailsPerDay: '1000',
+        Limits__PasswordLinksPer15Minutes: '1000',
         // Emailed links (password reset) point at the journey app origin, so a spec can follow
         // the exact link a real recipient would click (read back via GET /api/dev/emails).
         Email__AppBaseUrl: APP_URL,
