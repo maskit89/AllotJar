@@ -48,6 +48,8 @@ builder.Services.AddScoped<HouseholdContext>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddSingleton<AccountEmails>();
 builder.Services.AddSingleton<ResendCooldown>();
+builder.Services.AddSingleton<InviteEmailAllowance>();
+builder.Services.AddSingleton<PasswordLinkAllowance>();
 
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();
@@ -107,6 +109,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options => ClientAddress.Con
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    // The security log notes rate-limit refusals, throttled to one line every few seconds (audit A09-001).
+    options.OnRejected = (context, _) =>
+    {
+        context.HttpContext.RequestServices.GetRequiredService<SecurityEvents>().WriteRateLimited();
+        return ValueTask.CompletedTask;
+    };
     options.AddPolicy(AuthRateLimitPolicy, httpContext =>
         RateLimitPartition.GetFixedWindowLimiter(
             partitionKey: ClientAddress.PartitionKey(httpContext),

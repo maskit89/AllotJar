@@ -12,11 +12,13 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public MarkJarCyclePaidCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public MarkJarCyclePaidCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<JarDto> Handle(MarkJarCyclePaidCommand request, CancellationToken cancellationToken)
@@ -35,7 +37,7 @@ public class MarkJarCyclePaidCommandHandler : IRequestHandler<MarkJarCyclePaidCo
             throw JarAccounts.Validation("Deadline", $"{jar.Name} is a goal, not a recurring jar; it has no cycles to mark paid.");
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
         // A funded cycle whose deadline has arrived rolls forward first (rule 21), so the open
         // cycle is the one the user sees.
         await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);

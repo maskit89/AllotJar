@@ -12,11 +12,13 @@ public class DismissJarCycleCommandHandler : IRequestHandler<DismissJarCycleComm
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public DismissJarCycleCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public DismissJarCycleCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<JarDto> Handle(DismissJarCycleCommand request, CancellationToken cancellationToken)
@@ -31,7 +33,7 @@ public class DismissJarCycleCommandHandler : IRequestHandler<DismissJarCycleComm
             throw new ForbiddenAccessException();
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
         await JarCycles.SettleAsync(_db, userId, today, cancellationToken, jar.Id);
 
         // Only a cycle that is actually in the missed state can be dismissed: the open one, its

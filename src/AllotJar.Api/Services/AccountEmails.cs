@@ -19,14 +19,17 @@ public sealed class AccountEmails
     private readonly EmailSettings _settings;
     private readonly IHostEnvironment _environment;
     private readonly ILogger<AccountEmails> _logger;
+    private readonly PasswordLinkAllowance _passwordLinks;
 
     public AccountEmails(
-        IServiceScopeFactory scopeFactory, IOptions<EmailSettings> settings, IHostEnvironment environment, ILogger<AccountEmails> logger)
+        IServiceScopeFactory scopeFactory, IOptions<EmailSettings> settings, IHostEnvironment environment,
+        ILogger<AccountEmails> logger, PasswordLinkAllowance passwordLinks)
     {
         _scopeFactory = scopeFactory;
         _settings = settings.Value;
         _environment = environment;
         _logger = logger;
+        _passwordLinks = passwordLinks;
     }
 
     private string Link(string path) => $"{_settings.AppBaseUrl.TrimEnd('/')}{path}";
@@ -49,29 +52,60 @@ public sealed class AccountEmails
     /// <summary>
     /// Emails a link to set the login's password, if (and only if) an account exists for the
     /// address, without waiting (forgot-password). A login still on an owner-set temporary password
-    /// gets the "choose your password" wording; everyone else the reset wording.
+    /// gets the "choose your password" wording; everyone else the reset wording. Past the login's
+    /// <see cref="PasswordLinkAllowance"/> nothing is sent, silently, like an unknown address.
     /// </summary>
     public void SendPasswordLink(string email)
     {
         _ = Task.Run(async () =>
         {
             using var scope = _scopeFactory.CreateScope();
-            await TrySendAsync(scope, "a password link", () => PasswordLinkAsync(scope, email), CancellationToken.None);
+            await SendPasswordLinkAsync(scope, email, CancellationToken.None);
         });
     }
 
     /// <summary>
-    /// Emails the password link to the address and waits: true once the provider accepted it, false
-    /// when there is no such login, nothing can deliver it, or the provider failed (logged).
+    /// Emails the password link to the address and waits: Sent once the provider accepted it,
+    /// TooSoon past the login's <see cref="PasswordLinkAllowance"/>, NotSent when there is no such
+    /// login, nothing can deliver it, or the provider failed (logged).
     /// </summary>
-    public async Task<bool> TrySendPasswordLinkAsync(string email, CancellationToken ct)
+    public async Task<PasswordLinkResult> TrySendPasswordLinkAsync(string email, CancellationToken ct)
     {
         if (!CanDeliver())
         {
-            return false;
+            return PasswordLinkResult.NotSent;
         }
         using var scope = _scopeFactory.CreateScope();
-        return await TrySendAsync(scope, "a password link", () => PasswordLinkAsync(scope, email), ct);
+        return await SendPasswordLinkAsync(scope, email, ct);
+    }
+
+    private async Task<PasswordLinkResult> SendPasswordLinkAsync(IServiceScope scope, string email, CancellationToken ct)
+    {
+        string? claimed = null;
+        var tooSoon = false;
+        var sent = await TrySendAsync(scope, "a password link", async () =>
+        {
+            var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+            var user = await users.FindByEmailAsync(email);
+            if (user is null)
+            {
+                return null; // unknown address: nothing to send, and never revealed to the caller
+            }
+            if (!_passwordLinks.TryClaim(user.Id))
+            {
+                tooSoon = true;
+                _logger.LogWarning("Password link for login {UserId} not sent: too many in the last few minutes.", user.Id);
+                return null;
+            }
+            claimed = user.Id;
+            return await PasswordLinkAsync(users, user);
+        }, ct);
+
+        if (!sent && claimed is not null)
+        {
+            _passwordLinks.Release(claimed); // nothing went out, so it doesn't count
+        }
+        return sent ? PasswordLinkResult.Sent : tooSoon ? PasswordLinkResult.TooSoon : PasswordLinkResult.NotSent;
     }
 
     /// <summary>Emails a one-time invite link to the invited address and waits; the inviter never sees the link.</summary>
@@ -97,15 +131,8 @@ public sealed class AccountEmails
         });
     }
 
-    private async Task<EmailMessage?> PasswordLinkAsync(IServiceScope scope, string email)
+    private async Task<EmailMessage?> PasswordLinkAsync(UserManager<ApplicationUser> users, ApplicationUser user)
     {
-        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
-        var user = await users.FindByEmailAsync(email);
-        if (user is null)
-        {
-            return null; // unknown address: nothing to send, and never revealed to the caller
-        }
-
         var token = await users.GeneratePasswordResetTokenAsync(user);
         var link = Link($"/reset-password?email={Uri.EscapeDataString(user.Email!)}&token={Uri.EscapeDataString(token)}");
         return user.MustChangePassword

@@ -10,10 +10,16 @@ export default defineConfig({
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  // Two workers on CI: the suite is ~300 independent tests and one worker left the runner's second CPU idle.
+  workers: process.env.CI ? 2 : undefined,
+  // A hung run fails with a report instead of waiting for the job's 15-minute limit.
+  globalTimeout: process.env.CI ? 13 * 60_000 : undefined,
   reporter: process.env.CI ? 'github' : 'list',
   use: {
     baseURL: 'http://localhost:4173',
+    // Pin the browser clock's timezone to UTC, the server's day (holistic review M9): otherwise a
+    // runner's local time can put the browser on a different date from the API near midnight.
+    timezoneId: 'UTC',
     trace: 'on-first-retry',
     // The app's prefers-reduced-motion block (index.css) collapses CSS transitions to ~0ms.
     // Without it, axe can scan mid-transition under CI contention and report phantom

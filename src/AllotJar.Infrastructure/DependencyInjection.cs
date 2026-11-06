@@ -11,6 +11,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using AllotJar.Infrastructure.Logging;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
@@ -149,6 +150,9 @@ public static class DependencyInjection
 
         // Application-facing wrapper over UserManager (create logins, change passwords).
         services.AddScoped<IIdentityService, IdentityService>();
+        // The security log (audit A09-001), written at Warning with the login id and visitor address.
+        services.AddHttpContextAccessor();
+        services.AddSingleton<SecurityEvents>();
         services.AddScoped<AccountDeletion>();
 
         // --- Passkeys (two-factor sign-in, compliance fix 14) -------------------
