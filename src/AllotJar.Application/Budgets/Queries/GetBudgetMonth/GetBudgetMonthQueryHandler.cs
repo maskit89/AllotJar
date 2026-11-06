@@ -10,11 +10,13 @@ public class GetBudgetMonthQueryHandler : IRequestHandler<GetBudgetMonthQuery, B
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public GetBudgetMonthQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetBudgetMonthQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<BudgetMonthDto> Handle(GetBudgetMonthQuery request, CancellationToken cancellationToken)
@@ -41,7 +43,8 @@ public class GetBudgetMonthQueryHandler : IRequestHandler<GetBudgetMonthQuery, B
         }
 
         // Roll actual spending up from assigned transactions.
-        await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken);
+        await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken,
+            today: DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime));
 
         return month.ToDto();
     }

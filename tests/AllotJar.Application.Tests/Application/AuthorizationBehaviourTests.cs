@@ -26,6 +26,7 @@ public class AuthorizationBehaviourTests
 
     public record SampleQuery : IRequest<string>;
     public record SampleCommand : IRequest<string>;
+    public record SampleRequest : IRequest<string>;
 
     [AllowLimited]
     public record SampleLimitedCommand : IRequest<string>;
@@ -96,6 +97,17 @@ public class AuthorizationBehaviourTests
     {
         (await Ran(HouseholdRole.Owner, new SampleCommand())).Should().BeTrue();
         (await Ran(HouseholdRole.Owner, new SampleOwnerCommand())).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData(HouseholdRole.Limited)]
+    [InlineData(HouseholdRole.ReadOnly)]
+    public async Task A_request_not_named_Query_is_gated_as_a_command(HouseholdRole role)
+    {
+        // Fail closed (holistic review M8): a write named "...Request" must not skip the gate.
+        await Invoke(role, new SampleRequest())
+            .Should().ThrowAsync<ForbiddenAccessException>();
+        (await Ran(HouseholdRole.Admin, new SampleRequest())).Should().BeTrue();
     }
 
     [Fact]

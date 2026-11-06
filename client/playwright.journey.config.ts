@@ -48,6 +48,9 @@ export default defineConfig({
     baseURL: APP_URL,
     // Pin the locale so the money-format assertions are deterministic regardless of the runner.
     locale: 'en-GB',
+    // Pin the browser clock's timezone to UTC, the server's day (holistic review M9): otherwise a
+    // runner's local time can put the browser on a different date from the API near midnight.
+    timezoneId: 'UTC',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
