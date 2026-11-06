@@ -15,7 +15,9 @@ name: Provision production stack
 # DNS cutover, run it again with trim_staging_bindings=true to strip the retired
 # hostnames (catch-all/apex/www/app) off the staging site.
 #
-# Runs only by hand (workflow_dispatch) because it reshapes live IIS/SQL state. The
+# Runs only by hand (workflow_dispatch) because it reshapes live IIS/SQL state, and only
+# from main with CI passed on that commit (ci-passed.yml, the same gate as a production
+# deploy): a run started from any other branch fails before it touches the VPS. The
 # `production` environment's required reviewer no longer applies: GitHub ignores
 # environment protection rules on a private repo on the Free, Pro and Team plans.
 on:
@@ -32,31 +34,62 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  ci-passed:
+    name: CI passed
+    permissions:
+      actions: read
+      contents: read
+    uses: ./.github/workflows/ci-passed.yml
+
   provision:
     name: provision on VPS
+    needs: ci-passed
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     environment: production
     steps:
       - uses: actions/checkout@v7
 
-      - name: Write SSH key
+      # The VPS's own ed25519 host key is pinned from the VPS_HOST_KEY secret, so the
+      # runner refuses to talk to anything else answering at VPS_HOST (no trust on
+      # first use). Every ssh/scp below goes through the "vps" alias in ~/.ssh/config.
+      - name: Write SSH key and pinned host key
         env:
           KEY: ${{ secrets.VPS_SSH_KEY }}
-        run: |
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-
-      - name: Ensure provision dir exists on VPS
-        env:
+          HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           PORT: ${{ secrets.VPS_SSH_PORT }}
           USER: ${{ secrets.VPS_SSH_USER }}
           HOST: ${{ secrets.VPS_HOST }}
         run: |
-          ssh -i ~/.ssh/deploy_key -p "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$USER@$HOST" \
+          set -euo pipefail
+          # First line only, with stray spaces from copy-paste trimmed.
+          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+          case "$HOST_KEY" in
+            "ssh-ed25519 AAAA"*) ;;
+            *) echo "::error::Secret VPS_HOST_KEY must hold the VPS's public host key line, starting 'ssh-ed25519 AAAA'."; exit 1 ;;
+          esac
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf 'allotjar-vps %s\n' "$HOST_KEY" > ~/.ssh/known_hosts_vps
+          {
+            echo 'Host vps'
+            echo "  HostName $HOST"
+            echo "  Port $PORT"
+            echo "  User $USER"
+            echo '  IdentityFile ~/.ssh/deploy_key'
+            echo '  IdentitiesOnly yes'
+            echo '  HostKeyAlias allotjar-vps'
+            echo '  UserKnownHostsFile ~/.ssh/known_hosts_vps'
+            echo '  GlobalKnownHostsFile /dev/null'
+            echo '  StrictHostKeyChecking yes'
+          } > ~/.ssh/config
+          chmod 600 ~/.ssh/config
+
+      - name: Ensure provision dir exists on VPS
+        run: |
+          ssh vps \
             'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\provision | Out-Null"'
 
       # The provision script re-registers the backup tasks, which need Backup-Database.ps1 +
@@ -64,16 +97,11 @@ jobs:
       # ProvisionHelpers.psm1 module sitting next to it. Omitting the upload script here is
       # what used to leave a freshly-provisioned host unable to ship backups off-host.
       - name: Copy provisioning scripts to VPS
-        env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
         run: |
-          scp -i ~/.ssh/deploy_key -P "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+          scp \
             deploy/Provision-Production.ps1 deploy/Register-BackupTask.ps1 deploy/Backup-Database.ps1 \
             deploy/Upload-BackupToR2.ps1 deploy/ProvisionHelpers.psm1 \
-            "$USER@$HOST:C:/deploy/provision/"
+            vps:C:/deploy/provision/
 
       # A full provisioning run must carry the production TLS pin and the off-host backup
       # bucket — fail HERE, before touching the VPS, when either secret is missing. The
@@ -95,9 +123,6 @@ jobs:
 
       - name: Run provisioning on VPS
         env:
-          PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
-          HOST: ${{ secrets.VPS_HOST }}
           TRIM: ${{ inputs.trim_staging_bindings }}
           CERT_THUMBPRINT: ${{ secrets.ORIGIN_CERT_THUMBPRINT }}
           R2_BUCKET: ${{ secrets.BACKUP_R2_BUCKET }}
@@ -108,7 +133,5 @@ jobs:
           else
             ARGS=" -CertThumbprint '$CERT_THUMBPRINT' -ProdR2Bucket '$R2_BUCKET'"
           fi
-          ssh -i ~/.ssh/deploy_key -p "$PORT" \
-            -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-            "$USER@$HOST" \
+          ssh vps \
             "powershell -NoProfile -ExecutionPolicy Bypass -Command \"& C:\\deploy\\provision\\Provision-Production.ps1$ARGS\""
