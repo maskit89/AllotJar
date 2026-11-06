@@ -2,9 +2,11 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.DependencyInjection;
 using AllotJar.Domain.Enums;
 using AllotJar.Infrastructure.Email;
+using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.IntegrationTests.Http;
 
@@ -38,6 +40,8 @@ public sealed class HttpApiFixture : IAsyncLifetime
             // runs as Development), driven by fake-google:{json} credentials — see
             // FakeGoogleIdTokenValidator. Real Google tokens are rejected by the fake.
             ["Google:UseFakeValidator"] = "true",
+            // The suite invites far more than a household would in a day (InviteEmailAllowance).
+            ["Limits:InviteEmailsPerDay"] = "1000",
         });
 
     private readonly Dictionary<HouseholdRole, string> _tokens = new();
@@ -95,6 +99,8 @@ public sealed class HttpApiFixture : IAsyncLifetime
         }, Json);
         await EnsureAsync(register, HttpStatusCode.OK, "owner registration");
         _tokens[HouseholdRole.Owner] = (await ReadJsonAsync(register)).RootElement.GetProperty("token").GetString()!;
+        // An owner confirms their own email before they can invite anyone (audit A06-001).
+        await ConfirmEmailAsync(ownerEmail);
 
         // 2. Owner direct-invites the three other roles into the same household.
         foreach (var role in new[] { HouseholdRole.Admin, HouseholdRole.Limited, HouseholdRole.ReadOnly })
@@ -138,6 +144,20 @@ public sealed class HttpApiFixture : IAsyncLifetime
     }
 
     public async Task DisposeAsync() => await _factory.DisposeAsync();
+
+    /// <summary>Marks the login's email confirmed, as clicking the emailed link would.</summary>
+    public async Task ConfirmEmailAsync(string email)
+    {
+        using var scope = _factory.Services.CreateScope();
+        var users = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var user = await users.FindByEmailAsync(email) ?? throw new InvalidOperationException($"No login {email}.");
+        var token = await users.GenerateEmailConfirmationTokenAsync(user);
+        var result = await users.ConfirmEmailAsync(user, token);
+        if (!result.Succeeded)
+        {
+            throw new InvalidOperationException($"Couldn't confirm {email}.");
+        }
+    }
 
     /// <summary>Sends a request with an optional bearer token and optional JSON body.</summary>
     public static async Task<HttpResponseMessage> SendAsync(

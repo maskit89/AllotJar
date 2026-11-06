@@ -2,6 +2,7 @@ using System.Linq.Expressions;
 using System.Security.Cryptography;
 using System.Text;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Infrastructure.Logging;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.Entities;
 using AllotJar.Infrastructure.Persistence;
@@ -33,10 +34,12 @@ public class RefreshTokenService : IRefreshTokenService
     public static readonly TimeSpan ReplayGraceWindow = TimeSpan.FromSeconds(30);
 
     private readonly ApplicationDbContext _db;
+    private readonly SecurityEvents? _security;
 
-    public RefreshTokenService(ApplicationDbContext db)
+    public RefreshTokenService(ApplicationDbContext db, SecurityEvents? security = null)
     {
         _db = db;
+        _security = security;
     }
 
     public async Task<string> IssueAsync(string userId, string? device = null, CancellationToken cancellationToken = default)
@@ -98,6 +101,7 @@ public class RefreshTokenService : IRefreshTokenService
                 }
 
                 await RevokeAllForUserAsync(token.UserId, cancellationToken);
+                _security?.Write(SecurityEvent.RefreshTokenReplayed, token.UserId, "every sign-in of the login ended");
             }
             return RefreshRotationResult.Failed;
         }

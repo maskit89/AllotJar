@@ -14,11 +14,13 @@ public class GetHouseholdMembersQueryHandler
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public GetHouseholdMembersQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetHouseholdMembersQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<IReadOnlyList<HouseholdMemberDto>> Handle(
@@ -36,7 +38,7 @@ public class GetHouseholdMembersQueryHandler
 
         // Income and share come from the selected month's budget (rule 28); archived members
         // hold no income and get a 0 share.
-        var (year, month) = HouseholdMonth.Resolve(request.Year, request.Month);
+        var (year, month) = HouseholdMonth.Resolve(request.Year, request.Month, DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime));
         var shares = await MemberIncome.SharesAsync(_db, userId, year, month, members, cancellationToken);
 
         // P56: a savings account private to another login is reported as private, without its id.

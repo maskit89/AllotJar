@@ -108,7 +108,10 @@ $prod = Join-Path $ApiRoot 'appsettings.Staging.json'
 if (Test-Path $prod) {
     Write-Host "$prod already exists - leaving it untouched."
 } else {
-    $key  = [Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Maximum 256 }))
+    # A cryptographic generator: Get-Random is not one (audit A04-001). 64 bytes, as Provision-Production.ps1 makes.
+    $bytes = New-Object byte[] 64
+    [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
+    $key  = [Convert]::ToBase64String($bytes)
     $conn = "Server=$SqlInstance;Database=AllotJarStaging;Trusted_Connection=True;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=true"
     $cfg  = [ordered]@{
         ConnectionStrings = [ordered]@{ DefaultConnection = $conn }

@@ -255,7 +255,7 @@ test.describe('the landing on a wide screen', () => {
       { width: 3840, content: 2240 }, // 1120 x 2
     ]) {
       await page.setViewportSize({ width, height: Math.round((width * 9) / 16) })
-      const m = await page.evaluate(() => {
+      const measure = () => page.evaluate(() => {
         const words = document.querySelector('.land-words')!.getBoundingClientRect()
         const steps = document.querySelector('.land-steps')!.getBoundingClientRect()
         return {
@@ -266,6 +266,10 @@ test.describe('the landing on a wide screen', () => {
           clientW: document.documentElement.clientWidth,
         }
       })
+      // The zoom follows the resize a moment later: wait for the width, then re-measure until the content width settles.
+      await page.waitForFunction((w) => document.documentElement.clientWidth >= w - 20, width)
+      let m = await measure()
+      await expect.poll(async () => Math.abs((m = await measure()).steps - content), { message: `content at ${width}px` }).toBeLessThanOrEqual(2)
       expect(Math.abs(m.steps - content), `content at ${width}px`).toBeLessThanOrEqual(2)
       expect(Math.abs(m.left - (width - content) / 2), `left margin at ${width}px`).toBeLessThanOrEqual(2)
       expect(Math.abs(m.right - (width - content) / 2), `right margin at ${width}px`).toBeLessThanOrEqual(2)

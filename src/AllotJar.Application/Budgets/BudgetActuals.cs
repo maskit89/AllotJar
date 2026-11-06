@@ -36,8 +36,9 @@ public static class BudgetActuals
         string ownerId,
         BudgetMonth month,
         CancellationToken cancellationToken,
-        bool savingsBalances = true) =>
-        ApplyAsync(db, ownerId, new[] { month }, cancellationToken, savingsBalances);
+        bool savingsBalances = true,
+        DateOnly? today = null) =>
+        ApplyAsync(db, ownerId, new[] { month }, cancellationToken, savingsBalances, today);
 
     /// <summary>
     /// The same for several months at once, in a fixed number of queries rather than a few per
@@ -49,7 +50,8 @@ public static class BudgetActuals
         string ownerId,
         IReadOnlyCollection<BudgetMonth> months,
         CancellationToken cancellationToken,
-        bool savingsBalances = true)
+        bool savingsBalances = true,
+        DateOnly? today = null)
     {
         if (months.Count == 0)
         {
@@ -146,7 +148,7 @@ public static class BudgetActuals
         {
             foreach (var month in months)
             {
-                await ApplySavingsBalancesAsync(db, ownerId, month, cancellationToken);
+                await ApplySavingsBalancesAsync(db, ownerId, month, today, cancellationToken);
             }
         }
     }
@@ -208,6 +210,7 @@ public static class BudgetActuals
         IApplicationDbContext db,
         string ownerId,
         BudgetMonth month,
+        DateOnly? asOfToday,
         CancellationToken cancellationToken)
     {
         var savingsItems = month.Categories
@@ -220,7 +223,8 @@ public static class BudgetActuals
             return;
         }
 
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        // The caller's clock when it has one (holistic review M9), so month-end reads can be tested.
+        var today = asOfToday ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var monthEnd = new DateOnly(month.Year, month.Month, 1).AddMonths(1).AddDays(-1);
         var asOf = monthEnd < today ? monthEnd : today;
         var snapshot = await Jars.JarLedgerReader.ReadAsync(db, ownerId, asOf, cancellationToken);

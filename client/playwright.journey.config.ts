@@ -48,6 +48,9 @@ export default defineConfig({
     baseURL: APP_URL,
     // Pin the locale so the money-format assertions are deterministic regardless of the runner.
     locale: 'en-GB',
+    // Pin the browser clock's timezone to UTC, the server's day (holistic review M9): otherwise a
+    // runner's local time can put the browser on a different date from the API near midnight.
+    timezoneId: 'UTC',
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -70,6 +73,9 @@ export default defineConfig({
         ConnectionStrings__DefaultConnection: CONNECTION,
         Jwt__Key: JWT_KEY,
         RateLimiting__AuthPermitLimit: '1000',
+        // Journeys invite and reset far more often than a household would; lift the email caps.
+        Limits__InviteEmailsPerDay: '1000',
+        Limits__PasswordLinksPer15Minutes: '1000',
         // Emailed links (password reset) point at the journey app origin, so a spec can follow
         // the exact link a real recipient would click (read back via GET /api/dev/emails).
         Email__AppBaseUrl: APP_URL,
