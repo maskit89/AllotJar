@@ -1825,14 +1825,14 @@ This record closes three things the 1 November entry left open (CI 1313, #410, #
 - [Deploy 332](https://github.com/maskit89/AllotJar/actions/runs/42113129012), hand-started on `6137c70` (#427), 5 Nov 21:29:39 to 21:34:57, success. Its gate used [CI 1363](https://github.com/maskit89/AllotJar/actions/runs/42101305756), green on its second attempt. It took in everything from #410 to #427 except #421, #422, #424, #425, #417 and #428.
 - [Deploy 339](https://github.com/maskit89/AllotJar/actions/runs/42518275781), hand-started on `f83d170`, 8 Nov 20:05:07 to 20:07:46, success. It took production from 332 to include #428, #421, #425, #424, #422 and #417. Its gate was [CI 1379](https://github.com/maskit89/AllotJar/actions/runs/42517194953), green. It is the first production deploy over the pinned SSH host key (#417); staging first used the pinned key in [Deploy 338](https://github.com/maskit89/AllotJar/actions/runs/42517194827), also green. `Deploy.ps1` polls `/health`, so success means the API started and answered. The coordinator reported that Christopher checked the live site after Deploy 339; this record's author made no external check.
 
-**Merged (squash commit, merge time, CI run on the merge, push Deploy run for staging).**
+**Merged (squash commit, merge time, CI run on the merge, push Deploy run for staging).** #413 has no push CI or Deploy run on `main`; Deploy 325 was a hand-started run on a PR branch, not a `main` deploy.
 
 | PR | Commit | Merged | CI | Deploy (staging) |
 |---|---|---|---|---|
 | #410 landing page, the Product tour | `1c5ae66` | 1 Nov 14:02 | [1319](https://github.com/maskit89/AllotJar/actions/runs/41314174143) failure (a11y) | [322](https://github.com/maskit89/AllotJar/actions/runs/41314174122) success |
 | #407 npm minor/patch group | `2278344` | 1 Nov 19:18 | [1321](https://github.com/maskit89/AllotJar/actions/runs/41341057319) failure (a11y) | [323](https://github.com/maskit89/AllotJar/actions/runs/41341057309) success |
 | #416 .NET 10.0.14 incl. integration tests | `feec7c7` | 2 Nov 22:36 | [1325](https://github.com/maskit89/AllotJar/actions/runs/41538764364) success | [324](https://github.com/maskit89/AllotJar/actions/runs/41538764401) success |
-| #413 .NET 10.0.14 (Dependabot, 11 packages) | `c7641a8` | 2 Nov 23:21 | not looked up | not looked up |
+| #413 .NET 10.0.14 (Dependabot, 11 packages) | `c7641a8` | 2 Nov 23:21 | no run on main | no run on main |
 | #418 rule 94 on the server; Goal on deadline day reads Behind | `4bd06bf` | 2 Nov 23:41 | [1336](https://github.com/maskit89/AllotJar/actions/runs/41547406347) failure (a11y) | [326](https://github.com/maskit89/AllotJar/actions/runs/41547406257) success |
 | #419 camt.053 dates, multi-statement files, pending entries, CSV line breaks | `b9de959` | 2 Nov 23:50 | [1340](https://github.com/maskit89/AllotJar/actions/runs/41548421816) success | [327](https://github.com/maskit89/AllotJar/actions/runs/41548421968) success |
 | #420 proof before deleting an account; stamp check fails closed | `12d1998` | 2 Nov 23:57 | [1347](https://github.com/maskit89/AllotJar/actions/runs/41549304033) success | [328](https://github.com/maskit89/AllotJar/actions/runs/41549303916) success |
@@ -1847,10 +1847,10 @@ This record closes three things the 1 November entry left open (CI 1313, #410, #
 | #417 pin the VPS SSH host key; Provision only from main | `f83d170` | 8 Nov 19:52 | [1379](https://github.com/maskit89/AllotJar/actions/runs/42517194953) success | [338](https://github.com/maskit89/AllotJar/actions/runs/42517194827) success |
 
 **The red and cancelled CI runs.** Each time, the other jobs were green.
-- **1361 (#426):** the a11y job failed on the wide-screen landing test, which measured the content width straight after a resize. #428 made it wait for the width to settle; 1363 on the next commit passed on its second attempt.
-- **1374 (#424):** the journey tests failed. Main CI 1379 on `f83d170`, with #424 already in, passed, so it was a flake and no defect was found.
-- **1358 (#423):** the integration job was cancelled at 19:58:58 after its steps had succeeded; the cause was not looked up. Deploy 329 still deployed staging.
-- **1319, 1321, 1336 (#410, #407, #418):** only the a11y job failed. Their causes were not looked up here. The next green runs on `main` were 1325 and 1340.
+- **1361 (#426):** a11y failed on the wide-screen landing test (width at 1920 and 2560 px).
+- **1363 (#427):** its first attempt's a11y job hit the 15-minute limit and was cancelled; attempt 2 passed in 7.5 minutes and was the gate for Deploy 332. #428 (merged later) added 2 workers and a 13-minute timeout and settled the wide-landing test; CI 1368 on it was green.
+- **1358 (#423):** the integration job was cancelled at 19:58:58, just after its Journey tests succeeded; its "Install Playwright system libraries" step took 10.5 minutes (cache miss), which carried the run to the 20-minute mark. Deploy 329 still deployed staging.
+- **1319, 1321, 1336 (#410, #407, #418):** only the a11y job failed, each on the same test as 1361, `e2e/wide-screen.spec.ts:246` (the landing on a wide screen). That one flake failed four main runs between 1 and 5 Nov, before #428. The next green runs on `main` were 1325 and 1340.
 
 **What reached production.**
 - **#410 New landing page (the Product tour).** Hero with Create free account and Sign in side by side, a slice of the app, "Budgeting in three steps", four small extras and a closing band. Review fixes before merge: "Funded" shown only on a full jar, and a zoom step on 4K screens.
