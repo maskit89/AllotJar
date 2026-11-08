@@ -1849,6 +1849,7 @@ This record closes three things the 1 November entry left open (CI 1313, #410, #
 **The red and cancelled CI runs.** Each time, the other jobs were green.
 - **1361 (#426):** a11y failed on the wide-screen landing test (width at 1920 and 2560 px).
 - **1363 (#427):** its first attempt's a11y job hit the 15-minute limit and was cancelled; attempt 2 passed in 7.5 minutes and was the gate for Deploy 332. #428 (merged later) added 2 workers and a 13-minute timeout and settled the wide-landing test; CI 1368 on it was green.
+- **1374 (#424):** the journey tests failed. Main CI 1379 on `f83d170`, with #424 already in, passed, so it was a flake and no defect was found.
 - **1358 (#423):** the integration job was cancelled at 19:58:58, just after its Journey tests succeeded; its "Install Playwright system libraries" step took 10.5 minutes (cache miss), which carried the run to the 20-minute mark. Deploy 329 still deployed staging.
 - **1319, 1321, 1336 (#410, #407, #418):** only the a11y job failed, each on the same test as 1361, `e2e/wide-screen.spec.ts:246` (the landing on a wide screen). That one flake failed four main runs between 1 and 5 Nov, before #428. The next green runs on `main` were 1325 and 1340.
 
