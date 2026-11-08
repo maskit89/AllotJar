@@ -87,6 +87,12 @@ icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "
 ```
 Test from your machine: `ssh -i $HOME\.ssh\allotjar_deploy Administrator@<vps-ip>`.
 
+Then read the server's own SSH host key **on the VPS** (it is public, so it is safe to copy):
+```powershell
+Get-Content C:\ProgramData\ssh\ssh_host_ed25519_key.pub
+```
+The workflows pin this key (`VPS_HOST_KEY` below) and refuse to connect to anything that answers with a different one. If the server is rebuilt or its host keys are regenerated, update the secret, or every deploy fails at its first SSH step with "Host key verification failed".
+
 ### 3. (Optional) migrate existing household data
 Skip this for an empty start. To bring your dev data across, on the **dev machine**:
 ```powershell
@@ -140,6 +146,7 @@ Add these **Actions secrets** (Settings → Secrets and variables → Actions):
 | `VPS_SSH_USER` | e.g. `Administrator` |
 | `VPS_SSH_KEY` | the **private** key from step 2 (full file contents) |
 | `VPS_SSH_PORT` | `22` (or your custom SSH port) |
+| `VPS_HOST_KEY` | the VPS's public host key line from step 2, starting `ssh-ed25519 AAAA` |
 
 Production deploys only on a hand-started Deploy run with **Also deploy to production** ticked, and only when CI passed on that commit (see [staging-prod.md](staging-prod.md)). The repo is private on GitHub Free, where branch protection and environment required reviewers do not apply.
 
