@@ -7,6 +7,7 @@ using AllotJar.Application.Common.Interfaces;
 using AllotJar.Api.Contracts.Auth;
 using AllotJar.Infrastructure.Email;
 using AllotJar.Infrastructure.Identity;
+using AllotJar.Infrastructure.Logging;
 
 namespace AllotJar.Api.Controllers;
 
@@ -119,7 +120,7 @@ public partial class AuthController
         });
         if (!result.Succeeded || result.User.Id != ceremony.UserId)
         {
-            LogPasskeyFailure("second step", result.Failure);
+            LogPasskeyFailure("second step", result.Failure, ceremony.UserId);
             Ceremonies.Fail(request.Ticket);
             return Unauthorized(new { error = PasskeyFailed });
         }
@@ -151,6 +152,7 @@ public partial class AuthController
 
         if (!await codes.RedeemAsync(user, request.Code))
         {
+            Security.Write(SecurityEvent.RecoveryCodeRefused, user.Id, "second step");
             Ceremonies.Fail(request.Ticket);
             return Unauthorized(new { error = "That code isn't right, or it was used already." });
         }
@@ -160,6 +162,7 @@ public partial class AuthController
         }
 
         _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.RecoveryCodeUsed, CurrentDevice());
+        Security.Write(SecurityEvent.RecoveryCodeUsed, user.Id, "second step");
         await IssueRefreshCookieAsync(user.Id, ct);
         return Ok(await BuildResponseAsync(user, ct));
     }
@@ -275,7 +278,7 @@ public partial class AuthController
         });
         if (!Ceremonies.TryTake(request.Ceremony) || !result.Succeeded || result.UserEntity.Id != user.Id)
         {
-            LogPasskeyFailure("adding", result.Failure);
+            LogPasskeyFailure("adding", result.Failure, user.Id);
             return BadRequest(new { error = "The passkey wasn't saved. Try again." });
         }
 
@@ -292,6 +295,7 @@ public partial class AuthController
 
         var recoveryCodes = first ? await codes.ReplaceAsync(user) : null;
         _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.Added, passkey.Name);
+        Security.Write(SecurityEvent.PasskeyAdded, user.Id);
         return Ok(new AddPasskeyResponse(ToResponse(passkey), recoveryCodes));
     }
 
@@ -328,6 +332,7 @@ public partial class AuthController
             await codes.ClearAsync(user);
         }
         _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.Removed, passkey.Name);
+        Security.Write(SecurityEvent.PasskeyRemoved, user.Id);
         return NoContent();
     }
 
@@ -357,6 +362,7 @@ public partial class AuthController
 
         var replaced = await codes.ReplaceAsync(user);
         _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.RecoveryCodesReplaced, CurrentDevice());
+        Security.Write(SecurityEvent.RecoveryCodesReplaced, user.Id);
         return Ok(new RecoveryCodesResponse(replaced));
     }
 
@@ -389,13 +395,18 @@ public partial class AuthController
 
         if (!string.IsNullOrEmpty(proof?.Password) && hasPassword)
         {
-            if (!await _userManager.IsLockedOutAsync(user) && await _userManager.CheckPasswordAsync(user, proof.Password))
+            var wasLocked = await _userManager.IsLockedOutAsync(user);
+            if (!wasLocked && await _userManager.CheckPasswordAsync(user, proof.Password))
             {
                 await _userManager.ResetAccessFailedCountAsync(user);
                 return Proved(user, current);
             }
             // A wrong password here counts toward lockout, as at sign-in, so this is no guessing oracle.
             await _userManager.AccessFailedAsync(user);
+            Security.Write(
+                wasLocked ? SecurityEvent.SignInWhileLocked
+                    : await _userManager.IsLockedOutAsync(user) ? SecurityEvent.LockedOut : SecurityEvent.PasswordCheckFailed,
+                user.Id, "proof");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "That password isn't right." });
         }
 
@@ -414,7 +425,7 @@ public partial class AuthController
                     await _userManager.AddOrUpdatePasskeyAsync(user, result.Passkey);
                     return Proved(user, current);
                 }
-                LogPasskeyFailure("proof", result.Failure);
+                LogPasskeyFailure("proof", result.Failure, user.Id);
             }
             return StatusCode(StatusCodes.Status403Forbidden, new { error = PasskeyFailed });
         }
@@ -425,8 +436,10 @@ public partial class AuthController
             if (await codes.RedeemAsync(user, proof.RecoveryCode))
             {
                 _accountEmails.SendPasskeyNotice(user.Email!, PasskeyNotice.RecoveryCodeUsed, CurrentDevice());
+                Security.Write(SecurityEvent.RecoveryCodeUsed, user.Id, "proof");
                 return Proved(user, current);
             }
+            Security.Write(SecurityEvent.RecoveryCodeRefused, user.Id, "proof");
             return StatusCode(StatusCodes.Status403Forbidden, new { error = "That code isn't right, or it was used already." });
         }
 
@@ -447,9 +460,12 @@ public partial class AuthController
         return null;
     }
 
-    private void LogPasskeyFailure(string step, PasskeyException? failure) =>
+    private void LogPasskeyFailure(string step, PasskeyException? failure, string? userId = null)
+    {
         // The message names what failed (challenge, origin, signature); never the credential itself.
         _logger.LogInformation("A passkey {Step} was refused: {Reason}", step, failure?.Message ?? "ceremony already used");
+        Security.Write(SecurityEvent.PasskeyRefused, userId, step);
+    }
 
     private static PasskeyResponse ToResponse(UserPasskeyInfo passkey) =>
         new(ToBase64Url(passkey.CredentialId), passkey.Name, passkey.CreatedAt.UtcDateTime);

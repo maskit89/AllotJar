@@ -36,6 +36,15 @@ public sealed class PasskeyCeremonies
     /// <summary>Wrong answers a second-step ticket takes before it is dropped and sign-in starts over.</summary>
     public const int MaxFailures = 5;
 
+    /// <summary>
+    /// "Sign in with a passkey" ceremonies held at once. Only that kind can be started by anyone
+    /// (no login known yet), so only that kind is capped: past this the store refuses new ones rather
+    /// than grow on the 4 GB box (security review #7). The other kinds start only after a proven
+    /// password, Google or reset sign-in, or for a signed-in login, so a flood of anonymous starts
+    /// can never block them (#423 review P2-1). Each entry lives at most <see cref="Lifetime"/>.
+    /// </summary>
+    public const int MaxSignInEntries = 10_000;
+
     private sealed class Entry(PasskeyCeremony ceremony)
     {
         public PasskeyCeremony Ceremony { get; } = ceremony;
@@ -48,9 +57,16 @@ public sealed class PasskeyCeremonies
 
     public PasskeyCeremonies(TimeProvider time) => _time = time;
 
+    /// <exception cref="PasskeyCeremoniesBusyException">
+    /// For a <see cref="PasskeyCeremonyKind.SignIn"/> when <see cref="MaxSignInEntries"/> of them are already live.
+    /// </exception>
     public string Start(PasskeyCeremonyKind kind, string? userId, string state)
     {
-        Prune();
+        var liveSignIns = Prune();
+        if (kind == PasskeyCeremonyKind.SignIn && liveSignIns >= MaxSignInEntries)
+        {
+            throw new PasskeyCeremoniesBusyException();
+        }
         var id = Base64Url(RandomNumberGenerator.GetBytes(32));
         _entries[id] = new Entry(new PasskeyCeremony(kind, userId, state, _time.GetUtcNow() + Lifetime));
         return id;
@@ -99,14 +115,20 @@ public sealed class PasskeyCeremonies
     public bool HasProof(string userId, Guid sessionId) =>
         _proofs.TryGetValue((userId, sessionId), out var until) && until > _time.GetUtcNow();
 
-    private void Prune()
+    /// <summary>Drops what has expired; returns how many sign-in ceremonies are still live.</summary>
+    private int Prune()
     {
         var now = _time.GetUtcNow();
+        var liveSignIns = 0;
         foreach (var (id, entry) in _entries)
         {
             if (entry.Ceremony.ExpiresAt <= now)
             {
                 _entries.TryRemove(id, out _);
+            }
+            else if (entry.Ceremony.Kind == PasskeyCeremonyKind.SignIn)
+            {
+                liveSignIns++;
             }
         }
         foreach (var (key, until) in _proofs)
@@ -116,8 +138,13 @@ public sealed class PasskeyCeremonies
                 _proofs.TryRemove(key, out _);
             }
         }
+        return liveSignIns;
     }
 
     private static string Base64Url(byte[] bytes) =>
         Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }
+
+/// <summary>Too many passkey ceremonies are live at once; the caller is told to try again shortly.</summary>
+public sealed class PasskeyCeremoniesBusyException()
+    : Exception("Passkey sign-in is busy just now. Try again in a minute.");

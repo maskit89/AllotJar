@@ -2,9 +2,12 @@ using System.Text;
 using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http.Timeouts;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
+using AllotJar.Application.Imports;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
 using AllotJar.Application.Imports.Models;
@@ -22,16 +25,21 @@ namespace AllotJar.Api.Controllers;
 [Route("api/[controller]")]
 public class ImportController : ControllerBase
 {
+    /// <summary>The request-timeout policy of a commit (Program.cs).</summary>
+    public const string CommitTimeoutPolicy = "import-commit";
+
     private readonly ISender _mediator;
     private readonly IPdfTableReader _pdf;
+    private readonly ICurrentUser _currentUser;
 
     // The generic-CSV column mapping arrives as a JSON form field; accept camelCase from the SPA.
     private static readonly JsonSerializerOptions MappingJsonOptions = new() { PropertyNameCaseInsensitive = true };
 
-    public ImportController(ISender mediator, IPdfTableReader pdf)
+    public ImportController(ISender mediator, IPdfTableReader pdf, ICurrentUser currentUser)
     {
         _mediator = mediator;
         _pdf = pdf;
+        _currentUser = currentUser;
     }
 
     /// <summary>
@@ -73,7 +81,9 @@ public class ImportController : ControllerBase
             {
                 return BadRequest(new { error = "A PDF statement is imported as Bank CSV or PDF." });
             }
-            content = _pdf.ReadAsCsv(bytes, ct);
+            var person = _currentUser.UserId
+                ?? throw new ForbiddenAccessException("No authenticated user on the request.");
+            content = await _pdf.ReadAsCsvAsync(bytes, person, ct);
         }
         else
         {
@@ -102,15 +112,31 @@ public class ImportController : ControllerBase
         return Ok(result);
     }
 
-    /// <summary>Persist the reviewed rows from a preview. Idempotent — already-imported rows are skipped.</summary>
+    /// <summary>
+    /// Persist the reviewed rows from a preview. Idempotent — already-imported rows are skipped.
+    /// A commit holds the statement account's ledger lock while it runs, so its size is capped
+    /// (<see cref="ImportLimits.MaxRows"/> rows, a few megabytes), it has a rate limit of its own,
+    /// and it is stopped and rolled back if it runs too long.
+    /// </summary>
     [HttpPost("commit")]
+    [EnableRateLimiting("import-commit")]
+    [RequestSizeLimit(ImportLimits.MaxCommitBytes)]
+    [RequestTimeout(CommitTimeoutPolicy)]
     [ProducesResponseType(typeof(ImportStatementResult), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     public async Task<ActionResult<ImportStatementResult>> Commit(
         [FromBody] CommitImportCommand command,
         CancellationToken ct)
     {
-        var result = await _mediator.Send(command, ct);
-        return Ok(result);
+        try
+        {
+            return Ok(await _mediator.Send(command, ct));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException && ct.IsCancellationRequested)
+        {
+            // Stopped in the middle of a query, SQL Server answers with an error of its own rather
+            // than a cancellation: it is the same stop, and is answered as the time limit's.
+            throw new OperationCanceledException("The import was stopped.", ex, ct);
+        }
     }
 }

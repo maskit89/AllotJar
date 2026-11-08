@@ -101,6 +101,7 @@ public class PeopleFollowUpsHttpTests
     {
         using var client = _fixture.CreateClient();
         var (ownerToken, ownerId, ownerEmail) = await RegisterNamelessOwnerAsync(client);
+        await _fixture.ConfirmEmailAsync(ownerEmail);
         var (samToken, _, personId, _) = await DirectInviteAsync(client, ownerToken);
 
         // D6: the owner has no name, so the household reads "Household", never their address.
@@ -203,7 +204,8 @@ public class PeopleFollowUpsHttpTests
     public async Task Relinking_Sam_to_the_owner_never_lets_the_owner_make_Sams_account_private_until_Sams_login_leaves_D5()
     {
         using var client = _fixture.CreateClient();
-        var (ownerToken, ownerId, _) = await RegisterNamelessOwnerAsync(client);
+        var (ownerToken, ownerId, nobodyEmail) = await RegisterNamelessOwnerAsync(client);
+        await _fixture.ConfirmEmailAsync(nobodyEmail);
         var (samToken, samMembership, personId, _) = await DirectInviteAsync(client, ownerToken);
 
         var list = await HttpApiFixture.SendAsync(client, HttpMethod.Get, "/api/access/members", ownerToken);

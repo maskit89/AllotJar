@@ -315,6 +315,11 @@ public class CommitImportCommandHandler : IRequestHandler<CommitImportCommand, I
 
         foreach (var item in ordered)
         {
+            // Each row checks the account's balance over everything so far, all in memory: a
+            // commit stopped for taking too long (ImportLimits.CommitTimeLimit) stops here, and
+            // nothing of it is saved.
+            cancellationToken.ThrowIfCancellationRequested();
+
             // A reference this account already recorded for the same entry is a duplicate; one
             // recorded for an entry with different details (a reused reference) is imported under
             // a derived reference unique to this entry (O1 answer 2).

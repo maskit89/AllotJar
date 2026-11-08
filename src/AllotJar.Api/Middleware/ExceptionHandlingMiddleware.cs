@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Common;
+using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Api.Middleware;
 
@@ -60,6 +61,13 @@ public class ExceptionHandlingMiddleware
                     ? EditConflictException.Reason
                     : "Something else changed this at the same moment. Reload and try again.");
         }
+        catch (BadHttpRequestException ex) when (ex.StatusCode == StatusCodes.Status413PayloadTooLarge)
+        {
+            // A body over the endpoint's [RequestSizeLimit] (an import too big to take at once): the
+            // server read no more of it. The visitor's mistake, not the server's, so no error alert.
+            await WriteProblem(context, StatusCodes.Status413PayloadTooLarge,
+                "This is too large to send at once. Import a shorter date range.");
+        }
         catch (DbUpdateException ex) when (IsJarCycleCollision(ex))
         {
             // Two requests closed the same jar cycle at once (two pages settling it on the first
@@ -67,6 +75,12 @@ public class ExceptionHandlingMiddleware
             // cycle index kept one, and the other is told to reload rather than shown an error.
             await WriteProblem(context, StatusCodes.Status409Conflict,
                 "Something else changed this at the same moment. Reload and try again.");
+        }
+        catch (PasskeyCeremoniesBusyException ex)
+        {
+            _logger.LogWarning("Passkey ceremony store full ({Max}); refused a new one.", PasskeyCeremonies.MaxSignInEntries);
+            context.Response.Headers.RetryAfter = "60";
+            await WriteProblem(context, StatusCodes.Status503ServiceUnavailable, ex.Message);
         }
         catch (Exception ex)
         {

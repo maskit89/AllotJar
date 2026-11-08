@@ -65,7 +65,8 @@ public class DeleteAccountHttpTests
     public async Task An_owner_is_refused_while_someone_else_has_access_to_the_budget()
     {
         using var client = _fixture.CreateClient();
-        var (token, _, password) = await RegisterAsync(client);
+        var (token, ownerEmail, password) = await RegisterAsync(client);
+        await _fixture.ConfirmEmailAsync(ownerEmail);
         var invite = await HttpApiFixture.SendAsync(client, HttpMethod.Post, "/api/access/invite", token, new
         {
             email = $"other-{Guid.NewGuid():N}"[..18] + "@delete.test", role = (int)HouseholdRole.Admin, method = 0,

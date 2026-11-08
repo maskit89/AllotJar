@@ -11,18 +11,20 @@ public class SkipJarContributionCommandHandler : IRequestHandler<SkipJarContribu
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public SkipJarContributionCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public SkipJarContributionCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<BudgetMonthDto> Handle(SkipJarContributionCommand request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
 
         var (item, jar) = await JarLineLoader.LoadAsync(_db, userId, request.BudgetItemId, today, cancellationToken);
 
@@ -49,7 +51,7 @@ public class SkipJarContributionCommandHandler : IRequestHandler<SkipJarContribu
                 .ThenInclude(c => c.Items)
             .FirstAsync(m => m.Id == monthId, cancellationToken);
 
-        await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken);
+        await BudgetActuals.ApplyAsync(_db, userId, month, cancellationToken, today: today);
 
         return month.ToDto();
     }

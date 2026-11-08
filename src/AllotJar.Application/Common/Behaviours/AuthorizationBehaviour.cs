@@ -9,8 +9,9 @@ namespace AllotJar.Application.Common.Behaviours;
 
 /// <summary>
 /// Enforces the caller's <see cref="HouseholdRole"/> on every request before it reaches the
-/// handler. Reads (requests whose type name ends in "Query") are allowed for all roles. Writes
-/// (".. Command") require Admin by default; <see cref="AllowLimitedAttribute"/> opens a command
+/// handler. Reads (requests whose type name ends in "Query") are allowed for all roles. Every
+/// other request is treated as a write ("..Command"), so a request named anything else is gated
+/// rather than let through. Writes require Admin by default; <see cref="AllowLimitedAttribute"/> opens a command
 /// to Limited logins, and <see cref="OwnerOnlyAttribute"/> restricts it to the Owner. When no
 /// role is resolved (e.g. the request never went through the API middleware) enforcement is
 /// skipped — data is still protected by the per-request OwnerId scoping in each handler.
@@ -45,8 +46,10 @@ public class AuthorizationBehaviour<TRequest, TResponse> : IPipelineBehavior<TRe
             return next();
         }
 
-        var isCommand = type.Name.EndsWith("Command", StringComparison.Ordinal);
-        if (isCommand && !IsPermitted(role.Value, type))
+        // Fail closed: only a "...Query" skips the check (holistic review M8). RoleAttributeTableTests
+        // holds every real request to that naming and to a checked-in table of who may run it.
+        var isQuery = type.Name.EndsWith("Query", StringComparison.Ordinal);
+        if (!isQuery && !IsPermitted(role.Value, type))
         {
             throw new ForbiddenAccessException(
                 $"Your access level ({role}) does not permit this action.");
