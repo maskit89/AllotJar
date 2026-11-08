@@ -351,6 +351,46 @@ Assert-True (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-02T02:45:00Z' -
 Assert-True (-not (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-01T02:30:00' -TimeUtc '02:30')) 'a local time with no offset is not pinned'
 Assert-True (-not (Test-UtcPinnedStartBoundary -StartBoundary '2026-11-01T18:00:00-07:00' -TimeUtc '02:00')) 'the wrong instant is refused'
 
+Write-Host '== Upload-only deploy helpers =='
+$st = Get-UploadDeployStack -Stack staging
+$pr = Get-UploadDeployStack -Stack production
+Assert-True ($st.User -eq 'allotjar-up-staging' -and $pr.User -eq 'allotjar-up-prod') 'one account per stack'
+Assert-True ($st.User.Length -le 20 -and $pr.User.Length -le 20) 'account names fit the 20-character Windows limit'
+Assert-True ($st.UploadDir -ne $pr.UploadDir -and -not $pr.UploadDir.StartsWith($st.UploadDir + '\') -and -not $st.UploadDir.StartsWith($pr.UploadDir + '\')) 'neither upload folder is inside the other'
+Assert-True ($st.HealthUrl -match ':5000/' -and $st.ApiProxyPort -eq 5000 -and $st.AspNetEnvironment -eq 'Staging' -and $st.ApiDir -match 'allotjar-staging') 'staging deploys to the staging stack only'
+Assert-True ($pr.HealthUrl -match ':5001/' -and $pr.ApiProxyPort -eq 5001 -and $pr.AspNetEnvironment -eq 'Production' -and $pr.ApiDir -match 'allotjar-prod\\') 'production deploys to the production stack only'
+
+Assert-True (Test-ZipEntryNameSafe -EntryName 'api/AllotJar.Api.dll') 'a plain entry is safe'
+Assert-True (Test-ZipEntryNameSafe -EntryName 'web/assets/index-abc.js') 'a nested entry is safe'
+Assert-True (Test-ZipEntryNameSafe -EntryName 'web/') 'a folder entry is safe'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName '../evil.ps1')) 'a parent segment is refused'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName 'api\..\..\bin\trusted\Deploy.ps1')) 'a backslash parent segment is refused'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName '/etc/x')) 'a rooted entry is refused'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName 'C:\deploy\bin\x.ps1')) 'a drive letter is refused'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName 'api/web.config:stream')) 'an alternate data stream is refused'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName 'api/.. /x')) 'a parent segment hidden by a trailing space is refused'
+Assert-True (-not (Test-ZipEntryNameSafe -EntryName '')) 'an empty name is refused'
+
+Assert-True ((Get-UploadReleaseId -Text "123456-1-staging`r`n" -Stack staging) -eq '123456-1-staging') 'a run id is kept'
+Assert-True ((Get-UploadReleaseId -Text '123456-1-production' -Stack staging) -eq 'unknown') 'another stack''s id is refused'
+Assert-True ((Get-UploadReleaseId -Text "1-1-staging`nstate=ok" -Stack staging) -eq '1-1-staging') 'only the first line is read'
+Assert-True ((Get-UploadReleaseId -Text 'x; state=ok' -Stack staging) -eq 'unknown') 'free text is refused'
+Assert-True ((Get-UploadReleaseId -Text $null -Stack production) -eq 'unknown') 'no id file reads unknown'
+
+$status = ConvertTo-UploadDeployStatus -Id '9-1-staging' -State failed -Message "bad`r`nstate=ok" -LogLines @('one', "two`nstate=ok")
+$sl = $status -split "`r`n"
+Assert-True ($sl[0] -eq 'id=9-1-staging' -and $sl[1] -eq 'state=failed') 'status starts with id and state'
+Assert-True (@($sl | Where-Object { $_ -match '^state=' }).Count -eq 1) 'a message or log line can never add a second state line'
+Assert-True ($sl[3] -eq 'log: one' -and $sl[4] -eq 'log: two state=ok') 'log lines are prefixed and flattened'
+$many = ConvertTo-UploadDeployStatus -Id '1-1-staging' -State ok -LogLines (1..100 | ForEach-Object { "l$_" })
+Assert-True (@(($many -split "`r`n") | Where-Object { $_ -like 'log: *' }).Count -eq 40 -and $many -match 'log: l100') 'only the last 40 log lines are kept'
+
+$chg = @(Get-ScriptChangeLines -Trusted @('a', 'b', 'c') -Pending @('a', 'B2', 'c', 'd'))
+Assert-True (($chg -contains '+ B2') -and ($chg -contains '- b') -and ($chg -contains '+ d')) 'changed lines are listed with + and -'
+Assert-True ((@(Get-ScriptChangeLines -Trusted @('a') -Pending @('a'))).Count -eq 0) 'identical files list nothing'
+$big = @(Get-ScriptChangeLines -Trusted @() -Pending (1..200 | ForEach-Object { "x$_" }) -MaxLines 10)
+Assert-True ($big.Count -eq 11 -and $big[-1] -match '190 more') 'a long change is cut with a count'
+
 Write-Host '== Every deploy script parses =='
 # The server scripts run only on Windows, so this is the one place CI sees a syntax error in them.
 foreach ($f in @(Get-ChildItem -Path (Split-Path $PSScriptRoot -Parent) -Include '*.ps1', '*.psm1' -Recurse -File)) {
