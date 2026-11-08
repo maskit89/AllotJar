@@ -10,8 +10,8 @@
 
       * allotjar-up-staging and allotjar-up-prod are plain local accounts (random password that is
         never shown; no RDP). sshd lets each one in by key only, to sftp only, jailed in
-        C:\deploy\upload\staging or C:\deploy\upload\production. No shell, no commands, no
-        forwarding, and neither can see the other's folder.
+        C:\deploy\upload\staging or C:\deploy\upload\production, where it may write only into
+        \incoming. No shell, no commands, no forwarding, and neither can see the other's folder.
       * A new ed25519 key pair per account. The private halves are written to C:\deploy\newkeys
         (Administrators only) for you to copy into the GitHub secrets VPS_SSH_KEY_STAGING and
         VPS_SSH_KEY_PRODUCTION; delete that folder afterwards. They are never printed.
@@ -159,10 +159,13 @@ foreach ($s in $stacks) {
 Info 'Creating the upload folders'
 New-Item -ItemType Directory -Force -Path 'C:\deploy\upload' | Out-Null
 Set-ExactAcl 'C:\deploy\upload' @{ $admins = 'FullControl'; $system = 'FullControl' }
+# sshd refuses a chroot that its user can write to, so the jail's root is read-only for the
+# account (it reads status.txt there) and only its "incoming" subfolder takes uploads.
 foreach ($s in $stacks) {
-    New-Item -ItemType Directory -Force -Path $s.UploadDir | Out-Null
-    Set-ExactAcl $s.UploadDir @{ $admins = 'FullControl'; $system = 'FullControl'; $s.User = 'Modify' }
-    "    $($s.UploadDir): only $($s.User), Administrators and SYSTEM"
+    New-Item -ItemType Directory -Force -Path $s.UploadDir, $s.UploadInbox | Out-Null
+    Set-ExactAcl $s.UploadDir @{ $admins = 'FullControl'; $system = 'FullControl'; $s.User = 'ReadAndExecute' }
+    Set-ExactAcl $s.UploadInbox @{ $admins = 'FullControl'; $system = 'FullControl'; $s.User = 'Modify' }
+    "    $($s.UploadDir): $($s.User) may read; only $($s.UploadInbox) takes its uploads"
 }
 
 # --------------------------------------------------------------- 4. keys ---
@@ -232,7 +235,10 @@ $principal = New-ScheduledTaskPrincipal -UserId 'NT AUTHORITY\SYSTEM' -LogonType
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 20)
 Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Force | Out-Null
 $stored = Get-ScheduledTask -TaskName $TaskName
-if (($stored.Triggers | Select-Object -First 1).Repetition.Interval -ne 'PT1M') { throw "Task $TaskName was stored without its every-minute repetition." }
+$rep = ($stored.Triggers | Select-Object -First 1).Repetition
+if ($rep.Interval -ne 'PT1M') { throw "Task $TaskName was stored without its every-minute repetition." }
+# No duration means "repeat for ever"; a stored duration would stop the deploys silently later.
+if ($rep.Duration) { throw "Task $TaskName repeats only for $($rep.Duration), not indefinitely." }
 "    every minute as SYSTEM, one at a time, stopped after 20 minutes"
 
 # ------------------------------------------------------- 8. self-test ------
@@ -245,7 +251,7 @@ foreach ($s in $stacks) {
     $probe = Join-Path $env:TEMP "allotjar-probe-$($s.Stack).txt"
     $batch = Join-Path $env:TEMP "allotjar-probe-$($s.Stack).sftp"
     Set-Content -LiteralPath $probe -Value 'probe' -Encoding ascii
-    Set-Content -LiteralPath $batch -Value @("put `"$probe`" /probe.txt", 'rm /probe.txt', 'ls /') -Encoding ascii
+    Set-Content -LiteralPath $batch -Value @("put `"$probe`" /incoming/probe.txt", 'rm /incoming/probe.txt', 'ls /') -Encoding ascii
     $ErrorActionPreference = 'Continue'
     $up = & $sftp @common -P $port -b $batch "$($s.User)@127.0.0.1" 2>&1
     $upCode = $LASTEXITCODE
@@ -267,3 +273,4 @@ Show-State
 if ($failures.Count) { throw ("Self-test FAILED:`n - " + ($failures -join "`n - ")) }
 "Done. Next: copy each private key file in $KeyOutDir (staging, production; open with notepad) into the GitHub secret"
 "VPS_SSH_KEY_STAGING / VPS_SSH_KEY_PRODUCTION. Do not paste or screenshot them anywhere else."
+"Delete $KeyOutDir only after both secrets are saved: a re-run keeps an existing key and cannot show it again."

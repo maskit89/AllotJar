@@ -620,7 +620,8 @@ function Test-UtcPinnedStartBoundary {
 <#
 .SYNOPSIS
     Everything the upload-only deploy needs to know about one stack: the upload-only Windows
-    account, its upload folder (the account's sftp jail), where the server moves the upload
+    account, its sftp jail (UploadDir: read-only to the account, holds status.txt), the one
+    folder in it the account may write (UploadInbox, "/incoming"), where the server moves the upload
     before unpacking it, and the Deploy.ps1 arguments for that stack. The single source of the
     names for Invoke-PendingDeploy.ps1, Approve-DeployScripts.ps1 and Enable-UploadOnlyDeploy.ps1.
 #>
@@ -629,7 +630,7 @@ function Get-UploadDeployStack {
     if ($Stack -eq 'staging') {
         return [ordered]@{
             Stack = 'staging'; User = 'allotjar-up-staging'
-            UploadDir = 'C:\deploy\upload\staging'; IncomingDir = 'C:\deploy\incoming-staging'; ReleaseDir = 'C:\deploy\release-staging'
+            UploadDir = 'C:\deploy\upload\staging'; UploadInbox = 'C:\deploy\upload\staging\incoming'; IncomingDir = 'C:\deploy\incoming-staging'; ReleaseDir = 'C:\deploy\release-staging'
             ApiDir = 'C:\inetpub\allotjar-staging\api'; WebDir = 'C:\inetpub\allotjar-staging\web'
             ApiPool = 'AllotJar-Staging-Api'; WebPool = 'AllotJar-Staging-Web'
             HealthUrl = 'http://127.0.0.1:5000/health'; ApiProxyPort = 5000; AspNetEnvironment = 'Staging'
@@ -637,7 +638,7 @@ function Get-UploadDeployStack {
     }
     return [ordered]@{
         Stack = 'production'; User = 'allotjar-up-prod'
-        UploadDir = 'C:\deploy\upload\production'; IncomingDir = 'C:\deploy\incoming-production'; ReleaseDir = 'C:\deploy\release-production'
+        UploadDir = 'C:\deploy\upload\production'; UploadInbox = 'C:\deploy\upload\production\incoming'; IncomingDir = 'C:\deploy\incoming-production'; ReleaseDir = 'C:\deploy\release-production'
         ApiDir = 'C:\inetpub\allotjar-prod\api'; WebDir = 'C:\inetpub\allotjar-prod\web'
         ApiPool = 'AllotJar-Prod-Api'; WebPool = 'AllotJar-Prod-Web'
         HealthUrl = 'http://127.0.0.1:5001/health'; ApiProxyPort = 5001; AspNetEnvironment = 'Production'

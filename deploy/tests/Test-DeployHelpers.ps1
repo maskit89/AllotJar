@@ -356,6 +356,7 @@ $st = Get-UploadDeployStack -Stack staging
 $pr = Get-UploadDeployStack -Stack production
 Assert-True ($st.User -eq 'allotjar-up-staging' -and $pr.User -eq 'allotjar-up-prod') 'one account per stack'
 Assert-True ($st.User.Length -le 20 -and $pr.User.Length -le 20) 'account names fit the 20-character Windows limit'
+Assert-True ($st.UploadInbox -eq ($st.UploadDir + '\incoming') -and $pr.UploadInbox -eq ($pr.UploadDir + '\incoming')) 'each account writes only into incoming inside its jail'
 Assert-True ($st.UploadDir -ne $pr.UploadDir -and -not $pr.UploadDir.StartsWith($st.UploadDir + '\') -and -not $st.UploadDir.StartsWith($pr.UploadDir + '\')) 'neither upload folder is inside the other'
 Assert-True ($st.HealthUrl -match ':5000/' -and $st.ApiProxyPort -eq 5000 -and $st.AspNetEnvironment -eq 'Staging' -and $st.ApiDir -match 'allotjar-staging') 'staging deploys to the staging stack only'
 Assert-True ($pr.HealthUrl -match ':5001/' -and $pr.ApiProxyPort -eq 5001 -and $pr.AspNetEnvironment -eq 'Production' -and $pr.ApiDir -match 'allotjar-prod\\') 'production deploys to the production stack only'

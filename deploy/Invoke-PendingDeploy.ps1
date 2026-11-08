@@ -6,9 +6,9 @@
 .DESCRIPTION
     The Deploy workflow's SSH keys can only upload files into their own stack's folder
     (C:\deploy\upload\staging or \production, an sftp jail); they cannot run any command here.
-    This script is the other half. For each stack, when <upload>\release.zip exists:
+    This script is the other half. For each stack, when <upload>\incoming\release.zip exists:
 
-      1. Moves release.zip and release.id out of the upload folder (to C:\deploy\incoming-<stack>),
+      1. Moves release.zip and release.id out of the jail (to C:\deploy\incoming-<stack>),
          so the uploader cannot swap the file while it is unpacked.
       2. Checks the zip: size, and every entry name stays inside the release folder.
       3. Unpacks it into C:\deploy\release-<stack>.
@@ -17,7 +17,8 @@
          change on the server with Approve-DeployScripts.ps1. The upload can never choose the
          code that runs as SYSTEM.
       5. Runs the TRUSTED Deploy.ps1 with this stack's fixed folders, pools and ports.
-      6. Writes the result to <upload>\status.txt, which the workflow polls over sftp, and to
+      6. Writes the result to <upload>\status.txt (the jail's root: the account can read it but
+         not write it), which the workflow polls over sftp, and to
          the Application event log (source "AllotJar Deploy": 4100 ok, 4101 failed, 4102 blocked).
 
     An idle run only tests for two files and exits. Nothing is left running between runs.
@@ -65,11 +66,11 @@ function Test-SameFile([string]$A, [string]$B) {
 
 foreach ($stackName in @('staging', 'production')) {
     $s = Get-UploadDeployStack -Stack $stackName
-    $uploadZip = Join-Path $s.UploadDir 'release.zip'
+    $uploadZip = Join-Path $s.UploadInbox 'release.zip'
     if (-not (Test-Path -LiteralPath $uploadZip)) { continue }
 
     $idText = $null
-    $uploadId = Join-Path $s.UploadDir 'release.id'
+    $uploadId = Join-Path $s.UploadInbox 'release.id'
     if (Test-Path -LiteralPath $uploadId) { $idText = Get-Content -LiteralPath $uploadId -TotalCount 1 -ErrorAction SilentlyContinue }
     $id = Get-UploadReleaseId -Text $idText -Stack $stackName
     $log = @()
