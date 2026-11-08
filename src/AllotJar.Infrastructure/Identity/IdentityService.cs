@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using AllotJar.Infrastructure.Logging;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Domain.ValueObjects;
 
@@ -18,10 +19,12 @@ public class IdentityService : IIdentityService
         new PasswordHasher<ApplicationUser>().HashPassword(new ApplicationUser(), "timing-equalizer");
 
     private readonly UserManager<ApplicationUser> _userManager;
+    private readonly SecurityEvents? _security;
 
-    public IdentityService(UserManager<ApplicationUser> userManager)
+    public IdentityService(UserManager<ApplicationUser> userManager, SecurityEvents? security = null)
     {
         _userManager = userManager;
+        _security = security;
     }
 
     public async Task<bool> EmailExistsAsync(string email) =>
@@ -115,6 +118,7 @@ public class IdentityService : IIdentityService
             // Spend roughly the same time as a real verify so timing can't reveal that the email
             // is unknown, then report the same generic failure as a wrong password.
             _userManager.PasswordHasher.VerifyHashedPassword(new ApplicationUser(), DummyPasswordHash, password);
+            _security?.Write(SecurityEvent.SignInFailed, null, "no such login");
             return CredentialCheckResult.Invalid;
         }
 
@@ -127,6 +131,7 @@ public class IdentityService : IIdentityService
 
         if (await _userManager.IsLockedOutAsync(user))
         {
+            _security?.Write(SecurityEvent.SignInWhileLocked, user.Id);
             return CredentialCheckResult.LockedOut;
         }
 
@@ -134,9 +139,9 @@ public class IdentityService : IIdentityService
         {
             // Count the failure; Identity locks the account once it crosses MaxFailedAccessAttempts.
             await _userManager.AccessFailedAsync(user);
-            return await _userManager.IsLockedOutAsync(user)
-                ? CredentialCheckResult.LockedOut
-                : CredentialCheckResult.Invalid;
+            var locked = await _userManager.IsLockedOutAsync(user);
+            _security?.Write(locked ? SecurityEvent.LockedOut : SecurityEvent.SignInFailed, user.Id);
+            return locked ? CredentialCheckResult.LockedOut : CredentialCheckResult.Invalid;
         }
 
         await _userManager.ResetAccessFailedCountAsync(user);

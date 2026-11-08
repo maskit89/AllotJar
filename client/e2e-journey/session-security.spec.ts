@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { expect, request, test, type APIRequestContext } from '@playwright/test'
-import { JOURNEY_PASSWORD, register, uniqueEmail, waitForEmailLink } from './helpers'
+import { confirmOwnEmail, JOURNEY_PASSWORD, register, uniqueEmail, waitForEmailLink } from './helpers'
 
 /**
  * Security-functional behaviours that need the whole real stack (the SEC deferred set):
@@ -215,6 +215,7 @@ test('an invite link is strictly single-use: the second redemption fails cleanly
   // The owner mints a one-time LINK invite over the API (the UI minting + happy accept flow
   // is invite.spec.ts's — this journey is about what happens AFTER the one allowed use).
   const owner = await apiRegister(baseURL!, 'inviter')
+  await confirmOwnEmail(page, owner.email) // an owner confirms their email before inviting
   const inviteeEmail = uniqueEmail('single-use')
   const invite = await owner.ctx.post('/api/access/invite', {
     headers: auth(owner.token),

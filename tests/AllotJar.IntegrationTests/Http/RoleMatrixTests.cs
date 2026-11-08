@@ -26,6 +26,7 @@ public class RoleMatrixTests
     private static readonly HttpStatusCode OK = HttpStatusCode.OK;
     private static readonly HttpStatusCode Created = HttpStatusCode.Created;
     private static readonly HttpStatusCode Forbidden = HttpStatusCode.Forbidden;
+    private static readonly HttpStatusCode NotFound = HttpStatusCode.NotFound;
 
     private readonly HttpApiFixture _fixture;
 
@@ -125,6 +126,28 @@ public class RoleMatrixTests
             },
             owner: OK, admin: Forbidden, limited: Forbidden, readOnly: Forbidden);
 
+    // The Owner-only access commands below aim at a membership or account that doesn't exist, so
+    // the Owner passes the role gate and gets the handler's 404 while nobody's access in the shared
+    // fixture changes. Every other role must be stopped at the gate with 403 (holistic review M8).
+
+    [Fact]
+    public async Task Member_role_change_is_owner_only() =>
+        await AssertMatrixAsync(HttpMethod.Put, _ => $"/api/access/members/{Guid.NewGuid()}/role",
+            _ => new { role = 3 }, // HouseholdRole.ReadOnly
+            owner: NotFound, admin: Forbidden, limited: Forbidden, readOnly: Forbidden);
+
+    [Fact]
+    public async Task Member_revoke_is_owner_only() =>
+        await AssertMatrixAsync(HttpMethod.Delete, _ => $"/api/access/members/{Guid.NewGuid()}",
+            _ => null,
+            owner: NotFound, admin: Forbidden, limited: Forbidden, readOnly: Forbidden);
+
+    [Fact]
+    public async Task Unreachable_account_erase_is_owner_only() =>
+        await AssertMatrixAsync(HttpMethod.Post, _ => $"/api/accounts/{Guid.NewGuid()}/erase",
+            _ => new { confirmName = "Matrix" },
+            owner: NotFound, admin: Forbidden, limited: Forbidden, readOnly: Forbidden);
+
     // --- queries: reads are open to every role ------------------------------------------------
 
     [Theory]
@@ -170,7 +193,7 @@ public class RoleMatrixTests
     private async Task AssertMatrixAsync(
         HttpMethod method,
         Func<HouseholdRole, string> url,
-        Func<HouseholdRole, object> body,
+        Func<HouseholdRole, object?> body,
         HttpStatusCode owner, HttpStatusCode admin, HttpStatusCode limited, HttpStatusCode readOnly)
     {
         var expectations = new (HouseholdRole Role, HttpStatusCode Expected)[]

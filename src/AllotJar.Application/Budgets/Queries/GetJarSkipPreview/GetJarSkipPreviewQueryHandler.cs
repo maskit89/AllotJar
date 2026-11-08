@@ -11,18 +11,20 @@ public class GetJarSkipPreviewQueryHandler : IRequestHandler<GetJarSkipPreviewQu
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public GetJarSkipPreviewQueryHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public GetJarSkipPreviewQueryHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<JarScheduleDto> Handle(GetJarSkipPreviewQuery request, CancellationToken cancellationToken)
     {
         var userId = _currentUser.OwnerId
             ?? throw new ForbiddenAccessException("No authenticated user on the request.");
-        var today = DateOnly.FromDateTime(DateTime.UtcNow);
+        var today = DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime);
 
         var (item, jar) = await JarLineLoader.LoadAsync(_db, userId, request.BudgetItemId, today, cancellationToken);
         // The preview plans toward the cycle the jar is actually in (rule 21).

@@ -51,6 +51,8 @@ builder.Services.AddScoped<HouseholdContext>();
 builder.Services.AddScoped<ICurrentUser, CurrentUser>();
 builder.Services.AddSingleton<AccountEmails>();
 builder.Services.AddSingleton<ResendCooldown>();
+builder.Services.AddSingleton<InviteEmailAllowance>();
+builder.Services.AddSingleton<PasswordLinkAllowance>();
 
 builder.Services.AddControllers();
 builder.Services.AddAuthorization();
@@ -113,10 +115,12 @@ builder.Services.Configure<ForwardedHeadersOptions>(options => ClientAddress.Con
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    // The import screen shows the server's title; without one it would blame the file. Other
-    // endpoints keep the bare 429 their screens already handle.
+    // The security log notes rate-limit refusals, throttled to one line every few seconds (audit
+    // A09-001). The import screen shows the server's title; without one it would blame the file.
+    // Other endpoints keep the bare 429 their screens already handle.
     options.OnRejected = (context, cancellationToken) =>
     {
+        context.HttpContext.RequestServices.GetRequiredService<SecurityEvents>().WriteRateLimited();
         if (!context.HttpContext.Request.Path.StartsWithSegments("/api/import"))
         {
             return ValueTask.CompletedTask;

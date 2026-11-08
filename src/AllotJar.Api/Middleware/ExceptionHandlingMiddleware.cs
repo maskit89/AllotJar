@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Jars;
 using AllotJar.Domain.Common;
+using AllotJar.Infrastructure.Identity;
 
 namespace AllotJar.Api.Middleware;
 
@@ -74,6 +75,12 @@ public class ExceptionHandlingMiddleware
             // cycle index kept one, and the other is told to reload rather than shown an error.
             await WriteProblem(context, StatusCodes.Status409Conflict,
                 "Something else changed this at the same moment. Reload and try again.");
+        }
+        catch (PasskeyCeremoniesBusyException ex)
+        {
+            _logger.LogWarning("Passkey ceremony store full ({Max}); refused a new one.", PasskeyCeremonies.MaxSignInEntries);
+            context.Response.Headers.RetryAfter = "60";
+            await WriteProblem(context, StatusCodes.Status503ServiceUnavailable, ex.Message);
         }
         catch (Exception ex)
         {

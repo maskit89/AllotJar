@@ -14,11 +14,13 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
 {
     private readonly IApplicationDbContext _db;
     private readonly ICurrentUser _currentUser;
+    private readonly TimeProvider _clock;
 
-    public AllocateIncomeCommandHandler(IApplicationDbContext db, ICurrentUser currentUser)
+    public AllocateIncomeCommandHandler(IApplicationDbContext db, ICurrentUser currentUser, TimeProvider? clock = null)
     {
         _db = db;
         _currentUser = currentUser;
+        _clock = clock ?? TimeProvider.System;
     }
 
     public async Task<AllocationResultDto> Handle(AllocateIncomeCommand request, CancellationToken cancellationToken)
@@ -39,7 +41,8 @@ public class AllocateIncomeCommandHandler : IRequestHandler<AllocateIncomeComman
         }
 
         var plan = await AllocationPlanner.PlanAsync(
-            _db, userId, request.Year, request.Month, request.ProfileId, cancellationToken);
+            _db, userId, request.Year, request.Month, request.ProfileId, cancellationToken,
+            DateOnly.FromDateTime(_clock.GetUtcNow().UtcDateTime));
 
         var profile = plan.Profile
             ?? throw new NotFoundException("There is no allocation profile to run.");

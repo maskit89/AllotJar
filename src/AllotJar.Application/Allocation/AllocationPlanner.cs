@@ -15,7 +15,8 @@ namespace AllotJar.Application.Allocation;
 public static class AllocationPlanner
 {
     public static async Task<AllocationPlan> PlanAsync(
-        IApplicationDbContext db, string ownerId, int year, int month, Guid? profileId, CancellationToken ct)
+        IApplicationDbContext db, string ownerId, int year, int month, Guid? profileId, CancellationToken ct,
+        DateOnly? today = null)
     {
         var profile = await db.AllocationProfiles
             .AsNoTracking()
@@ -48,7 +49,7 @@ public static class AllocationPlanner
         var envelopes = totals.Where(t => t.Kind == CategoryKind.Expense).Sum(t => t.Total);
         var funds = totals.Where(t => t.Kind == CategoryKind.Savings).Sum(t => t.Total);
 
-        var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, ct);
+        var savingsBalances = await SavingsBalancesAsync(db, ownerId, members, year, month, today, ct);
 
         // P53: a savings account private to another login is not there for this caller, but it is
         // not missing either. Those people are named so the preview can say why their share can't
@@ -122,7 +123,7 @@ public static class AllocationPlanner
     /// as unknown rather than displayed as money.
     /// </summary>
     private static async Task<Dictionary<Guid, decimal?>> SavingsBalancesAsync(
-        IApplicationDbContext db, string ownerId, IReadOnlyList<HouseholdMember> members, int year, int month, CancellationToken ct)
+        IApplicationDbContext db, string ownerId, IReadOnlyList<HouseholdMember> members, int year, int month, DateOnly? today, CancellationToken ct)
     {
         var savingsIds = members
             .Where(m => m.PersonalSavingsAccountId.HasValue)
@@ -140,7 +141,7 @@ public static class AllocationPlanner
             .ToListAsync(ct);
 
         var prefix = $"alloc:{year}-{month}:";
-        var asOf = DateOnly.FromDateTime(DateTime.UtcNow);
+        var asOf = today ?? DateOnly.FromDateTime(DateTime.UtcNow);
         var views = await Accounts.AccountLedgerReader.ReadAsync(
             db, ownerId, accounts, asOf, ct,
             exclude: t => t.AllocationKey is not null && t.AllocationKey.StartsWith(prefix, StringComparison.OrdinalIgnoreCase));
