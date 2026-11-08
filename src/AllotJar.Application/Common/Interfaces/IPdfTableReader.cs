@@ -13,7 +13,9 @@ public interface IPdfTableReader
     /// <summary>
     /// The PDF's lines as CSV rows, one cell per column of its transaction table. Throws
     /// <see cref="Exceptions.StatementParseException"/> for a PDF with no text (a scan), a
-    /// password-protected one, or one too long to be a statement.
+    /// password-protected one, or one too long to be a statement, and when <paramref name="person"/>
+    /// already has a PDF being read or the server is busy reading others.
     /// </summary>
-    string ReadAsCsv(byte[] pdf, CancellationToken cancellationToken);
+    /// <param name="person">Who sent it (the signed-in login): each person reads one PDF at a time.</param>
+    Task<string> ReadAsCsvAsync(byte[] pdf, string person, CancellationToken cancellationToken);
 }

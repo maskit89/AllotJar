@@ -73,6 +73,8 @@ export default defineConfig({
         ConnectionStrings__DefaultConnection: CONNECTION,
         Jwt__Key: JWT_KEY,
         RateLimiting__AuthPermitLimit: '1000',
+        // The import specs commit statement after statement; production allows 10 a minute.
+        RateLimiting__ImportCommitPermitLimit: '1000',
         // Journeys invite and reset far more often than a household would; lift the email caps.
         Limits__InviteEmailsPerDay: '1000',
         Limits__PasswordLinksPer15Minutes: '1000',
