@@ -171,15 +171,16 @@
 - **Expected:** "Groceries" shows the **📅** add-bill button but **no** `Paid` toggle (the toggle is gated on `item.dueDay !== null`). "Rent" shows the `Paid` toggle. Income lines and savings lines never show a `Paid` toggle at all (no bill controls in those layouts).
 - **Automated:** No
 
-### BILL-017 - API can set IsPaid on a line that is not a bill
+### BILL-017 - API refuses IsPaid on a line that is not a bill
 - **Priority:** P2
 - **Type:** Regression
-- **Origin:** map §7.11 gotcha — `PUT items/{id}/paid` does not verify the line is a bill
+- **Origin:** map §7.11 gotcha; closed by workflow audit F-04 (Nov 2026)
 - **Preconditions:** Ana authenticated; "Groceries" (non-bill, `DueDay null`) id.
 - **Steps:**
   1. `PUT /api/budget/items/{grocId}/paid { isPaid: true }` directly.
-- **Expected:** The handler sets `IsPaid = true` and returns 200 — there is **no** server check that `DueDay != null`. In the UI this is invisible (a non-bill line renders no `Paid` toggle and `IsBill => DueDay != null` governs every bill surface), so `isPaid` on a due-day-less line is inert. Document as a known API-level looseness, not a UI bug.
-- **Automated:** No
+  2. Make "Groceries" a bill (`PUT .../bill { dueDay: 15 }`).
+- **Expected:** Step 1 returns 400 with an `IsPaid` error ("Only a bill with a due day can be marked paid.") and the line stays unpaid. `isPaid: false` is always accepted. In step 2 the new bill starts unpaid; moving an existing bill to another day keeps its paid status.
+- **Automated:** Yes (`BillTrackingTests` B01/B02, `BBillsCoverageTests.SetPaid_IsRefused_OnANonBillLine`)
 
 ---
 

@@ -38,6 +38,17 @@ public class SetBudgetItemPaidCommandHandler : IRequestHandler<SetBudgetItemPaid
             throw new ForbiddenAccessException();
         }
 
+        // Only a bill (a line with a due day) can be paid. The page offers
+        // "Mark paid" on bills only, so this guards a stale tab or a hand-made
+        // request. Marking unpaid is always allowed.
+        if (request.IsPaid && item.DueDay is null)
+        {
+            throw new ValidationException(new Dictionary<string, string[]>
+            {
+                ["IsPaid"] = ["Only a bill with a due day can be marked paid."],
+            });
+        }
+
         item.IsPaid = request.IsPaid;
         await _db.SaveChangesAsync(cancellationToken);
 

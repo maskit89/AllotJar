@@ -38,12 +38,13 @@ public class SetBudgetItemBillCommandHandler : IRequestHandler<SetBudgetItemBill
             throw new ForbiddenAccessException();
         }
 
-        item.DueDay = request.DueDay;
-        // No longer a bill -> it can't be "paid".
-        if (request.DueDay is null)
+        // A line that is not a bill, or only now becomes one, starts unpaid.
+        // Moving an existing bill to another day keeps its paid status.
+        if (request.DueDay is null || item.DueDay is null)
         {
             item.IsPaid = false;
         }
+        item.DueDay = request.DueDay;
 
         await _db.SaveChangesAsync(cancellationToken);
 
