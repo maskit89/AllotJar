@@ -482,8 +482,9 @@ staging/production split.
   **Production** (`allotjar.com` / `www`, `VITE_APP_ENV=production`) deploys only on
   a hand-started Deploy run from `main` with **Also deploy to production** ticked, and
   only if CI passed on that commit.
-- **`provision-production.yml`** is the manual infra workflow that
-  stood up (and can re-shape) the production IIS/SQL stack on the VPS.
+- Deploy keys are **upload-only** (one per stack, sftp into its own folder); a task on the
+  VPS deploys the upload with the server's trusted `Deploy.ps1`. Provisioning
+  (`deploy/Provision-Production.ps1`) is run by hand on the VPS.
 - Both stacks share one VPS: separate IIS sites/pools, API on `:5000` (staging) and
   `:5001` (production), separate SQL databases (`AllotJarStaging` / `AllotJarProd`).
 - The `deploy/` folder holds the PowerShell bootstrap/setup/deploy/backup scripts.
