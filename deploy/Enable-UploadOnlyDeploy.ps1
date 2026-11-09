@@ -154,7 +154,7 @@ foreach ($s in $stacks) {
     try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     $pw = ConvertTo-SecureString ([Convert]::ToBase64String($bytes) + 'a1!') -AsPlainText -Force
     New-LocalUser -Name $s.User -Password $pw -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires `
-        -Description "AllotJar deploy: sftp upload to $($s.UploadDir) only" | Out-Null
+        -Description "AllotJar upload-only deploy ($($s.Stack))" | Out-Null   # Windows allows 48 characters
     Add-LocalGroupMember -Group 'Users' -Member $s.User
     "    $($s.User) created"
 }
