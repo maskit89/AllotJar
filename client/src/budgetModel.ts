@@ -334,6 +334,28 @@ export function withVersions(m: MonthVM, dto: BudgetMonthDto | null | undefined,
 }
 
 /**
+ * One line as a write's answer has it, values and version together (the answer to that line's own
+ * save); the rest of the view-model as it is. An answer without that line leaves it as shown.
+ */
+export function withItemFrom(m: MonthVM, dto: BudgetMonthDto | null | undefined, itemId: string): MonthVM {
+  if (!dto || !Array.isArray(dto.categories)) return m
+  const saved = fromDto(dto).categories.flatMap((c) => c.items).find((i) => i.id === itemId)
+  if (!saved) return m
+  return {
+    ...m,
+    categories: m.categories.map((c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? saved : i)) })),
+  }
+}
+
+/** One line given `version`. */
+export function withItemVersion(m: MonthVM, itemId: string, version: string | null): MonthVM {
+  return {
+    ...m,
+    categories: m.categories.map((c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? { ...i, version } : i)) })),
+  }
+}
+
+/**
  * The version a write's answer gives one line (D11): undefined when the answer carries no month,
  * or not that line, so the caller keeps the version it had.
  */

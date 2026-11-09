@@ -1051,6 +1051,40 @@ describe('DashboardPage concurrent writes (workflow audit)', () => {
     await waitFor(() => expect(planned('Rent')).toHaveTextContent('1,400.00'), { timeout: 5000 })
   })
 
+  it('S08: a whole-month answer read before another line\'s save committed, landing after its answer, is read again', { timeout: 20000 }, async () => {
+    // #433 review P2-1: type an amount, then add a line straight away; the server reads the month
+    // for the add before the amount's save commits, and the amount's answer comes back first.
+    const withFuel = (rent: number, rentV: string) => {
+      const m = month(rent, rentV, 3000, 'p1')
+      m.categories[1].items.push(budgetItem({ id: 'i-fuel', name: 'Fuel', displayOrder: 1 }))
+      return m
+    }
+    let server = month(1100, 'r1', 3000, 'p1')
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: server }))
+    let answerRent: (v: unknown) => void = () => {}
+    let answerAdd: (v: unknown) => void = () => {}
+    mockPut.mockImplementation(() => new Promise((resolve) => { answerRent = resolve }))
+    mockPost.mockImplementation(() => new Promise((resolve) => { answerAdd = resolve }))
+    const user = userEvent.setup()
+    renderPage()
+
+    await edit(user, 'Rent', '1200')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+    await groupAction(user, 'Housing', 'Add line')
+    await user.type(await screen.findByLabelText('Add a line to Housing', {}, { timeout: 5000 }), 'Fuel{Enter}')
+    await waitFor(() => expect(mockPost).toHaveBeenCalledTimes(1))
+    const reads = mockGet.mock.calls.filter(([url]) => /^\/budget\/\d{4}\//.test(String(url))).length
+
+    server = withFuel(1200, 'r2')
+    answerRent({ data: month(1200, 'r2', 3000, 'p1') })
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+    answerAdd({ data: withFuel(1100, 'r1') }) // read on the server before Rent's save committed
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => /^\/budget\/\d{4}\//.test(String(url))).length).toBe(reads + 1))
+    await waitFor(() => expect(planned('Rent')).toHaveTextContent('1,200.00'))
+    expect(planned('Fuel')).toBeInTheDocument()
+  })
+
   it('S05: a failed line delete puts that line back without undoing another line\'s saved edit', { timeout: 20000 }, async () => {
     let server = month(1100, 'r1', 3000, 'p1')
     mockGet.mockImplementation((url: string) =>

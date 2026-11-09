@@ -23,6 +23,8 @@ import {
   withCategoryName,
   withoutCategory,
   withVersions,
+  withItemFrom,
+  withItemVersion,
   withItemRestored,
   withCategoryRestored,
   withItemOrderRestored,
@@ -350,6 +352,17 @@ describe('versions and undo of one write', () => {
     // A group rename moves that group's version only.
     expect(withVersions(shown, versioned(1400, 'r2', 'p2', 'h2'), ['house']).categories[1].version).toBe('h2')
     expect(withVersions(shown, null, ['pay'])).toBe(shown)
+  })
+
+  it('takes one line\'s values and version from its own save\'s answer, and nothing else', () => {
+    // #433 review P3-1: an older whole-month answer showed Rent 1,100; Rent's own save answers 1,200.
+    const shown = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    const next = withItemFrom(shown, versioned(1200, 'r2', 'p9', 'h9'), 'rent')
+    expect(findItem(next, 'rent')).toMatchObject({ plannedMinor: fromAmount(1200), version: 'r2' })
+    expect(findItem(next, 'pay')?.version).toBe('p1')
+    expect(next.categories[1].version).toBe('h1')
+    expect(withItemFrom(shown, null, 'rent')).toBe(shown)
+    expect(findItem(withItemVersion(shown, 'rent', 'r5'), 'rent')).toMatchObject({ plannedMinor: fromAmount(1100), version: 'r5' })
   })
 
   it('puts back one line, leaving another line\'s later edit', () => {

@@ -42,6 +42,8 @@ import {
   withCategoryRestored,
   withItemOrderRestored,
   withItemRestored,
+  withItemFrom,
+  withItemVersion,
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
@@ -193,12 +195,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         const startedBefore = monthWrites.current.started
         data = (await api.get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)).data
         if (!isViewed(year, monthNum)) return
-        if (monthWrites.current.started === startedBefore) break
-        // A write began meanwhile, so this read may predate it: once none is in flight, read again.
+        // A write still saving (or begun meanwhile) may commit after this read: once none is in
+        // flight, read again (#433 review P2-1, P3-2).
         if (monthWrites.current.inFlight > 0) {
           monthWrites.current.stale = true
           return
         }
+        if (monthWrites.current.started === startedBefore) break
       }
       setMonth(fromDto(data))
       setNotFound(false)
@@ -222,8 +225,11 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     void refreshMonth()
   }, [reread, refreshMonth])
   const beginWrite = useCallback(() => {
-    monthWrites.current.inFlight++
-    monthWrites.current.started++
+    const w = monthWrites.current
+    const overlapped = w.inFlight > 0
+    w.inFlight++
+    w.started++
+    return { started: w.started, overlapped }
   }, [])
   const endWrite = useCallback(() => {
     const w = monthWrites.current
@@ -240,9 +246,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
   // A whole-month answer replaces the month; when another write is still saving, that answer may
   // not include it yet, so the month is read again once all are answered.
   const reconcile = useCallback(
-    (data: BudgetMonthDto) => {
+    (data: BudgetMonthDto, mine: { started: number; overlapped: boolean }) => {
       setMonth(fromDto(data))
-      if (monthWrites.current.inFlight > 1) markStale()
+      const w = monthWrites.current
+      if (mine.overlapped || w.inFlight > 1 || w.started !== mine.started) markStale()
     },
     [markStale],
   )
@@ -469,8 +476,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             const { data } = await send(line.version)
             const version = itemVersionIn(data, itemId)
             if (version !== undefined) line.version = version
-            // Only this line's version: another line's newer one would come without its values.
-            if (onMonth()) setMonth((m) => (m ? withVersions(m, data, [itemId]) : m))
+            // Only this line: another line's newer version would come without its values (F-02).
+            // With no later edit of this line waiting, its values come from the answer too, so a
+            // whole-month answer that predates this save cannot leave its old value beside the
+            // new version (#433 review P3-1); a later edit's optimistic value stays until it answers.
+            if (onMonth()) {
+              setMonth((m) => (m ? (line.waiting === 1 ? withItemFrom(m, data, itemId) : withVersions(m, data, [itemId])) : m))
+            }
             return true
           } catch (err) {
             // A later edit of this line is waiting: it carries what the user typed last and
@@ -479,7 +491,8 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             const conflict = editConflict(err)
             if (onMonth()) {
               // Put back this line only: other lines' edits made meanwhile may have saved (F-01).
-              setMonth((m) => (m ? withItemRestored(m, snapshot, itemId) : m))
+              // Its version is the one its last answered save gave, not the snapshot's (#433 P3-3).
+              setMonth((m) => (m ? withItemVersion(withItemRestored(m, snapshot, itemId), itemId, line.version) : m))
               // Then read what the server holds: someone else's change on a conflict, and on any
               // other failure the save may still have landed (an answer lost on the way back).
               markStale()
@@ -643,13 +656,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         }),
       )
 
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.post<BudgetMonthDto>(
           `/budget/categories/${categoryId}/items`,
           { name, plannedAmount: 0 },
         )
-        if (onMonth()) reconcile(data) // reconcile temp row -> real server row
+        if (onMonth()) reconcile(data, mine) // reconcile temp row -> real server row
       } catch {
         if (onMonth()) {
           setMonth((m) => (m ? withItemRestored(m, snapshot, tempId) : m))
@@ -674,10 +687,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setSavingItemId(itemId)
       setMonth(withoutItem(month, itemId)) // optimistic
 
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/items/${itemId}`)
-        if (onMonth()) reconcile(data)
+        if (onMonth()) reconcile(data, mine)
       } catch {
         if (onMonth()) {
           setMonth((m) => (m ? withItemRestored(m, snapshot, itemId) : m))
@@ -699,10 +712,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       const onMonth = stillOn()
       setError(null)
       setSavingItemId(itemId)
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/skip`, { skipped: false })
-        if (onMonth()) reconcile(data)
+        if (onMonth()) reconcile(data, mine)
         refreshJars()
       } catch {
         setError('Could not plan that contribution again.')
@@ -749,14 +762,14 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         }),
       )
 
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.post<BudgetMonthDto>('/budget/categories', {
           budgetMonthId: month.id,
           name,
           isSavings: asSavings,
         })
-        if (onMonth()) reconcile(data) // reconcile temp group -> real server group
+        if (onMonth()) reconcile(data, mine) // reconcile temp group -> real server group
       } catch {
         if (onMonth()) {
           setMonth((m) => (m ? withCategoryRestored(m, snapshot, tempId) : m))
@@ -809,10 +822,10 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withoutCategory(month, categoryId)) // optimistic
 
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/categories/${categoryId}`)
-        if (onMonth()) reconcile(data)
+        if (onMonth()) reconcile(data, mine)
       } catch (err) {
         if (onMonth()) {
           setMonth((m) => (m ? withCategoryRestored(m, snapshot, categoryId) : m))
@@ -845,13 +858,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withReorderedExpenseCategories(month, orderedIds)) // optimistic
 
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>('/budget/categories/order', {
           budgetMonthId: month.id,
           orderedCategoryIds: orderedIds,
         })
-        if (onMonth()) reconcile(data)
+        if (onMonth()) reconcile(data, mine)
       } catch {
         if (onMonth()) {
           setMonth((m) => (m ? withCategoryOrderRestored(m, snapshot) : m))
@@ -875,13 +888,13 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withReorderedItems(month, categoryId, orderedItemIds)) // optimistic
 
-      beginWrite()
+      const mine = beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>(
           `/budget/categories/${categoryId}/items/order`,
           { orderedItemIds },
         )
-        if (onMonth()) reconcile(data)
+        if (onMonth()) reconcile(data, mine)
       } catch {
         if (onMonth()) {
           setMonth((m) => (m ? withItemOrderRestored(m, snapshot, categoryId) : m))
