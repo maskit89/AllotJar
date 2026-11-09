@@ -146,7 +146,10 @@ Assert-True ($deployScript -match 'appsettings\.Staging\.json' -and $deployScrip
 Assert-True ($deployScript -notmatch "'C:\\inetpub\\allotjar\\") 'Deploy.ps1 no longer defaults to the unsuffixed (pre-rename) staging folders'
 $workflow = Get-Content (Join-Path (Split-Path $deployDir -Parent) '.github/workflows/deploy.yml') -Raw
 Assert-True ($workflow -notmatch 'staging-prod\b' -and $workflow -notmatch 'incoming-prod\b') 'deploy.yml does not unpack production in a folder called staging-prod'
-Assert-True ($workflow -match '-AspNetEnvironment Staging' -and $workflow -match '-AspNetEnvironment Production') 'deploy.yml pins the ASP.NET Core environment of each stack'
+# The ASP.NET Core environment of each stack is now fixed on the server (Get-UploadDeployStack, tested
+# below); the workflow only picks which stack's account and folder an upload goes to.
+Assert-True ($workflow -match 'USER: allotjar-up-staging' -and $workflow -match 'upload-deploy\.sh staging' -and $workflow -match 'VPS_SSH_KEY_STAGING') 'deploy.yml uploads staging with the staging account and key'
+Assert-True ($workflow -match 'USER: allotjar-up-prod' -and $workflow -match 'upload-deploy\.sh production' -and $workflow -match 'VPS_SSH_KEY_PRODUCTION') 'deploy.yml uploads production with the production account and key'
 
 Write-Host '== Get-RestoreFileMoves (restoring one database''s backup onto another on the same instance) =='
 $data = 'C:\SQL\DATA\'
