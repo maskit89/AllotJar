@@ -218,6 +218,20 @@ describe('budgetModel selectors', () => {
     expect(findItem(vm, 'i1')!.dueDay).toBeNull()
   })
 
+  it('withItemBill starts a new bill unpaid, but a moved bill keeps paid (matches the server)', () => {
+    const vm = fromDto(dto())
+    // A stray paid flag on a non-bill line is dropped when it becomes a bill.
+    const stray = withItemPaid(vm, 'i1', true)
+    const billed = withItemBill(stray, 'i1', 15)
+    expect(findItem(billed, 'i1')!.isPaid).toBe(false)
+
+    // Moving a paid bill to another day keeps it paid.
+    const paid = withItemPaid(billed, 'i1', true)
+    const moved = withItemBill(paid, 'i1', 20)
+    expect(findItem(moved, 'i1')!.dueDay).toBe(20)
+    expect(findItem(moved, 'i1')!.isPaid).toBe(true)
+  })
+
   it('billsSummary counts bills and totals what is unpaid', () => {
     let vm = fromDto(dto())
     vm = withItemBill(vm, 'i1', 1) // Rent 1100, due 1st
