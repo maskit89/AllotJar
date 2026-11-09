@@ -617,4 +617,102 @@ function Test-UtcPinnedStartBoundary {
     return ($utc.ToString('HH:mm', [Globalization.CultureInfo]::InvariantCulture) -eq $TimeUtc)
 }
 
-Export-ModuleMember -Function Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed, Get-AppPoolSid, Get-AllotJarNameMap, Convert-ZeroBudgetNames, Get-ZeroBudgetLineNumbers, Convert-ScheduledTaskXml, Get-ScheduledTaskXmlCommands, Get-UtcDailyStartBoundary, Test-UtcPinnedStartBoundary
+<#
+.SYNOPSIS
+    Everything the upload-only deploy needs to know about one stack: the upload-only Windows
+    account, its sftp jail (UploadDir: read-only to the account, holds status.txt), the one
+    folder in it the account may write (UploadInbox, "/incoming"), where the server moves the upload
+    before unpacking it, and the Deploy.ps1 arguments for that stack. The single source of the
+    names for Invoke-PendingDeploy.ps1, Approve-DeployScripts.ps1 and Enable-UploadOnlyDeploy.ps1.
+#>
+function Get-UploadDeployStack {
+    param([Parameter(Mandatory)][ValidateSet('staging', 'production')][string]$Stack)
+    if ($Stack -eq 'staging') {
+        return [ordered]@{
+            Stack = 'staging'; User = 'allotjar-up-staging'
+            UploadDir = 'C:\deploy\upload\staging'; UploadInbox = 'C:\deploy\upload\staging\incoming'; IncomingDir = 'C:\deploy\incoming-staging'; ReleaseDir = 'C:\deploy\release-staging'
+            ApiDir = 'C:\inetpub\allotjar-staging\api'; WebDir = 'C:\inetpub\allotjar-staging\web'
+            ApiPool = 'AllotJar-Staging-Api'; WebPool = 'AllotJar-Staging-Web'
+            HealthUrl = 'http://127.0.0.1:5000/health'; ApiProxyPort = 5000; AspNetEnvironment = 'Staging'
+        }
+    }
+    return [ordered]@{
+        Stack = 'production'; User = 'allotjar-up-prod'
+        UploadDir = 'C:\deploy\upload\production'; UploadInbox = 'C:\deploy\upload\production\incoming'; IncomingDir = 'C:\deploy\incoming-production'; ReleaseDir = 'C:\deploy\release-production'
+        ApiDir = 'C:\inetpub\allotjar-prod\api'; WebDir = 'C:\inetpub\allotjar-prod\web'
+        ApiPool = 'AllotJar-Prod-Api'; WebPool = 'AllotJar-Prod-Web'
+        HealthUrl = 'http://127.0.0.1:5001/health'; ApiProxyPort = 5001; AspNetEnvironment = 'Production'
+    }
+}
+
+<#
+.SYNOPSIS
+    True when a zip entry name stays inside the folder it is unpacked into. The upload comes
+    from an account that may only upload, and the server unpacks it as SYSTEM, so any entry
+    that is rooted, names a drive or stream (a colon), or has a ".." segment is refused.
+    Works on the name alone, the same on any OS.
+#>
+function Test-ZipEntryNameSafe {
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$EntryName)
+    if ([string]::IsNullOrWhiteSpace($EntryName)) { return $false }
+    $name = $EntryName.Replace('/', '\')
+    if ($name.StartsWith('\') -or $name.Contains(':')) { return $false }
+    foreach ($segment in $name.Split('\')) {
+        if ($segment -eq '..') { return $false }
+        if ($segment -ne $segment.TrimEnd(' ', '.') -and $segment -ne '' -and $segment -ne '.') { return $false } # Windows drops trailing dots/spaces
+    }
+    return $true
+}
+
+<#
+.SYNOPSIS
+    The id a workflow run uploads beside its release (release.id), checked before the server
+    writes it back into the status file the run polls: "<run id>-<attempt>-<stack>". Anything
+    else (the uploader is not trusted) becomes "unknown".
+#>
+function Get-UploadReleaseId {
+    param([AllowEmptyString()][AllowNull()][string]$Text, [Parameter(Mandatory)][ValidateSet('staging', 'production')][string]$Stack)
+    if ($null -eq $Text) { return 'unknown' }
+    $first = ($Text -split "`r?`n")[0].Trim()
+    if ($first -match "^\d{1,20}-\d{1,4}-$Stack$") { return $first }
+    return 'unknown'
+}
+
+<#
+.SYNOPSIS
+    The status file the server writes into a stack's upload folder for the workflow to read:
+    one "key=value" line each for id, state (running, ok, failed, blocked) and message, then
+    up to -MaxLogLines lines of the deploy's output, each starting "log: ". Line breaks in the
+    message are flattened so a message can never forge a state line.
+#>
+function ConvertTo-UploadDeployStatus {
+    param(
+        [Parameter(Mandatory)][string]$Id,
+        [Parameter(Mandatory)][ValidateSet('running', 'ok', 'failed', 'blocked')][string]$State,
+        [AllowEmptyString()][string]$Message = '',
+        [string[]]$LogLines = @(),
+        [int]$MaxLogLines = 40
+    )
+    $flat = ($Message -replace '[\r\n]+', ' ').Trim()
+    $out = New-Object System.Collections.Generic.List[string]
+    $out.Add("id=$Id"); $out.Add("state=$State"); $out.Add("message=$flat")
+    $tail = @($LogLines | Where-Object { $null -ne $_ } | Select-Object -Last $MaxLogLines)
+    foreach ($l in $tail) { $out.Add('log: ' + (($l -replace '[\r\n]+', ' ').TrimEnd())) }
+    return ($out -join "`r`n") + "`r`n"
+}
+
+<#
+.SYNOPSIS
+    The lines of an approve step's report for one script: which lines the pending release adds
+    and removes compared with the trusted copy, at most -MaxLines of them. Pure, so a test can
+    drive it; Compare-Object order is kept stable by sorting on line number.
+#>
+function Get-ScriptChangeLines {
+    param([AllowEmptyCollection()][string[]]$Trusted = @(), [AllowEmptyCollection()][string[]]$Pending = @(), [int]$MaxLines = 80)
+    $diff = @(Compare-Object -ReferenceObject @($Trusted) -DifferenceObject @($Pending) -SyncWindow 2000)
+    $lines = @($diff | ForEach-Object { if ($_.SideIndicator -eq '=>') { '+ ' + $_.InputObject } else { '- ' + $_.InputObject } })
+    if ($lines.Count -gt $MaxLines) { return @($lines | Select-Object -First $MaxLines) + "... and $($lines.Count - $MaxLines) more changed lines" }
+    return $lines
+}
+
+Export-ModuleMember -Function Get-UploadDeployStack, Test-ZipEntryNameSafe, Get-UploadReleaseId, ConvertTo-UploadDeployStatus, Get-ScriptChangeLines, Test-HostCoveredByDnsNames, Get-SslBindingAction, New-BackupTaskArgumentLine, Get-R2BucketFromArgumentLine, Assert-R2SizeMatches, Get-BackupLoginSql, Get-BackupDbUserSql, Set-ConnectionStringDatabase, Set-AncmEnvironmentVariable, Get-RestoreFileMoves, Get-StackSettingsProblems, Get-UrlOrigin, Get-RcloneConfValue, Get-BackupCryptRemoteProblems, Test-RcloneCryptFile, ConvertTo-RcloneObscured, Get-RcloneRevealed, Get-AppPoolSid, Get-AllotJarNameMap, Convert-ZeroBudgetNames, Get-ZeroBudgetLineNumbers, Convert-ScheduledTaskXml, Get-ScheduledTaskXmlCommands, Get-UtcDailyStartBoundary, Test-UtcPinnedStartBoundary

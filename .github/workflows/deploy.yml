@@ -93,6 +93,12 @@ jobs:
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
           cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
+          # The upload-only deploy's server scripts travel with every release, so the owner can
+          # install or update them on the server from the unpacked release (bin\), and the
+          # commit is recorded for Approve-DeployScripts.ps1 to show.
+          mkdir -p release/bin
+          cp deploy/Invoke-PendingDeploy.ps1 deploy/Approve-DeployScripts.ps1 deploy/Enable-UploadOnlyDeploy.ps1 release/bin/
+          printf '%s\n' "$GITHUB_SHA" > release/COMMIT
           cd release && zip -qr ../release.zip . && cd ..
 
       - name: Upload release artifact
@@ -239,6 +245,12 @@ jobs:
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
           cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
+          # The upload-only deploy's server scripts travel with every release, so the owner can
+          # install or update them on the server from the unpacked release (bin\), and the
+          # commit is recorded for Approve-DeployScripts.ps1 to show.
+          mkdir -p release/bin
+          cp deploy/Invoke-PendingDeploy.ps1 deploy/Approve-DeployScripts.ps1 deploy/Enable-UploadOnlyDeploy.ps1 release/bin/
+          printf '%s\n' "$GITHUB_SHA" > release/COMMIT
           cd release && zip -qr ../release.zip . && cd ..
 
       - name: Upload release artifact
