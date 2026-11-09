@@ -89,10 +89,22 @@ Each stack deploys with its own key, on its own plain Windows account that sshd 
 re-run (`-Check` gives a read-only report). Run it only through a **reviewed server step** that
 first checks the release's `COMMIT` and the LF-normalised SHA-256 of every file it installs
 (`bin\*.ps1`, `Deploy.ps1`, `ProvisionHelpers.psm1`) against that commit on `main`, and only then
-runs it. The first install used exactly this wrapper (server step 18, Nov 2026); a later re-run
-or update gets a new one with the new commit's hashes. A file's hash, on a checkout of `main`:
+runs it. The first install used exactly this wrapper (server step 18, Nov 2026, before any upload
+account existed); a later re-run or update gets a new one with the new commit's hashes. A file's
+hash, on a checkout of `main`:
 ```bash
 git show <commit>:deploy/Invoke-PendingDeploy.ps1 | sed 's/\r$//' | sha256sum
+```
+Since the upload account can replace files in the release folder at any moment, a re-run checks and
+runs **copies** in a folder only Administrators and SYSTEM can write, never the release folder itself:
+```powershell
+$src = 'C:\deploy\setup-src'; $rel = 'C:\deploy\release-staging'
+if (Test-Path -LiteralPath $src) { Remove-Item -LiteralPath $src -Recurse -Force }
+New-Item -ItemType Directory -Path "$src\bin" -Force | Out-Null
+icacls $src /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null   # Administrators, SYSTEM
+Copy-Item "$rel\bin\*.ps1" "$src\bin\"; Copy-Item "$rel\Deploy.ps1", "$rel\ProvisionHelpers.psm1" $src
+# ...check the hash of every file in $src (not $rel) against the commit, then:
+& "$src\bin\Enable-UploadOnlyDeploy.ps1"
 ```
 It creates `allotjar-up-staging` / `allotjar-up-prod`, their jails `C:\deploy\upload\<stack>`
 (writable only in `\incoming`), one ed25519 key each, the `Match User` blocks in `sshd_config`,
