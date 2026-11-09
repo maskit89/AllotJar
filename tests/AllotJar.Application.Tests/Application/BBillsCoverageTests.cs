@@ -108,21 +108,19 @@ public class BBillsCoverageTests
         unpaid.Categories.SelectMany(c => c.Items).Single().IsPaid.Should().BeFalse();
     }
 
-    // BILL-017 (regression / documented looseness): PUT items/{id}/paid does NOT verify the
-    // line is a bill. Marking a due-day-less line paid succeeds (inert in the UI, but the
-    // handler has no DueDay guard — this pins that documented behaviour).
+    // BILL-017: PUT items/{id}/paid refuses to mark a line paid unless it is a bill
+    // (has a due day). Workflow audit F-04 closed the earlier looseness.
     [Fact]
-    public async Task SetPaid_SetsPaid_EvenOnANonBillLine()
+    public async Task SetPaid_IsRefused_OnANonBillLine()
     {
         await using var db = NewContext();
         var groceries = SeedLine(db, name: "Groceries", planned: 300m, dueDay: null);
 
         var handler = new SetBudgetItemPaidCommandHandler(db, new CurrentUserStub("user-1"));
-        var dto = await handler.Handle(new SetBudgetItemPaidCommand(groceries.Id, true), CancellationToken.None);
+        var act = () => handler.Handle(new SetBudgetItemPaidCommand(groceries.Id, true), CancellationToken.None);
 
-        var line = dto.Categories.SelectMany(c => c.Items).Single(i => i.Name == "Groceries");
-        line.IsPaid.Should().BeTrue(); // set despite DueDay == null — no server-side bill check
-        line.DueDay.Should().BeNull();
+        await act.Should().ThrowAsync<ValidationException>();
+        (await db.BudgetItems.AsNoTracking().SingleAsync(i => i.Id == groceries.Id)).IsPaid.Should().BeFalse();
     }
 
     // BILL-032 (companion to the existing carry+reset test): a line that is NOT a bill

@@ -67,6 +67,82 @@ public class BillTrackingTests
     }
 
     [Fact]
+    public async Task SetPaid_IsRefused_WhenTheLineHasNoDueDay()
+    {
+        // B01 (workflow audit F-04): a line that is not a bill can't be paid.
+        await using var db = NewContext();
+        var rent = SeedRent(db);
+
+        var handler = new SetBudgetItemPaidCommandHandler(db, new CurrentUserStub("user-1"));
+        var act = () => handler.Handle(new SetBudgetItemPaidCommand(rent.Id, true), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<ValidationException>())
+            .Which.Errors.Should().ContainKey("IsPaid");
+        (await db.BudgetItems.AsNoTracking().SingleAsync(i => i.Id == rent.Id)).IsPaid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetPaid_False_IsAllowed_WhenTheLineHasNoDueDay()
+    {
+        await using var db = NewContext();
+        var rent = SeedRent(db);
+
+        var handler = new SetBudgetItemPaidCommandHandler(db, new CurrentUserStub("user-1"));
+        var dto = await handler.Handle(new SetBudgetItemPaidCommand(rent.Id, false), CancellationToken.None);
+
+        dto.Categories.Single().Items.Single().IsPaid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetPaid_MarksABillPaid()
+    {
+        await using var db = NewContext();
+        var rent = SeedRent(db);
+        rent.DueDay = 15;
+        await db.SaveChangesAsync();
+
+        var handler = new SetBudgetItemPaidCommandHandler(db, new CurrentUserStub("user-1"));
+        var dto = await handler.Handle(new SetBudgetItemPaidCommand(rent.Id, true), CancellationToken.None);
+
+        dto.Categories.Single().Items.Single().IsPaid.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task SetBill_StartsUnpaid_WhenALineBecomesABill()
+    {
+        // B02 (workflow audit F-04): a stray paid flag from before is cleared
+        // when the line becomes a bill.
+        await using var db = NewContext();
+        var rent = SeedRent(db);
+        rent.IsPaid = true; // left over from an older request
+        await db.SaveChangesAsync();
+
+        var handler = new SetBudgetItemBillCommandHandler(db, new CurrentUserStub("user-1"));
+        var dto = await handler.Handle(new SetBudgetItemBillCommand(rent.Id, 15), CancellationToken.None);
+
+        var line = dto.Categories.Single().Items.Single();
+        line.DueDay.Should().Be(15);
+        line.IsPaid.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task SetBill_KeepsPaid_WhenAPaidBillMovesToAnotherDay()
+    {
+        await using var db = NewContext();
+        var rent = SeedRent(db);
+        rent.DueDay = 15;
+        rent.IsPaid = true;
+        await db.SaveChangesAsync();
+
+        var handler = new SetBudgetItemBillCommandHandler(db, new CurrentUserStub("user-1"));
+        var dto = await handler.Handle(new SetBudgetItemBillCommand(rent.Id, 20), CancellationToken.None);
+
+        var line = dto.Categories.Single().Items.Single();
+        line.DueDay.Should().Be(20);
+        line.IsPaid.Should().BeTrue();
+    }
+
+    [Fact]
     public async Task SetBill_Throws_WhenTheLineIsNotOwned()
     {
         await using var db = NewContext();

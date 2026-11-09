@@ -243,14 +243,18 @@ export function withItemMember(m: MonthVM, itemId: string, memberId: string | nu
   }
 }
 
-/** Set (or clear, with null) a line's bill due day. Clearing also marks it unpaid. */
+/**
+ * Set (or clear, with null) a line's bill due day. Clearing marks it unpaid, and
+ * so does making a non-bill a bill (the server does the same). Moving a bill to
+ * another day keeps its paid status.
+ */
 export function withItemBill(m: MonthVM, itemId: string, dueDay: number | null): MonthVM {
   return {
     ...m,
     categories: m.categories.map((c) => ({
       ...c,
       items: c.items.map((i) =>
-        i.id === itemId ? { ...i, dueDay, isPaid: dueDay === null ? false : i.isPaid } : i,
+        i.id === itemId ? { ...i, dueDay, isPaid: dueDay === null || i.dueDay === null ? false : i.isPaid } : i,
       ),
     })),
   }
