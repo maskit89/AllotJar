@@ -22,6 +22,15 @@ import {
   withNewCategory,
   withCategoryName,
   withoutCategory,
+  withVersions,
+  withItemFrom,
+  withItemVersion,
+  withItemRestored,
+  withCategoryRestored,
+  withItemOrderRestored,
+  withCategoryOrderRestored,
+  withReorderedItems,
+  withReorderedExpenseCategories,
 } from './budgetModel'
 import { fromAmount } from './lib/money'
 import type { BudgetMonthDto } from './types'
@@ -324,5 +333,87 @@ describe('bill reminders count today on the UTC calendar (rule 82, P14)', () => 
     const justAfter = new Date('2026-11-01T00:30:00Z')
     expect(billStatus(item(31), 2026, 10, justAfter)).toBe('overdue')
     expect(billStatus(item(1), 2026, 11, justAfter)).toBe('due-soon')
+  })
+})
+
+// Workflow audit F-02 and F-01 (8 Nov 2026): a write's answer moves only the versions of the rows
+// it saved, and a failed write puts back only what it changed.
+describe('versions and undo of one write', () => {
+  const versioned = (rent: number, rentV: string, payV: string, houseV: string): BudgetMonthDto =>
+    budgetMonth({
+      key: '2026-06',
+      month: 6,
+      categories: [
+        budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'pay', name: 'Pay', plannedAmount: 3000, version: payV })] }),
+        budgetCategory({
+          id: 'house', name: 'Housing', version: houseV,
+          items: [
+            budgetItem({ id: 'rent', name: 'Rent', displayOrder: 0, plannedAmount: rent, version: rentV }),
+            budgetItem({ id: 'util', name: 'Utilities', displayOrder: 1, plannedAmount: 150 }),
+          ],
+        }),
+      ],
+    })
+
+  it('copies the saved line\'s version and leaves every other row paired with the values shown', () => {
+    const shown = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    // The Pay save's answer carries another login's Rent change (1,400 at r2).
+    const next = withVersions(shown, versioned(1400, 'r2', 'p2', 'h2'), ['pay'])
+    expect(findItem(next, 'pay')?.version).toBe('p2')
+    expect(findItem(next, 'rent')?.version).toBe('r1')
+    expect(findItem(next, 'rent')?.plannedMinor).toBe(fromAmount(1100))
+    expect(next.categories[1].version).toBe('h1')
+    // A group rename moves that group's version only.
+    expect(withVersions(shown, versioned(1400, 'r2', 'p2', 'h2'), ['house']).categories[1].version).toBe('h2')
+    expect(withVersions(shown, null, ['pay'])).toBe(shown)
+  })
+
+  it('takes one line\'s values and version from its own save\'s answer, and nothing else', () => {
+    // #433 review P3-1: an older whole-month answer showed Rent 1,100; Rent's own save answers 1,200.
+    const shown = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    const next = withItemFrom(shown, versioned(1200, 'r2', 'p9', 'h9'), 'rent')
+    expect(findItem(next, 'rent')).toMatchObject({ plannedMinor: fromAmount(1200), version: 'r2' })
+    expect(findItem(next, 'pay')?.version).toBe('p1')
+    expect(next.categories[1].version).toBe('h1')
+    expect(withItemFrom(shown, null, 'rent')).toBe(shown)
+    expect(findItem(withItemVersion(shown, 'rent', 'r5'), 'rent')).toMatchObject({ plannedMinor: fromAmount(1100), version: 'r5' })
+  })
+
+  it('puts back one line, leaving another line\'s later edit', () => {
+    const snapshot = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    // Rent was edited (and failed); Pay was edited afterwards and saved.
+    const now = withItemPlanned(withItemPlanned(snapshot, 'rent', fromAmount(1200)), 'pay', fromAmount(3500))
+    const undone = withItemRestored(now, snapshot, 'rent')
+    expect(findItem(undone, 'rent')?.plannedMinor).toBe(fromAmount(1100))
+    expect(findItem(undone, 'pay')?.plannedMinor).toBe(fromAmount(3500))
+  })
+
+  it('puts a removed line back where it stood, and drops a temporary one', () => {
+    const snapshot = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    const back = withItemRestored(withoutItem(snapshot, 'rent'), snapshot, 'rent')
+    expect(back.categories[1].items.map((i) => i.id)).toEqual(['rent', 'util'])
+    const temp = withNewItem(snapshot, 'house', { ...snapshot.categories[1].items[1], id: 'temp-1' })
+    expect(withItemRestored(temp, snapshot, 'temp-1').categories[1].items.map((i) => i.id)).toEqual(['rent', 'util'])
+  })
+
+  it('puts back a group\'s name, a removed group, and drops a temporary group', () => {
+    const snapshot = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    const renamed = withItemPlanned(withCategoryName(snapshot, 'house', 'Home'), 'rent', fromAmount(1300))
+    const undone = withCategoryRestored(renamed, snapshot, 'house')
+    expect(undone.categories[1].name).toBe('Housing')
+    expect(findItem(undone, 'rent')?.plannedMinor).toBe(fromAmount(1300))
+    expect(withCategoryRestored(withoutCategory(snapshot, 'house'), snapshot, 'house').categories.map((c) => c.id)).toEqual(['inc', 'house'])
+    const temp = withNewCategory(snapshot, { ...snapshot.categories[1], id: 'temp-cat', items: [] })
+    expect(withCategoryRestored(temp, snapshot, 'temp-cat').categories.map((c) => c.id)).toEqual(['inc', 'house'])
+  })
+
+  it('puts back an order, keeping rows added since after the others', () => {
+    const snapshot = fromDto(versioned(1100, 'r1', 'p1', 'h1'))
+    const swapped = withReorderedItems(snapshot, 'house', ['util', 'rent'])
+    const added = withNewItem(swapped, 'house', { ...snapshot.categories[1].items[1], id: 'fuel' })
+    expect(withItemOrderRestored(added, snapshot, 'house').categories[1].items.map((i) => i.id)).toEqual(['rent', 'util', 'fuel'])
+    const groups = withNewCategory(snapshot, { ...snapshot.categories[1], id: 'food', items: [] })
+    const moved = withReorderedExpenseCategories(groups, ['food', 'house'])
+    expect(withCategoryOrderRestored(moved, snapshot).categories.map((c) => c.id)).toEqual(['inc', 'house', 'food'])
   })
 })

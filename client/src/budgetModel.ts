@@ -309,16 +309,22 @@ export function withNewCategory(m: MonthVM, category: CategoryVM): MonthVM {
 }
 
 /**
- * The versions a write's answer carries, copied onto the lines and groups shown, and nothing
- * else: the optimistic values stay, while the next edit sends the version the server now has
- * (D11). An answer without a month (or an unchanged one) leaves the view-model as it is.
+ * The versions a write's answer gives the rows that write saved (`ids`: the line or group it
+ * changed), copied onto the screen, and nothing else: the optimistic values stay, while the next
+ * edit of those rows sends the version the server now has (D11). Every other row keeps the version
+ * it was shown with, even when the answer carries a newer one: that newer version comes with values
+ * the screen does not show (another login's change), so pairing it with the shown values would let
+ * a later save of that row overwrite the change unseen (workflow audit F-02). Its next save sends
+ * the old version, gets a conflict and re-reads the month instead. An answer without a month
+ * leaves the view-model as it is.
  */
-export function withVersions(m: MonthVM, dto: BudgetMonthDto | null | undefined): MonthVM {
+export function withVersions(m: MonthVM, dto: BudgetMonthDto | null | undefined, ids: readonly string[]): MonthVM {
   if (!dto || !Array.isArray(dto.categories)) return m
+  const saved = new Set(ids)
   const versions = new Map<string, string | null>()
   for (const c of dto.categories) {
-    versions.set(c.id, c.version ?? null)
-    for (const i of c.items ?? []) versions.set(i.id, i.version ?? null)
+    if (saved.has(c.id)) versions.set(c.id, c.version ?? null)
+    for (const i of c.items ?? []) if (saved.has(i.id)) versions.set(i.id, i.version ?? null)
   }
   const latest = (id: string, current: string | null | undefined) => (versions.has(id) ? versions.get(id) : current)
   return {
@@ -328,6 +334,28 @@ export function withVersions(m: MonthVM, dto: BudgetMonthDto | null | undefined)
       version: latest(c.id, c.version),
       items: c.items.map((i) => ({ ...i, version: latest(i.id, i.version) })),
     })),
+  }
+}
+
+/**
+ * One line as a write's answer has it, values and version together (the answer to that line's own
+ * save); the rest of the view-model as it is. An answer without that line leaves it as shown.
+ */
+export function withItemFrom(m: MonthVM, dto: BudgetMonthDto | null | undefined, itemId: string): MonthVM {
+  if (!dto || !Array.isArray(dto.categories)) return m
+  const saved = fromDto(dto).categories.flatMap((c) => c.items).find((i) => i.id === itemId)
+  if (!saved) return m
+  return {
+    ...m,
+    categories: m.categories.map((c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? saved : i)) })),
+  }
+}
+
+/** One line given `version`. */
+export function withItemVersion(m: MonthVM, itemId: string, version: string | null): MonthVM {
+  return {
+    ...m,
+    categories: m.categories.map((c) => ({ ...c, items: c.items.map((i) => (i.id === itemId ? { ...i, version } : i)) })),
   }
 }
 
@@ -381,4 +409,70 @@ export function withReorderedExpenseCategories(m: MonthVM, orderedExpenseIds: st
 /** Remove a category group (and its lines). */
 export function withoutCategory(m: MonthVM, categoryId: string): MonthVM {
   return { ...m, categories: m.categories.filter((c) => c.id !== categoryId) }
+}
+
+// --- Undoing one failed write (workflow audit F-01) -------------------------
+// A failed write puts back only what it changed, as `snapshot` (the month when it started) had
+// it. Other writes made since keep what they show: putting the whole snapshot back would undo
+// them on screen although the server saved them.
+
+/** Put one line back as `snapshot` had it: its values, or where it stood if it was removed; a line the snapshot never had (a temporary row) goes. */
+export function withItemRestored(m: MonthVM, snapshot: MonthVM, itemId: string): MonthVM {
+  for (const before of snapshot.categories) {
+    const index = before.items.findIndex((i) => i.id === itemId)
+    if (index < 0) continue
+    const item = before.items[index]
+    return {
+      ...m,
+      categories: m.categories.map((c) => {
+        if (c.id !== before.id) return c
+        const items = [...c.items]
+        const at = items.findIndex((i) => i.id === itemId)
+        if (at >= 0) items[at] = item
+        else items.splice(Math.min(index, items.length), 0, item)
+        return { ...c, items }
+      }),
+    }
+  }
+  return withoutItem(m, itemId)
+}
+
+/** Put one group back as `snapshot` had it: its name and version, or the whole group where it stood if it was removed; a group the snapshot never had (a temporary one) goes. */
+export function withCategoryRestored(m: MonthVM, snapshot: MonthVM, categoryId: string): MonthVM {
+  const index = snapshot.categories.findIndex((c) => c.id === categoryId)
+  if (index < 0) return withoutCategory(m, categoryId)
+  const before = snapshot.categories[index]
+  if (m.categories.some((c) => c.id === categoryId)) {
+    return {
+      ...m,
+      categories: m.categories.map((c) => (c.id === categoryId ? { ...c, name: before.name, version: before.version } : c)),
+    }
+  }
+  const categories = [...m.categories]
+  categories.splice(Math.min(index, categories.length), 0, before)
+  return { ...m, categories }
+}
+
+/** `rows` in the order `snapshot` had them; a row it did not have keeps its place after those. */
+function inOrderOf<T extends { id: string }>(rows: T[], snapshot: { id: string }[]): T[] {
+  const rank = new Map(snapshot.map((r, i) => [r.id, i]))
+  return rows
+    .map((row, i) => ({ row, key: rank.get(row.id) ?? snapshot.length + i }))
+    .sort((a, b) => a.key - b.key)
+    .map((r) => r.row)
+}
+
+/** Put one group's lines back in the order `snapshot` had them. */
+export function withItemOrderRestored(m: MonthVM, snapshot: MonthVM, categoryId: string): MonthVM {
+  const before = snapshot.categories.find((c) => c.id === categoryId)
+  if (!before) return m
+  return {
+    ...m,
+    categories: m.categories.map((c) => (c.id === categoryId ? { ...c, items: inOrderOf(c.items, before.items) } : c)),
+  }
+}
+
+/** Put the groups back in the order `snapshot` had them. */
+export function withCategoryOrderRestored(m: MonthVM, snapshot: MonthVM): MonthVM {
+  return { ...m, categories: inOrderOf(m.categories, snapshot.categories) }
 }
