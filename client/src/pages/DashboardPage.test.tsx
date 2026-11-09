@@ -842,7 +842,13 @@ describe('DashboardPage month navigation', () => {
     expect(within(row).getByRole('button', { name: 'Take-home Pay (Alex): more actions' })).toBeInTheDocument()
 
     // A failing PUT reverts the optimistic pick (back to the last saved value) and
-    // surfaces the error.
+    // surfaces the error. The month is then read again (the save may have landed before its
+    // answer was lost), so the server now holds the saved pick.
+    const saved = budget()
+    saved.categories[0].items[0].memberId = 'mem-alex'
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: saved }),
+    )
     mockPut.mockRejectedValue(new Error('network'))
     await lineAction(user, 'Take-home Pay (Alex)', 'Who earns')
     await user.selectOptions(await screen.findByLabelText('Who earns Take-home Pay', {}, { timeout: 5000 }), 'mem-robin')
@@ -941,5 +947,134 @@ describe('DashboardPage edit conflicts (D11)', () => {
     expect(await screen.findByText('Someone else changed this. Reload and try again.', {}, { timeout: 5000 })).toBeInTheDocument()
     // The grid shows what the other login saved, not the rolled-back value.
     await waitFor(() => expect(screen.getByRole('button', { name: /^Planned amount for Rent:/ })).toHaveTextContent('950.00'), { timeout: 5000 })
+  })
+})
+
+// Workflow audit F-01 and F-02 (8 Nov 2026): a write's answer or failure touches only what that
+// write changed, and the month is read again once no write is in flight.
+describe('DashboardPage concurrent writes (workflow audit)', () => {
+  beforeEach(() => {
+    resetApiMocks()
+    household.current = { members: [], isShared: false, loading: false, refreshHousehold: async () => {} }
+  })
+
+  const month = (rent: number, rentV: string, pay: number, payV: string): BudgetMonthDto =>
+    budgetMonth({
+      key: '2026-06',
+      month: 6,
+      categories: [
+        budgetCategory({ id: 'inc', name: 'Income', kind: 'Income', items: [budgetItem({ id: 'i-pay', name: 'Salary', plannedAmount: pay, version: payV })] }),
+        budgetCategory({ id: 'c1', name: 'Housing', items: [budgetItem({ id: 'i-rent', name: 'Rent', plannedAmount: rent, version: rentV })] }),
+      ],
+    })
+
+  async function edit(user: ReturnType<typeof userEvent.setup>, line: string, amount: string) {
+    await user.click(await screen.findByRole('button', { name: new RegExp(`^Planned amount for ${line}:`) }, { timeout: 5000 }))
+    const input = (await screen.findByLabelText(`Planned amount for ${line}`, {}, { timeout: 5000 })) as HTMLInputElement
+    await user.clear(input)
+    await user.type(input, amount)
+    await user.tab()
+  }
+  const planned = (line: string) => screen.getByRole('button', { name: new RegExp(`^Planned amount for ${line}:`) })
+
+  it('S01: a failed save leaves another line\'s saved edit on screen, then shows what the server holds', { timeout: 20000 }, async () => {
+    let server = month(1100, 'r1', 3000, 'p1')
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: server }))
+    let failRent: (e: unknown) => void = () => {}
+    mockPut.mockImplementation((url: string) => {
+      if (url === '/budget/items/i-rent') return new Promise((_, reject) => { failRent = reject })
+      server = month(1100, 'r1', 3500, 'p2')
+      return Promise.resolve({ data: server })
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await edit(user, 'Rent', '1200')
+    await edit(user, 'Salary', '3500')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(planned('Salary')).toHaveTextContent('3,500.00'))
+    const reads = mockGet.mock.calls.filter(([url]) => /^\/budget\/\d{4}\//.test(String(url))).length
+
+    failRent(new Error('network'))
+    expect(await screen.findByText(/reverted to the previous value/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(planned('Rent')).toHaveTextContent('1,100.00')
+    expect(planned('Salary')).toHaveTextContent('3,500.00')
+    // The month is read again, as the failed save may have landed before its answer was lost.
+    await waitFor(() => expect(mockGet.mock.calls.filter(([url]) => /^\/budget\/\d{4}\//.test(String(url))).length).toBe(reads + 1))
+    expect(planned('Salary')).toHaveTextContent('3,500.00')
+  })
+
+  it('S07: a save whose answer is lost shows what the server saved after the re-read', { timeout: 20000 }, async () => {
+    let server = month(1100, 'r1', 3000, 'p1')
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: server }))
+    mockPut.mockImplementation(() => {
+      server = month(1200, 'r2', 3000, 'p1') // saved, but the answer never arrives
+      return Promise.reject(new Error('network'))
+    })
+    const user = userEvent.setup()
+    renderPage()
+
+    await edit(user, 'Rent', '1200')
+    expect(await screen.findByText(/reverted to the previous value/, {}, { timeout: 5000 })).toBeInTheDocument()
+    await waitFor(() => expect(planned('Rent')).toHaveTextContent('1,200.00'), { timeout: 5000 })
+  })
+
+  it('S03: after another line\'s save, a rename of a line someone else changed sends its old version and shows their change', { timeout: 20000 }, async () => {
+    let server = month(1100, 'r1', 3000, 'p1')
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: server }))
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })
+
+    // Another login moves Rent to 1,400 (r2); this screen's Salary save answers with that month.
+    server = month(1400, 'r2', 3500, 'p2')
+    mockPut.mockImplementation((url: string, body: { version?: string | null }) => {
+      if (url === '/budget/items/i-rent' && body.version !== 'r2') {
+        return Promise.reject(Object.assign(new Error('409'), { response: { status: 409, data: { title: 'Someone else changed this. Reload and try again.' } } }))
+      }
+      return Promise.resolve({ data: server })
+    })
+    await edit(user, 'Salary', '3500')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+
+    await lineAction(user, 'Rent', 'Rename')
+    const name = screen.getByRole('textbox', { name: 'Rename Rent' })
+    await user.clear(name)
+    await user.keyboard('Rent flat{Enter}')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(2))
+    // The shown 1,100 goes with the version it was shown with, never with the other login's r2.
+    expect(mockPut.mock.calls[1]).toEqual(['/budget/items/i-rent', { plannedAmount: 1100, name: 'Rent flat', version: 'r1' }])
+    expect(await screen.findByText('Someone else changed this. Reload and try again.', {}, { timeout: 5000 })).toBeInTheDocument()
+    await waitFor(() => expect(planned('Rent')).toHaveTextContent('1,400.00'), { timeout: 5000 })
+  })
+
+  it('S05: a failed line delete puts that line back without undoing another line\'s saved edit', { timeout: 20000 }, async () => {
+    let server = month(1100, 'r1', 3000, 'p1')
+    mockGet.mockImplementation((url: string) =>
+      url === '/budget/months' ? Promise.resolve({ data: [] }) : Promise.resolve({ data: server }))
+    let failDelete: (e: unknown) => void = () => {}
+    mockDelete.mockImplementation(() => new Promise((_, reject) => { failDelete = reject }))
+    mockPut.mockImplementation(() => {
+      server = month(1100, 'r1', 3500, 'p2')
+      return Promise.resolve({ data: server })
+    })
+    const user = userEvent.setup()
+    renderPage()
+    await screen.findByRole('button', { name: /^Planned amount for Rent:/ }, { timeout: 5000 })
+
+    await lineAction(user, 'Rent', 'Delete')
+    const confirm = screen.queryByRole('button', { name: /^Delete/ })
+    if (confirm) await user.click(confirm)
+    await waitFor(() => expect(mockDelete).toHaveBeenCalledTimes(1))
+    await edit(user, 'Salary', '3500')
+    await waitFor(() => expect(mockPut).toHaveBeenCalledTimes(1))
+
+    failDelete(new Error('network'))
+    expect(await screen.findByText(/Could not delete that line — reverted/, {}, { timeout: 5000 })).toBeInTheDocument()
+    expect(planned('Rent')).toHaveTextContent('1,100.00')
+    expect(planned('Salary')).toHaveTextContent('3,500.00')
   })
 })

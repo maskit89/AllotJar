@@ -38,6 +38,10 @@ import {
   withReorderedExpenseCategories,
   withReorderedItems,
   withVersions,
+  withCategoryOrderRestored,
+  withCategoryRestored,
+  withItemOrderRestored,
+  withItemRestored,
   type ItemVM,
   type MonthVM,
 } from '../budgetModel'
@@ -70,8 +74,6 @@ interface LineWrites {
   tail: Promise<unknown>
   /** Writes of the line waiting or in flight, this one included. */
   waiting: number
-  /** Writes of the line sent since it last had none waiting. */
-  sent: number
   /** The version the line's next write sends: the latest answer's, or the one loaded. */
   version: string | null
 }
@@ -174,18 +176,76 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     }
   }, [year, monthNum])
 
+  // The page's writes to the month (workflow audit F-01). `inFlight` counts those not yet
+  // answered and `started` every one ever begun. `stale` asks for one re-read of the month once
+  // none is in flight: a failed write (the server may have saved it before the answer was lost),
+  // a conflict, or a whole-month answer that came back while another write was still saving and so
+  // may predate it. Re-reading only when none is in flight keeps the re-read from painting over
+  // an edit still saving, and a re-read that a new write overtakes is dropped and asked again.
+  const monthWrites = useRef({ inFlight: 0, started: 0, stale: false })
+
   // Re-read the viewed month in place (no loading flash): after a jar is created the
   // server plants its contribution line, which only a fresh GET can show.
   const refreshMonth = useCallback(async () => {
     try {
-      const { data } = await api.get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)
-      if (!isViewed(year, monthNum)) return
+      let data: BudgetMonthDto
+      for (;;) {
+        const startedBefore = monthWrites.current.started
+        data = (await api.get<BudgetMonthDto>(`/budget/${year}/${monthNum}`)).data
+        if (!isViewed(year, monthNum)) return
+        if (monthWrites.current.started === startedBefore) break
+        // A write began meanwhile, so this read may predate it: once none is in flight, read again.
+        if (monthWrites.current.inFlight > 0) {
+          monthWrites.current.stale = true
+          return
+        }
+      }
       setMonth(fromDto(data))
       setNotFound(false)
     } catch (err) {
       if (isViewed(year, monthNum) && (err as { response?: { status?: number } })?.response?.status === 404) setNotFound(true)
     }
   }, [year, monthNum, isViewed])
+
+  // The last write to end with a re-read asked for bumps `reread`; the effect below re-reads the
+  // month then shown. A re-read asked for on a month no longer viewed is dropped with that month,
+  // which the load effect reads afresh.
+  const [reread, setReread] = useState(0)
+  const rereadDone = useRef(0)
+  useEffect(() => {
+    monthWrites.current.stale = false
+    rereadDone.current = reread
+  }, [year, monthNum]) // eslint-disable-line react-hooks/exhaustive-deps -- reset on a month change only
+  useEffect(() => {
+    if (reread === rereadDone.current) return
+    rereadDone.current = reread
+    void refreshMonth()
+  }, [reread, refreshMonth])
+  const beginWrite = useCallback(() => {
+    monthWrites.current.inFlight++
+    monthWrites.current.started++
+  }, [])
+  const endWrite = useCallback(() => {
+    const w = monthWrites.current
+    w.inFlight--
+    if (w.inFlight === 0 && w.stale) {
+      w.stale = false
+      setReread((n) => n + 1)
+    }
+  }, [])
+  // Ask for a re-read of the month once no write is in flight.
+  const markStale = useCallback(() => {
+    monthWrites.current.stale = true
+  }, [])
+  // A whole-month answer replaces the month; when another write is still saving, that answer may
+  // not include it yet, so the month is read again once all are answered.
+  const reconcile = useCallback(
+    (data: BudgetMonthDto) => {
+      setMonth(fromDto(data))
+      if (monthWrites.current.inFlight > 1) markStale()
+    },
+    [markStale],
+  )
 
   const refreshMonths = useCallback(() => {
     api
@@ -396,20 +456,21 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
     ): Promise<boolean> => {
       let writes = lineWrites.current.get(itemId)
       if (!writes) {
-        writes = { tail: Promise.resolve(), waiting: 0, sent: 0, version: findItem(snapshot, itemId)?.version ?? null }
+        writes = { tail: Promise.resolve(), waiting: 0, version: findItem(snapshot, itemId)?.version ?? null }
         lineWrites.current.set(itemId, writes)
       }
       const line = writes
       line.waiting++
+      beginWrite()
       setSavingItemId(itemId)
       const run = line.tail
         .then(async () => {
-          const followsAnother = line.sent++ > 0
           try {
             const { data } = await send(line.version)
             const version = itemVersionIn(data, itemId)
             if (version !== undefined) line.version = version
-            if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
+            // Only this line's version: another line's newer one would come without its values.
+            if (onMonth()) setMonth((m) => (m ? withVersions(m, data, [itemId]) : m))
             return true
           } catch (err) {
             // A later edit of this line is waiting: it carries what the user typed last and
@@ -417,16 +478,18 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
             if (line.waiting > 1) return false
             const conflict = editConflict(err)
             if (onMonth()) {
-              setMonth(snapshot) // roll back to the state before this edit
-              // Someone else changed the line first: show what they saved. After an earlier write
-              // of this line the snapshot need not be what the server holds either.
-              if (conflict || followsAnother) void refreshMonth()
+              // Put back this line only: other lines' edits made meanwhile may have saved (F-01).
+              setMonth((m) => (m ? withItemRestored(m, snapshot, itemId) : m))
+              // Then read what the server holds: someone else's change on a conflict, and on any
+              // other failure the save may still have landed (an answer lost on the way back).
+              markStale()
             }
             setError(conflict ?? failed(err))
             return false
           }
         })
         .finally(() => {
+          endWrite()
           line.waiting--
           if (line.waiting === 0) {
             lineWrites.current.delete(itemId)
@@ -436,7 +499,7 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       line.tail = run.catch(() => false)
       return run
     },
-    [refreshMonth],
+    [beginWrite, endWrite, markStale],
   )
 
   // Optimistic commit: apply the edit locally and recompute the banner instantly
@@ -580,18 +643,24 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         }),
       )
 
+      beginWrite()
       try {
         const { data } = await api.post<BudgetMonthDto>(
           `/budget/categories/${categoryId}/items`,
           { name, plannedAmount: 0 },
         )
-        if (onMonth()) setMonth(fromDto(data)) // reconcile temp row -> real server row
+        if (onMonth()) reconcile(data) // reconcile temp row -> real server row
       } catch {
-        if (onMonth()) setMonth(snapshot)
+        if (onMonth()) {
+          setMonth((m) => (m ? withItemRestored(m, snapshot, tempId) : m))
+          markStale()
+        }
         setError('Could not add that line — reverted.')
+      } finally {
+        endWrite()
       }
     },
-    [month, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale, reconcile],
   )
 
   // Delete a line. Optimistically remove it, then reconcile from the response.
@@ -605,17 +674,22 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setSavingItemId(itemId)
       setMonth(withoutItem(month, itemId)) // optimistic
 
+      beginWrite()
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/items/${itemId}`)
-        if (onMonth()) setMonth(fromDto(data))
+        if (onMonth()) reconcile(data)
       } catch {
-        if (onMonth()) setMonth(snapshot)
+        if (onMonth()) {
+          setMonth((m) => (m ? withItemRestored(m, snapshot, itemId) : m))
+          markStale()
+        }
         setError('Could not delete that line — reverted.')
       } finally {
+        endWrite()
         setSavingItemId(null)
       }
     },
-    [month, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale, reconcile],
   )
 
   // Rule 60: a skipped jar contribution is planned again; the server replants the later
@@ -625,17 +699,19 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       const onMonth = stillOn()
       setError(null)
       setSavingItemId(itemId)
+      beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>(`/budget/items/${itemId}/skip`, { skipped: false })
-        if (onMonth()) setMonth(fromDto(data))
+        if (onMonth()) reconcile(data)
         refreshJars()
       } catch {
         setError('Could not plan that contribution again.')
       } finally {
+        endWrite()
         setSavingItemId(null)
       }
     },
-    [refreshJars, stillOn],
+    [refreshJars, stillOn, beginWrite, endWrite, reconcile],
   )
 
   // The skip-or-archive choice ended: skipping returns the month; archiving needs a re-read.
@@ -673,19 +749,25 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
         }),
       )
 
+      beginWrite()
       try {
         const { data } = await api.post<BudgetMonthDto>('/budget/categories', {
           budgetMonthId: month.id,
           name,
           isSavings: asSavings,
         })
-        if (onMonth()) setMonth(fromDto(data)) // reconcile temp group -> real server group
+        if (onMonth()) reconcile(data) // reconcile temp group -> real server group
       } catch {
-        if (onMonth()) setMonth(snapshot)
+        if (onMonth()) {
+          setMonth((m) => (m ? withCategoryRestored(m, snapshot, tempId) : m))
+          markStale()
+        }
         setError(`Could not add that ${asSavings ? 'savings group' : 'group'} — reverted.`)
+      } finally {
+        endWrite()
       }
     },
-    [month, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale, reconcile],
   )
 
   const renameCategory = useCallback(
@@ -697,24 +779,25 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withCategoryName(month, categoryId, name)) // optimistic
 
+      beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>(`/budget/categories/${categoryId}`, {
           name,
           version: month.categories.find((c) => c.id === categoryId)?.version ?? null,
         })
-        if (onMonth()) setMonth((m) => (m ? withVersions(m, data) : m))
+        // Only this group's version: another row's newer one would come without its values (F-02).
+        if (onMonth()) setMonth((m) => (m ? withVersions(m, data, [categoryId]) : m))
       } catch (err) {
-        if (onMonth()) setMonth(snapshot)
-        const conflict = editConflict(err)
-        if (conflict) {
-          setError(conflict)
-          if (onMonth()) void refreshMonth()
-        } else {
-          setError('Could not rename that group — reverted to the previous name.')
+        if (onMonth()) {
+          setMonth((m) => (m ? withCategoryRestored(m, snapshot, categoryId) : m))
+          markStale()
         }
+        setError(editConflict(err) ?? 'Could not rename that group — reverted to the previous name.')
+      } finally {
+        endWrite()
       }
     },
-    [month, refreshMonth, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale],
   )
 
   const deleteCategory = useCallback(
@@ -726,15 +809,21 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withoutCategory(month, categoryId)) // optimistic
 
+      beginWrite()
       try {
         const { data } = await api.delete<BudgetMonthDto>(`/budget/categories/${categoryId}`)
-        if (onMonth()) setMonth(fromDto(data))
+        if (onMonth()) reconcile(data)
       } catch (err) {
-        if (onMonth()) setMonth(snapshot)
+        if (onMonth()) {
+          setMonth((m) => (m ? withCategoryRestored(m, snapshot, categoryId) : m))
+          markStale()
+        }
         setError(serverErrors(err) ?? 'Could not delete that group — reverted.')
+      } finally {
+        endWrite()
       }
     },
-    [month, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale, reconcile],
   )
 
   // Move an expense group up (-1) or down (+1) among the expense groups.
@@ -756,18 +845,24 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withReorderedExpenseCategories(month, orderedIds)) // optimistic
 
+      beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>('/budget/categories/order', {
           budgetMonthId: month.id,
           orderedCategoryIds: orderedIds,
         })
-        if (onMonth()) setMonth(fromDto(data))
+        if (onMonth()) reconcile(data)
       } catch {
-        if (onMonth()) setMonth(snapshot)
+        if (onMonth()) {
+          setMonth((m) => (m ? withCategoryOrderRestored(m, snapshot) : m))
+          markStale()
+        }
         setError('Could not reorder the groups — reverted.')
+      } finally {
+        endWrite()
       }
     },
-    [month, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale, reconcile],
   )
 
   // Reorder the lines within a category (CategoryAccordion computes the new order).
@@ -780,18 +875,24 @@ export function DashboardPage({ today = new Date() }: { today?: Date } = {}) {
       setError(null)
       setMonth(withReorderedItems(month, categoryId, orderedItemIds)) // optimistic
 
+      beginWrite()
       try {
         const { data } = await api.put<BudgetMonthDto>(
           `/budget/categories/${categoryId}/items/order`,
           { orderedItemIds },
         )
-        if (onMonth()) setMonth(fromDto(data))
+        if (onMonth()) reconcile(data)
       } catch {
-        if (onMonth()) setMonth(snapshot)
+        if (onMonth()) {
+          setMonth((m) => (m ? withItemOrderRestored(m, snapshot, categoryId) : m))
+          markStale()
+        }
         setError('Could not reorder the lines — reverted.')
+      } finally {
+        endWrite()
       }
     },
-    [month, stillOn],
+    [month, stillOn, beginWrite, endWrite, markStale, reconcile],
   )
 
   // The checklist's steps and their done state, or null once all three are done.
