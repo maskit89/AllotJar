@@ -56,7 +56,7 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'AllotJa
 | Piece | Where |
 |---|---|
 | Release pipeline (staging auto + prod on a manual run) | `.github/workflows/deploy.yml` |
-| Prod stack provisioning (by hand on the VPS, from the release's `provision\` folder) | `deploy/Provision-Production.ps1` |
+| Prod stack provisioning (by hand on the VPS, scripts taken from `main`, never from a release folder) | `deploy/Provision-Production.ps1` |
 | Upload-only deploy (server half) | `deploy/Enable-UploadOnlyDeploy.ps1`, `deploy/Invoke-PendingDeploy.ps1`, `deploy/Approve-DeployScripts.ps1` |
 | Cloudflare DNS/WAF automation | `deploy/Setup-Cloudflare.ps1` |
 | Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port, `-AspNetEnvironment` pins which `appsettings.<Env>.json` the API reads) |

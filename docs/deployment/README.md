@@ -80,10 +80,19 @@ Each stack deploys with its own key, on its own plain Windows account that sshd 
 **sftp only**, inside that stack's upload folder: the key cannot run anything on the VPS
 (holistic review M5, Nov 2026). The server's own task deploys what was uploaded.
 
-After the first release has been unpacked to `C:\deploy\release-staging`, run on the VPS (Administrator PowerShell):
-```powershell
-& C:\deploy\release-staging\bin\Enable-UploadOnlyDeploy.ps1 -Check   # read-only report
-& C:\deploy\release-staging\bin\Enable-UploadOnlyDeploy.ps1          # set up (idempotent)
+> **Never run a script from `C:\deploy\release-*` by hand.** Once the upload-only keys are in
+> use, the upload account controls everything in those folders; the deploy task only checks
+> `Deploy.ps1` and `ProvisionHelpers.psm1` against the trusted copies. A hand-run script there
+> would run as Administrator whatever a leaked deploy key put in it.
+
+`deploy/Enable-UploadOnlyDeploy.ps1` (in every release's `bin\`) sets this up, and is safe to
+re-run (`-Check` gives a read-only report). Run it only through a **reviewed server step** that
+first checks the release's `COMMIT` and the LF-normalised SHA-256 of every file it installs
+(`bin\*.ps1`, `Deploy.ps1`, `ProvisionHelpers.psm1`) against that commit on `main`, and only then
+runs it. The first install used exactly this wrapper (server step 18, Nov 2026); a later re-run
+or update gets a new one with the new commit's hashes. A file's hash, on a checkout of `main`:
+```bash
+git show <commit>:deploy/Invoke-PendingDeploy.ps1 | sed 's/\r$//' | sha256sum
 ```
 It creates `allotjar-up-staging` / `allotjar-up-prod`, their jails `C:\deploy\upload\<stack>`
 (writable only in `\incoming`), one ed25519 key each, the `Match User` blocks in `sshd_config`,
@@ -296,15 +305,31 @@ R2-enabled prod task with a local-only one. It now resolves the bucket from `-Pr
 **preserves** the bucket on the existing `AllotJar-Prod-DbBackup` task, else **refuses to run**;
 after registering, it reads the task back and asserts the R2 arguments are on the stored action.
 Provisioning is run by hand on the VPS (the deploy keys are upload-only, so no workflow can run
-it). Every release carries the scripts in `provision\`:
+it). Releases no longer carry the provisioning scripts, and a release folder is never a source
+for them (see "SSH deploy keys"). Take `Provision-Production.ps1`, `Register-BackupTask.ps1`,
+`Backup-Database.ps1`, `Upload-BackupToR2.ps1` and `ProvisionHelpers.psm1` from `deploy/` on
+`main` (download them from GitHub on the VPS, or a reviewed server step that checks each file's
+hash against a `main` commit) into `C:\deploy\provision`, then:
 ```powershell
-Copy-Item C:\deploy\release-staging\provision\* C:\deploy\provision\ -Force
 & C:\deploy\provision\Provision-Production.ps1 -CertThumbprint '<origin cert thumbprint>' -ProdR2Bucket '<bucket>'
 ```
+The thumbprint is the Cloudflare origin certificate's in `Cert:\LocalMachine\My`. Leave out
+`-ProdR2Bucket` to keep the bucket already on the `AllotJar-Prod-DbBackup` task.
 
 ## Rollback
 
-Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
+- **Production:** revert the bad change on `main` (a PR), let CI pass, then start **Deploy** by
+  hand with *Also deploy to production* ticked. Or re-run a successful production job of a run
+  made **after** the switch to upload-only keys, within 7 days (its artifact is kept 7 days;
+  staging's 1 day). A re-run of an older run fails once the old Administrator deploy key is removed: its workflow signs in with that key.
+  A run from any branch but `main` cannot reach production.
+- **Staging:** a revert on `main` redeploys it; a re-run works within a day.
+- If the rollback crosses a change to `Deploy.ps1` or `ProvisionHelpers.psm1`, it stops as
+  **blocked**: approve the *older* file with `Approve-DeployScripts.ps1`, then re-run the job.
+- Cancelling a Deploy run after its upload does **not** stop the deploy: the server's task
+  deploys whatever reached the upload folder.
+
+Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
 ```powershell
 powershell -File C:\deploy\Backup-Database.ps1 -Database AllotJarProd
 ```

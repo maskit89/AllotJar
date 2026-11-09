@@ -148,8 +148,14 @@ $workflow = Get-Content (Join-Path (Split-Path $deployDir -Parent) '.github/work
 Assert-True ($workflow -notmatch 'staging-prod\b' -and $workflow -notmatch 'incoming-prod\b') 'deploy.yml does not unpack production in a folder called staging-prod'
 # The ASP.NET Core environment of each stack is now fixed on the server (Get-UploadDeployStack, tested
 # below); the workflow only picks which stack's account and folder an upload goes to.
-Assert-True ($workflow -match 'USER: allotjar-up-staging' -and $workflow -match 'upload-deploy\.sh staging' -and $workflow -match 'VPS_SSH_KEY_STAGING') 'deploy.yml uploads staging with the staging account and key'
-Assert-True ($workflow -match 'USER: allotjar-up-prod' -and $workflow -match 'upload-deploy\.sh production' -and $workflow -match 'VPS_SSH_KEY_PRODUCTION') 'deploy.yml uploads production with the production account and key'
+# Per job, so a staging job that signed in with the production key and account (and so uploaded the
+# staging bundle to production without the gate) is caught (review #432 P3-1).
+$workflowCode = ($workflow -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"   # comments may name either stack
+$stagingJob = [regex]::Match($workflowCode, '(?s)\n  deploy-staging:.*?(?=\n  [A-Za-z][\w-]*:)').Value
+$productionJob = [regex]::Match($workflowCode, '(?s)\n  deploy-production:.*$').Value
+Assert-True ($stagingJob -match 'secrets\.VPS_SSH_KEY_STAGING\b' -and $stagingJob -match 'USER: allotjar-up-staging\b' -and $stagingJob -match 'upload-deploy\.sh staging\b' -and $stagingJob -notmatch '(?i)PRODUCTION|up-prod') 'deploy.yml uploads staging with the staging account and key only'
+Assert-True ($productionJob -match 'secrets\.VPS_SSH_KEY_PRODUCTION\b' -and $productionJob -match 'USER: allotjar-up-prod\b' -and $productionJob -match 'upload-deploy\.sh production\b' -and $productionJob -notmatch 'VPS_SSH_KEY_STAGING|up-staging|upload-deploy\.sh staging') 'deploy.yml uploads production with the production account and key only'
+Assert-True (([regex]::Matches($workflowCode, 'VPS_SSH_KEY_PRODUCTION')).Count -eq 1) 'the production key appears in the production deploy job only'
 
 Write-Host '== Get-RestoreFileMoves (restoring one database''s backup onto another on the same instance) =='
 $data = 'C:\SQL\DATA\'

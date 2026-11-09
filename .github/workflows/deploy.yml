@@ -95,17 +95,13 @@ jobs:
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
           cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
-          # The upload-only deploy's server scripts travel with every release, so the owner can
-          # install or update them on the server from the unpacked release (bin\), and the
-          # commit is recorded for Approve-DeployScripts.ps1 to show.
+          # The upload-only deploy's server scripts travel with every release (bin\) and the commit
+          # is recorded (COMMIT). Neither is trusted on the server: the upload account controls the
+          # unpacked release, so nothing in it is ever run by hand as is. A reviewed server step
+          # checks each file's hash against a main commit first (docs/deployment/README.md).
           mkdir -p release/bin
           cp deploy/Invoke-PendingDeploy.ps1 deploy/Approve-DeployScripts.ps1 deploy/Enable-UploadOnlyDeploy.ps1 release/bin/
           printf '%s\n' "$GITHUB_SHA" > release/COMMIT
-          # Provisioning is run by hand on the server (an upload-only key cannot run it):
-          # the scripts travel in provision\ for that.
-          mkdir -p release/provision
-          cp deploy/Provision-Production.ps1 deploy/Register-BackupTask.ps1 deploy/Backup-Database.ps1 \
-             deploy/Upload-BackupToR2.ps1 deploy/ProvisionHelpers.psm1 release/provision/
           cd release && zip -qr ../release.zip . && cd ..
 
       - name: Upload release artifact
@@ -215,17 +211,13 @@ jobs:
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
           cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
-          # The upload-only deploy's server scripts travel with every release, so the owner can
-          # install or update them on the server from the unpacked release (bin\), and the
-          # commit is recorded for Approve-DeployScripts.ps1 to show.
+          # The upload-only deploy's server scripts travel with every release (bin\) and the commit
+          # is recorded (COMMIT). Neither is trusted on the server: the upload account controls the
+          # unpacked release, so nothing in it is ever run by hand as is. A reviewed server step
+          # checks each file's hash against a main commit first (docs/deployment/README.md).
           mkdir -p release/bin
           cp deploy/Invoke-PendingDeploy.ps1 deploy/Approve-DeployScripts.ps1 deploy/Enable-UploadOnlyDeploy.ps1 release/bin/
           printf '%s\n' "$GITHUB_SHA" > release/COMMIT
-          # Provisioning is run by hand on the server (an upload-only key cannot run it):
-          # the scripts travel in provision\ for that.
-          mkdir -p release/provision
-          cp deploy/Provision-Production.ps1 deploy/Register-BackupTask.ps1 deploy/Backup-Database.ps1 \
-             deploy/Upload-BackupToR2.ps1 deploy/ProvisionHelpers.psm1 release/provision/
           cd release && zip -qr ../release.zip . && cd ..
 
       - name: Upload release artifact
