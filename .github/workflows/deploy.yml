@@ -17,7 +17,9 @@ name: Deploy
 #   applying when the repo went private (3 Oct 2026). The production job still
 #   runs AFTER deploy-staging in the same run, so nothing reaches production that
 #   staging didn't get first.
-# * Both stacks live on the same VPS and reuse the same repo-level VPS_* SSH secrets.
+# * Both stacks live on the same VPS. Each deploy job signs in with its own stack's
+#   upload-only key (VPS_SSH_KEY_STAGING / VPS_SSH_KEY_PRODUCTION), which can only upload
+#   into that stack's folder; the server's own task deploys it (see the deploy jobs).
 #   Every server-side name says which stack it belongs to:
 #     staging     C:\inetpub\allotjar-staging\{api,web}, pools AllotJar-Staging-Api/-Web,
 #                 API :5000, ASPNETCORE_ENVIRONMENT=Staging (appsettings.Staging.json),
@@ -93,9 +95,10 @@ jobs:
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
           cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
-          # The upload-only deploy's server scripts travel with every release, so the owner can
-          # install or update them on the server from the unpacked release (bin\), and the
-          # commit is recorded for Approve-DeployScripts.ps1 to show.
+          # The upload-only deploy's server scripts travel with every release (bin\) and the commit
+          # is recorded (COMMIT). Neither is trusted on the server: the upload account controls the
+          # unpacked release, so nothing in it is ever run by hand as is. A reviewed server step
+          # checks each file's hash against a main commit first (docs/deployment/README.md).
           mkdir -p release/bin
           cp deploy/Invoke-PendingDeploy.ps1 deploy/Approve-DeployScripts.ps1 deploy/Enable-UploadOnlyDeploy.ps1 release/bin/
           printf '%s\n' "$GITHUB_SHA" > release/COMMIT
@@ -125,69 +128,32 @@ jobs:
         with:
           name: release-staging
 
-      # Native OpenSSH (SFTP-based), NOT appleboy/scp-action: drone-scp pipes tar
-      # through the remote shell, which fails against Windows OpenSSH + a PowerShell
-      # default shell. Native scp/ssh use the SFTP subsystem and a single command,
-      # which is shell-independent and works on Windows.
-      # The VPS's own ed25519 host key is pinned from the VPS_HOST_KEY secret, so the
-      # runner refuses to talk to anything else answering at VPS_HOST (no trust on
-      # first use). Every ssh/scp below goes through the "vps" alias in ~/.ssh/config.
+      # Upload-only deploy (holistic review M5): the staging key belongs to the Windows account
+      # allotjar-up-staging, which sshd lets in to sftp only, inside its own upload folder. It cannot
+      # run anything on the VPS. The server's every-minute task (deploy/Invoke-PendingDeploy.ps1)
+      # deploys the upload with the server's own trusted Deploy.ps1 and writes back status.txt.
+      - name: Get the deploy scripts
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+          path: src
+
       - name: Write SSH key and pinned host key
         env:
-          KEY: ${{ secrets.VPS_SSH_KEY }}
+          KEY: ${{ secrets.VPS_SSH_KEY_STAGING }}
           HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
           HOST: ${{ secrets.VPS_HOST }}
-        run: |
-          set -euo pipefail
-          # First line only, with stray spaces from copy-paste trimmed.
-          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-          case "$HOST_KEY" in
-            "ssh-ed25519 AAAA"*) ;;
-            *) echo "::error::Secret VPS_HOST_KEY must hold the VPS's public host key line, starting 'ssh-ed25519 AAAA'."; exit 1 ;;
-          esac
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf 'allotjar-vps %s\n' "$HOST_KEY" > ~/.ssh/known_hosts_vps
-          {
-            echo 'Host vps'
-            echo "  HostName $HOST"
-            echo "  Port $PORT"
-            echo "  User $USER"
-            echo '  IdentityFile ~/.ssh/deploy_key'
-            echo '  IdentitiesOnly yes'
-            echo '  HostKeyAlias allotjar-vps'
-            echo '  UserKnownHostsFile ~/.ssh/known_hosts_vps'
-            echo '  GlobalKnownHostsFile /dev/null'
-            echo '  StrictHostKeyChecking yes'
-          } > ~/.ssh/config
-          chmod 600 ~/.ssh/config
+          USER: allotjar-up-staging
+        run: src/.github/scripts/write-ssh-config.sh
 
-      # The scp below writes straight into C:\deploy\incoming-staging, so that folder
-      # (and the release folder the extract step expands into) must exist, or the scp
-      # fails with "dest open ...: No such file or directory".
-      - name: Ensure VPS deploy dirs exist
-        run: |
-          ssh vps \
-            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-staging, C:\deploy\release-staging | Out-Null"'
+      - name: Upload the release and wait for the server to deploy it
+        env:
+          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-staging
+        run: src/.github/scripts/upload-deploy.sh staging
 
-      - name: Copy release to VPS
-        run: |
-          scp \
-            release.zip vps:C:/deploy/incoming-staging/release.zip
-
-      # Deploy.ps1's defaults are the staging stack; they are passed anyway so this job
-      # and the production one below read the same way. -AspNetEnvironment Staging makes
-      # the API read appsettings.Staging.json.
-      - name: Extract and deploy on VPS
-        run: |
-          ssh vps \
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-staging\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-staging\release.zip -DestinationPath C:\deploy\release-staging -Force; & C:\deploy\release-staging\Deploy.ps1 -ApiDir C:\inetpub\allotjar-staging\api -WebDir C:\inetpub\allotjar-staging\web -ApiPool AllotJar-Staging-Api -WebPool AllotJar-Staging-Web -HealthUrl http://127.0.0.1:5000/health -ApiProxyPort 5000 -AspNetEnvironment Staging"'
-
-  # Production ships only a commit whose CI on main passed (ci-passed.yml, shared
-  # with provision-production.yml).
+  # Production ships only a commit whose CI on main passed (ci-passed.yml).
   ci-passed:
     name: CI passed
     if: github.event_name == 'workflow_dispatch' && inputs.production && github.ref == 'refs/heads/main'
@@ -245,9 +211,10 @@ jobs:
           cp deploy/web/web.config release/web/web.config
           cp deploy/Deploy.ps1 release/Deploy.ps1
           cp deploy/ProvisionHelpers.psm1 release/ProvisionHelpers.psm1
-          # The upload-only deploy's server scripts travel with every release, so the owner can
-          # install or update them on the server from the unpacked release (bin\), and the
-          # commit is recorded for Approve-DeployScripts.ps1 to show.
+          # The upload-only deploy's server scripts travel with every release (bin\) and the commit
+          # is recorded (COMMIT). Neither is trusted on the server: the upload account controls the
+          # unpacked release, so nothing in it is ever run by hand as is. A reviewed server step
+          # checks each file's hash against a main commit first (docs/deployment/README.md).
           mkdir -p release/bin
           cp deploy/Invoke-PendingDeploy.ps1 deploy/Approve-DeployScripts.ps1 deploy/Enable-UploadOnlyDeploy.ps1 release/bin/
           printf '%s\n' "$GITHUB_SHA" > release/COMMIT
@@ -279,57 +246,27 @@ jobs:
         with:
           name: release-production
 
-      # The VPS's own ed25519 host key is pinned from the VPS_HOST_KEY secret, so the
-      # runner refuses to talk to anything else answering at VPS_HOST (no trust on
-      # first use). Every ssh/scp below goes through the "vps" alias in ~/.ssh/config.
+      # Upload-only deploy (holistic review M5): the production key belongs to the Windows account
+      # allotjar-up-prod, which sshd lets in to sftp only, inside its own upload folder. It cannot
+      # run anything on the VPS. The server's every-minute task (deploy/Invoke-PendingDeploy.ps1)
+      # deploys the upload with the server's own trusted Deploy.ps1 and writes back status.txt.
+      - name: Get the deploy scripts
+        uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          sparse-checkout-cone-mode: false
+          path: src
+
       - name: Write SSH key and pinned host key
         env:
-          KEY: ${{ secrets.VPS_SSH_KEY }}
+          KEY: ${{ secrets.VPS_SSH_KEY_PRODUCTION }}
           HOST_KEY: ${{ secrets.VPS_HOST_KEY }}
           PORT: ${{ secrets.VPS_SSH_PORT }}
-          USER: ${{ secrets.VPS_SSH_USER }}
           HOST: ${{ secrets.VPS_HOST }}
-        run: |
-          set -euo pipefail
-          # First line only, with stray spaces from copy-paste trimmed.
-          HOST_KEY=$(printf '%s\n' "$HOST_KEY" | tr -d '\r' | head -n 1 | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-          case "$HOST_KEY" in
-            "ssh-ed25519 AAAA"*) ;;
-            *) echo "::error::Secret VPS_HOST_KEY must hold the VPS's public host key line, starting 'ssh-ed25519 AAAA'."; exit 1 ;;
-          esac
-          mkdir -p ~/.ssh && chmod 700 ~/.ssh
-          printf '%s\n' "$KEY" > ~/.ssh/deploy_key
-          chmod 600 ~/.ssh/deploy_key
-          printf 'allotjar-vps %s\n' "$HOST_KEY" > ~/.ssh/known_hosts_vps
-          {
-            echo 'Host vps'
-            echo "  HostName $HOST"
-            echo "  Port $PORT"
-            echo "  User $USER"
-            echo '  IdentityFile ~/.ssh/deploy_key'
-            echo '  IdentitiesOnly yes'
-            echo '  HostKeyAlias allotjar-vps'
-            echo '  UserKnownHostsFile ~/.ssh/known_hosts_vps'
-            echo '  GlobalKnownHostsFile /dev/null'
-            echo '  StrictHostKeyChecking yes'
-          } > ~/.ssh/config
-          chmod 600 ~/.ssh/config
+          USER: allotjar-up-prod
+        run: src/.github/scripts/write-ssh-config.sh
 
-      - name: Ensure VPS deploy dirs exist
-        run: |
-          ssh vps \
-            'powershell -NoProfile -Command "New-Item -ItemType Directory -Force -Path C:\deploy\incoming-production, C:\deploy\release-production | Out-Null"'
-
-      - name: Copy release to VPS
-        run: |
-          scp \
-            release.zip vps:C:/deploy/incoming-production/release.zip
-
-      # The production stack is Deploy.ps1 with the production dirs/pools/ports; the SQL
-      # database is never touched by a deploy. -ApiProxyPort patches the copied
-      # web.config so the front site proxies /api to the prod API on :5001, and
-      # -AspNetEnvironment Production makes the API read appsettings.Production.json.
-      - name: Extract and deploy on VPS
-        run: |
-          ssh vps \
-            'powershell -NoProfile -ExecutionPolicy Bypass -Command "Remove-Item C:\deploy\release-production\* -Recurse -Force -ErrorAction SilentlyContinue; Expand-Archive -Path C:\deploy\incoming-production\release.zip -DestinationPath C:\deploy\release-production -Force; & C:\deploy\release-production\Deploy.ps1 -ApiDir C:\inetpub\allotjar-prod\api -WebDir C:\inetpub\allotjar-prod\web -ApiPool AllotJar-Prod-Api -WebPool AllotJar-Prod-Web -HealthUrl http://127.0.0.1:5001/health -ApiProxyPort 5001 -AspNetEnvironment Production"'
+      - name: Upload the release and wait for the server to deploy it
+        env:
+          RELEASE_ID: ${{ github.run_id }}-${{ github.run_attempt }}-production
+        run: src/.github/scripts/upload-deploy.sh production

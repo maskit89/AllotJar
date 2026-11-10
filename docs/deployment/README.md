@@ -75,17 +75,51 @@ Notes:
 
 > Prefer to run the steps individually? Each script (`Setup-Server.ps1`, `Setup-Database.sql`, `Register-BackupTask.ps1`) still works standalone — `Bootstrap.ps1` just chains them.
 
-### 2. SSH deploy key
-On **your machine**, create a keypair dedicated to deploys:
-```powershell
-ssh-keygen -t ed25519 -f $HOME\.ssh\allotjar_deploy -C "github-actions"
+### 2. SSH deploy keys (upload-only)
+Each stack deploys with its own key, on its own plain Windows account that sshd lets in to
+**sftp only**, inside that stack's upload folder: the key cannot run anything on the VPS
+(holistic review M5, Nov 2026). The server's own task deploys what was uploaded.
+
+> **Never run a script from `C:\deploy\release-*` by hand.** Once the upload-only keys are in
+> use, the upload account controls everything in those folders; the deploy task only checks
+> `Deploy.ps1` and `ProvisionHelpers.psm1` against the trusted copies. A hand-run script there
+> would run as Administrator whatever a leaked deploy key put in it.
+
+`deploy/Enable-UploadOnlyDeploy.ps1` (in every release's `bin\`) sets this up, and is safe to
+re-run (`-Check` gives a read-only report). Run it only through a **reviewed server step** that
+first checks the release's `COMMIT` and the LF-normalised SHA-256 of every file it installs
+(`bin\*.ps1`, `Deploy.ps1`, `ProvisionHelpers.psm1`) against that commit on `main`, and only then
+runs it. The first install used exactly this wrapper (server step 18, Nov 2026, before any upload
+account existed); a later re-run or update gets a new one with the new commit's hashes. A file's
+hash, on a checkout of `main`:
+```bash
+git show <commit>:deploy/Invoke-PendingDeploy.ps1 | sed 's/\r$//' | sha256sum
 ```
-Copy the **public** half (`allotjar_deploy.pub`) to the VPS, then there:
+Since the upload account can replace files in the release folder at any moment, a re-run checks and
+runs **copies** in a folder only Administrators and SYSTEM can write, never the release folder itself:
 ```powershell
-Add-Content C:\ProgramData\ssh\administrators_authorized_keys (Get-Content .\allotjar_deploy.pub)
-icacls C:\ProgramData\ssh\administrators_authorized_keys /inheritance:r /grant "Administrators:F" /grant "SYSTEM:F"
+$src = 'C:\deploy\setup-src'; $rel = 'C:\deploy\release-staging'
+if (Test-Path -LiteralPath $src) { Remove-Item -LiteralPath $src -Recurse -Force }
+New-Item -ItemType Directory -Path "$src\bin" -Force | Out-Null
+icacls $src /inheritance:r /grant:r '*S-1-5-32-544:(OI)(CI)F' '*S-1-5-18:(OI)(CI)F' | Out-Null   # Administrators, SYSTEM
+Copy-Item "$rel\bin\*.ps1" "$src\bin\"; Copy-Item "$rel\Deploy.ps1", "$rel\ProvisionHelpers.psm1" $src
+# ...check the hash of every file in $src (not $rel) against the commit, then:
+& "$src\bin\Enable-UploadOnlyDeploy.ps1"
 ```
-Test from your machine: `ssh -i $HOME\.ssh\allotjar_deploy Administrator@<vps-ip>`.
+It creates `allotjar-up-staging` / `allotjar-up-prod`, their jails `C:\deploy\upload\<stack>`
+(writable only in `\incoming`), one ed25519 key each, the `Match User` blocks in `sshd_config`,
+the trusted `C:\deploy\bin\trusted\Deploy.ps1` + `ProvisionHelpers.psm1`, and the scheduled task
+`AllotJar-UploadDeploy` (SYSTEM, every minute). It ends with a self-test. Copy the two private
+key files from `C:\deploy\newkeys` into the secrets below, then delete that folder.
+
+**When a release changes `Deploy.ps1` or `ProvisionHelpers.psm1`** the deploy stops as
+*blocked* (the upload never chooses the code that runs as SYSTEM). Review and trust it on the VPS,
+then re-run the failed Deploy job:
+```powershell
+C:\deploy\bin\Approve-DeployScripts.ps1 -Stack staging
+```
+Deploy results are also in the Application log, source `AllotJar Deploy` (4100 ok, 4101 failed,
+4102 blocked, 4103 approved).
 
 Then read the server's own SSH host key **on the VPS** (it is public, so it is safe to copy):
 ```powershell
@@ -143,8 +177,8 @@ Add these **Actions secrets** (Settings → Secrets and variables → Actions):
 | Secret | Value |
 |--------|-------|
 | `VPS_HOST` | VPS public IP or hostname |
-| `VPS_SSH_USER` | e.g. `Administrator` |
-| `VPS_SSH_KEY` | the **private** key from step 2 (full file contents) |
+| `VPS_SSH_KEY_STAGING` | the private key `C:\deploy\newkeys\staging` from step 2 (whole file) |
+| `VPS_SSH_KEY_PRODUCTION` | the private key `C:\deploy\newkeys\production` from step 2 (whole file) |
 | `VPS_SSH_PORT` | `22` (or your custom SSH port) |
 | `VPS_HOST_KEY` | the VPS's public host key line from step 2, starting `ssh-ed25519 AAAA` |
 
@@ -156,8 +190,8 @@ Production deploys only on a hand-started Deploy run with **Also deploy to produ
 
 1. You merge a PR into `main`.
 2. `deploy.yml` builds the release on an Ubuntu runner: `dotnet publish` (win-x64) + `npm run build`, zipped as `release.zip` (`api/`, `web/`, `Deploy.ps1`, `ProvisionHelpers.psm1`).
-3. `scp` copies the zip to `C:\deploy\incoming-staging` on the VPS (`incoming-production` for the production job).
-4. `ssh` extracts it to `C:\deploy\release-staging` (`release-production`) and runs `Deploy.ps1` with that stack's folders, pools, port and `-AspNetEnvironment`, which:
+3. `sftp`, signed in as the stack's upload-only account, puts the zip in `C:\deploy\upload\staging\incoming` (`upload\production\incoming` for the production job) and waits for `status.txt`.
+4. Within a minute the VPS task `AllotJar-UploadDeploy` (`deploy/Invoke-PendingDeploy.ps1`, as SYSTEM) moves it to `C:\deploy\incoming-staging`, checks every zip entry, unpacks it to `C:\deploy\release-staging` (`release-production`) and runs the **trusted** `C:\deploy\bin\trusted\Deploy.ps1` with that stack's fixed folders, pools, port and `-AspNetEnvironment`, which:
    - checks the pools and the stack's `appsettings.<Env>.json` exist (a clear error, not a failed health check, if not),
    - drops `app_offline.htm` (releases the API's file locks),
    - `robocopy /MIR`s the new files — **preserving** `appsettings.Staging.json` / `appsettings.Production.json`, the offline marker, and the ANCM `logs` folder,
@@ -282,13 +316,32 @@ tasks, and `Register-ScheduledTask -Force` overwrites — so a re-run used to si
 R2-enabled prod task with a local-only one. It now resolves the bucket from `-ProdR2Bucket`, else
 **preserves** the bucket on the existing `AllotJar-Prod-DbBackup` task, else **refuses to run**;
 after registering, it reads the task back and asserts the R2 arguments are on the stored action.
-The "Provision production stack" workflow passes the bucket from the `BACKUP_R2_BUCKET` secret
-(and the TLS pin from `ORIGIN_CERT_THUMBPRINT`) and fails before touching the VPS if either is
-missing.
+Provisioning is run by hand on the VPS (the deploy keys are upload-only, so no workflow can run
+it). Releases no longer carry the provisioning scripts, and a release folder is never a source
+for them (see "SSH deploy keys"). Take `Provision-Production.ps1`, `Register-BackupTask.ps1`,
+`Backup-Database.ps1`, `Upload-BackupToR2.ps1` and `ProvisionHelpers.psm1` from `deploy/` on
+`main` (download them from GitHub on the VPS, or a reviewed server step that checks each file's
+hash against a `main` commit) into `C:\deploy\provision`, then:
+```powershell
+& C:\deploy\provision\Provision-Production.ps1 -CertThumbprint '<origin cert thumbprint>' -ProdR2Bucket '<bucket>'
+```
+The thumbprint is the Cloudflare origin certificate's in `Cert:\LocalMachine\My`. Leave out
+`-ProdR2Bucket` to keep the bucket already on the `AllotJar-Prod-DbBackup` task.
 
 ## Rollback
 
-Re-run a previous successful **Deploy** workflow from the Actions tab (it re-pushes that commit's artifact), or check out the previous commit and `workflow_dispatch`. Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
+- **Production:** revert the bad change on `main` (a PR), let CI pass, then start **Deploy** by
+  hand with *Also deploy to production* ticked. Or re-run a successful production job of a run
+  made **after** the switch to upload-only keys, within 7 days (its artifact is kept 7 days;
+  staging's 1 day). A re-run of an older run fails once the old Administrator deploy key is removed: its workflow signs in with that key.
+  A run from any branch but `main` cannot reach production.
+- **Staging:** a revert on `main` redeploys it; a re-run works within a day.
+- If the rollback crosses a change to `Deploy.ps1` or `ProvisionHelpers.psm1`, it stops as
+  **blocked**: approve the *older* file with `Approve-DeployScripts.ps1`, then re-run the job.
+- Cancelling a Deploy run after its upload does **not** stop the deploy: the server's task
+  deploys whatever reached the upload folder.
+
+Take an ad-hoc backup before any deploy that includes a migration (`-Database` is required — name the target env):
 ```powershell
 powershell -File C:\deploy\Backup-Database.ps1 -Database AllotJarProd
 ```

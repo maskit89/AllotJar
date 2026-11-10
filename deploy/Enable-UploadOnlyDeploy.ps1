@@ -28,9 +28,13 @@
     The existing Administrator deploy key keeps working until you remove it (a later step), so
     the current workflow is not interrupted.
 
-    Run it from the folder a deploy unpacked it to, so it installs the scripts beside it:
-        & C:\deploy\release-staging\bin\Enable-UploadOnlyDeploy.ps1 -Check   # read-only report
-        & C:\deploy\release-staging\bin\Enable-UploadOnlyDeploy.ps1          # set up
+    It installs the scripts from its own folder (bin\) and the release root above it. Never run
+    it straight from C:\deploy\release-*: once the upload-only keys are in use, the upload account
+    controls those folders. Copy bin\, Deploy.ps1 and ProvisionHelpers.psm1 into a folder only
+    Administrators and SYSTEM can write, check every copy's hash against a main commit, and run
+    the copy (docs/deployment/README.md, "SSH deploy keys"):
+        & C:\deploy\setup-src\bin\Enable-UploadOnlyDeploy.ps1 -Check   # read-only report
+        & C:\deploy\setup-src\bin\Enable-UploadOnlyDeploy.ps1          # set up
 #>
 [CmdletBinding()]
 param(
@@ -150,7 +154,7 @@ foreach ($s in $stacks) {
     try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
     $pw = ConvertTo-SecureString ([Convert]::ToBase64String($bytes) + 'a1!') -AsPlainText -Force
     New-LocalUser -Name $s.User -Password $pw -PasswordNeverExpires -UserMayNotChangePassword -AccountNeverExpires `
-        -Description "AllotJar deploy: sftp upload to $($s.UploadDir) only" | Out-Null
+        -Description "AllotJar upload-only deploy ($($s.Stack))" | Out-Null   # Windows allows 48 characters
     Add-LocalGroupMember -Group 'Users' -Member $s.User
     "    $($s.User) created"
 }

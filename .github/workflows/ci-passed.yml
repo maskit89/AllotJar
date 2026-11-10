@@ -1,6 +1,6 @@
 name: CI passed on main
 
-# Reusable gate, called by deploy.yml (production deploys) and provision-production.yml.
+# Reusable gate, called by deploy.yml for production deploys.
 # It refuses unless the caller runs from main and CI passed on main for the commit
 # being shipped. Journey and a11y run on main, not on PRs, so without this check a
 # red main could reach production. Refusing here (instead of skipping) makes a run

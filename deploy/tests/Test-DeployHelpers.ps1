@@ -146,7 +146,16 @@ Assert-True ($deployScript -match 'appsettings\.Staging\.json' -and $deployScrip
 Assert-True ($deployScript -notmatch "'C:\\inetpub\\allotjar\\") 'Deploy.ps1 no longer defaults to the unsuffixed (pre-rename) staging folders'
 $workflow = Get-Content (Join-Path (Split-Path $deployDir -Parent) '.github/workflows/deploy.yml') -Raw
 Assert-True ($workflow -notmatch 'staging-prod\b' -and $workflow -notmatch 'incoming-prod\b') 'deploy.yml does not unpack production in a folder called staging-prod'
-Assert-True ($workflow -match '-AspNetEnvironment Staging' -and $workflow -match '-AspNetEnvironment Production') 'deploy.yml pins the ASP.NET Core environment of each stack'
+# The ASP.NET Core environment of each stack is now fixed on the server (Get-UploadDeployStack, tested
+# below); the workflow only picks which stack's account and folder an upload goes to.
+# Per job, so a staging job that signed in with the production key and account (and so uploaded the
+# staging bundle to production without the gate) is caught (review #432 P3-1).
+$workflowCode = ($workflow -split "`r?`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"   # comments may name either stack
+$stagingJob = [regex]::Match($workflowCode, '(?s)\n  deploy-staging:.*?(?=\n  [A-Za-z][\w-]*:)').Value
+$productionJob = [regex]::Match($workflowCode, '(?s)\n  deploy-production:.*$').Value
+Assert-True ($stagingJob -match 'secrets\.VPS_SSH_KEY_STAGING\b' -and $stagingJob -match 'USER: allotjar-up-staging\b' -and $stagingJob -match 'upload-deploy\.sh staging\b' -and $stagingJob -notmatch '(?i)PRODUCTION|up-prod') 'deploy.yml uploads staging with the staging account and key only'
+Assert-True ($productionJob -match 'secrets\.VPS_SSH_KEY_PRODUCTION\b' -and $productionJob -match 'USER: allotjar-up-prod\b' -and $productionJob -match 'upload-deploy\.sh production\b' -and $productionJob -notmatch 'VPS_SSH_KEY_STAGING|up-staging|upload-deploy\.sh staging') 'deploy.yml uploads production with the production account and key only'
+Assert-True (([regex]::Matches($workflowCode, 'VPS_SSH_KEY_PRODUCTION')).Count -eq 1) 'the production key appears in the production deploy job only'
 
 Write-Host '== Get-RestoreFileMoves (restoring one database''s backup onto another on the same instance) =='
 $data = 'C:\SQL\DATA\'
@@ -356,6 +365,7 @@ $st = Get-UploadDeployStack -Stack staging
 $pr = Get-UploadDeployStack -Stack production
 Assert-True ($st.User -eq 'allotjar-up-staging' -and $pr.User -eq 'allotjar-up-prod') 'one account per stack'
 Assert-True ($st.User.Length -le 20 -and $pr.User.Length -le 20) 'account names fit the 20-character Windows limit'
+Assert-True ("AllotJar upload-only deploy ($($st.Stack))".Length -le 48 -and "AllotJar upload-only deploy ($($pr.Stack))".Length -le 48 -and (Get-Content (Join-Path $deployDir 'Enable-UploadOnlyDeploy.ps1') -Raw).Contains('-Description "AllotJar upload-only deploy ($($s.Stack))"')) 'account descriptions fit the 48-character Windows limit'
 Assert-True ($st.UploadInbox -eq ($st.UploadDir + '\incoming') -and $pr.UploadInbox -eq ($pr.UploadDir + '\incoming')) 'each account writes only into incoming inside its jail'
 Assert-True ($st.UploadDir -ne $pr.UploadDir -and -not $pr.UploadDir.StartsWith($st.UploadDir + '\') -and -not $st.UploadDir.StartsWith($pr.UploadDir + '\')) 'neither upload folder is inside the other'
 Assert-True ($st.HealthUrl -match ':5000/' -and $st.ApiProxyPort -eq 5000 -and $st.AspNetEnvironment -eq 'Staging' -and $st.ApiDir -match 'allotjar-staging') 'staging deploys to the staging stack only'

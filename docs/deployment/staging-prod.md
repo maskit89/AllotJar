@@ -56,7 +56,8 @@ Cloudflare zone ──┬─ allotjar.com + www ──►  VPS IIS site 'AllotJa
 | Piece | Where |
 |---|---|
 | Release pipeline (staging auto + prod on a manual run) | `.github/workflows/deploy.yml` |
-| Prod stack provisioning (manual run) | `.github/workflows/provision-production.yml` + `deploy/Provision-Production.ps1` |
+| Prod stack provisioning (by hand on the VPS, scripts taken from `main`, never from a release folder) | `deploy/Provision-Production.ps1` |
+| Upload-only deploy (server half) | `deploy/Enable-UploadOnlyDeploy.ps1`, `deploy/Invoke-PendingDeploy.ps1`, `deploy/Approve-DeployScripts.ps1` |
 | Cloudflare DNS/WAF automation | `deploy/Setup-Cloudflare.ps1` |
 | Server-side deploy (parametrised per stack) | `deploy/Deploy.ps1` (`-ApiProxyPort` patches the ARR port, `-AspNetEnvironment` pins which `appsettings.<Env>.json` the API reads) |
 | One-time rename of a stack from its old ZeroBudget names to AllotJar names | `deploy/Rename-ToAllotJar.ps1 -Stack staging` / `-Stack production` (idempotent; `-Check` reports only) |
@@ -261,6 +262,10 @@ Note the origin firewall only admits Cloudflare's IP ranges, so the WAF rule can
 be bypassed by hitting the VPS directly.
 
 ## The cutover runbook (2026-07) — kept for reference / disaster recovery
+
+> Since Nov 2026 the *Provision production stack* workflow is gone (the deploy keys are
+> upload-only): steps 2 and 7 are run by hand on the VPS with `Provision-Production.ps1`
+> (step 7: `-TrimStagingBindings`); see README.md, "Provisioning".
 
 1. **Merge the pipeline PR.** The next `main` build auto-deploys the
    staging-flagged bundle to the existing stack.
