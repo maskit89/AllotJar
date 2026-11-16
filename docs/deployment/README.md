@@ -112,6 +112,15 @@ the trusted `C:\deploy\bin\trusted\Deploy.ps1` + `ProvisionHelpers.psm1`, and th
 `AllotJar-UploadDeploy` (SYSTEM, every minute). It ends with a self-test. Copy the two private
 key files from `C:\deploy\newkeys` into the secrets below, then delete that folder.
 
+Two Windows details it also handles (both found on the VPS, Nov 2026):
+- The VPS's `sshd_config` has `AllowGroups administrators "openssh users"`, so the accounts join the
+  local group **OpenSSH Users**. Without that, sshd refuses their keys ("Permission denied (publickey)").
+  The setup refuses to run if an `AllowUsers` line, or an `AllowGroups` line without that group, would
+  shut them out.
+- Windows' sshd looks up the jail's parent folders as the account, so each account may **read the
+  folders** `C:\deploy` and `C:\deploy\upload` themselves (not their files, nothing below them).
+  Without that, sftp signs in and then ends at once ("Connection closed").
+
 **When a release changes `Deploy.ps1` or `ProvisionHelpers.psm1`** the deploy stops as
 *blocked* (the upload never chooses the code that runs as SYSTEM). Review and trust it on the VPS,
 then re-run the failed Deploy job:
