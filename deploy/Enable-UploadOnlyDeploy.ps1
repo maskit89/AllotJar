@@ -111,6 +111,18 @@ function Show-State {
         $u = Get-LocalUser -Name $s.User -ErrorAction SilentlyContinue
         if ($u) { "    {0}: exists, enabled {1}, in '{2}' {3}" -f $s.User, $u.Enabled, $sshGroup, (Test-InSshGroup $s.User) } else { "    $($s.User): missing" }
     }
+    '== Read on the jail''s parent folders (lost if C:\deploy''s permissions are reset)'
+    foreach ($d in 'C:\deploy', 'C:\deploy\upload') {
+        if (-not (Test-Path -LiteralPath $d)) { "    ${d}: missing"; continue }
+        $acl = Get-Acl -LiteralPath $d
+        foreach ($s in $stacks) {
+            $has = [bool]($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and "$($_.IdentityReference)" -match ('\\' + [regex]::Escape($s.User) + '$') -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq [Security.AccessControl.FileSystemRights]::ReadAndExecute })
+            "    {0}: {1} may read: {2}" -f $d, $s.User, $has
+        }
+    }
+    '== sshd AllowUsers / AllowGroups (the accounts need "openssh users" in AllowGroups, and no AllowUsers)'
+    $al = @(Select-String -LiteralPath $cfg -Pattern '^\s*(AllowUsers|AllowGroups)\b' | ForEach-Object { $_.Line.Trim() })
+    if ($al.Count) { $al | ForEach-Object { "    $_" } } else { '    none (everyone with a valid key may sign in)' }
     '== Upload folders and key files'
     foreach ($s in $stacks) {
         "    {0}: {1}" -f $s.UploadDir, $(if (Test-Path -LiteralPath $s.UploadDir) { 'exists' } else { 'missing' })

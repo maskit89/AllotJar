@@ -120,6 +120,8 @@ Two Windows details it also handles (both found on the VPS, Nov 2026):
 - Windows' sshd looks up the jail's parent folders as the account, so each account may **read the
   folders** `C:\deploy` and `C:\deploy\upload` themselves (not their files, nothing below them).
   Without that, sftp signs in and then ends at once ("Connection closed").
+  A later lock-down of `C:\deploy` must keep these two grants: after any permissions reset there
+  (such as re-running lock-down step 2H), re-run this setup; `-Check` shows whether they are in place.
 
 **When a release changes `Deploy.ps1` or `ProvisionHelpers.psm1`** the deploy stops as
 *blocked* (the upload never chooses the code that runs as SYSTEM). Review and trust it on the VPS,
