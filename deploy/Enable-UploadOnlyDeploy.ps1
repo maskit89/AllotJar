@@ -62,6 +62,11 @@ $marker  = '# AllotJar upload-only deploy accounts'
 
 function Info($m) { Write-Host "==> $m" -ForegroundColor Cyan }
 
+$sshGroup = 'OpenSSH Users'
+function Test-InSshGroup([string]$User) {
+    return [bool](Get-LocalGroupMember -Group $sshGroup -ErrorAction SilentlyContinue | Where-Object { $_.Name -match ('\\' + [regex]::Escape($User) + '$') })
+}
+
 # Inheritance off; only the named principals, each with the named right.
 function Set-ExactAcl([string]$Path, [hashtable]$Grants) {
     $isDir = (Get-Item -LiteralPath $Path).PSIsContainer
@@ -104,8 +109,20 @@ function Show-State {
     '== Accounts'
     foreach ($s in $stacks) {
         $u = Get-LocalUser -Name $s.User -ErrorAction SilentlyContinue
-        if ($u) { "    {0}: exists, enabled {1}" -f $s.User, $u.Enabled } else { "    $($s.User): missing" }
+        if ($u) { "    {0}: exists, enabled {1}, in '{2}' {3}" -f $s.User, $u.Enabled, $sshGroup, (Test-InSshGroup $s.User) } else { "    $($s.User): missing" }
     }
+    '== Read on the jail''s parent folders (lost if C:\deploy''s permissions are reset)'
+    foreach ($d in 'C:\deploy', 'C:\deploy\upload') {
+        if (-not (Test-Path -LiteralPath $d)) { "    ${d}: missing"; continue }
+        $acl = Get-Acl -LiteralPath $d
+        foreach ($s in $stacks) {
+            $has = [bool]($acl.Access | Where-Object { $_.AccessControlType -eq 'Allow' -and "$($_.IdentityReference)" -match ('\\' + [regex]::Escape($s.User) + '$') -and ($_.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) -eq [Security.AccessControl.FileSystemRights]::ReadAndExecute })
+            "    {0}: {1} may read: {2}" -f $d, $s.User, $has
+        }
+    }
+    '== sshd AllowUsers / AllowGroups (the accounts need "openssh users" in AllowGroups, and no AllowUsers)'
+    $al = @(Select-String -LiteralPath $cfg -Pattern '^\s*(AllowUsers|AllowGroups)\b' | ForEach-Object { $_.Line.Trim() })
+    if ($al.Count) { $al | ForEach-Object { "    $_" } } else { '    none (everyone with a valid key may sign in)' }
     '== Upload folders and key files'
     foreach ($s in $stacks) {
         "    {0}: {1}" -f $s.UploadDir, $(if (Test-Path -LiteralPath $s.UploadDir) { 'exists' } else { 'missing' })
@@ -131,6 +148,13 @@ foreach ($f in 'Invoke-PendingDeploy.ps1', 'Approve-DeployScripts.ps1') { if (-n
 foreach ($f in 'Deploy.ps1', 'ProvisionHelpers.psm1') { if (-not (Test-Path -LiteralPath (Join-Path $releaseDir $f))) { throw "$f is not in $releaseDir; nothing changed." } }
 
 if ($Check) { Show-State; 'Check only: nothing changed.'; return }
+
+# sshd lets in only the users and groups that AllowUsers / AllowGroups name (the VPS's sshd_config has
+# AllowGroups administrators "openssh users"). The accounts join "OpenSSH Users" below; any other
+# restriction has to be changed by hand first.
+$allowLines = @(Select-String -LiteralPath $cfg -Pattern '^\s*(AllowUsers|AllowGroups)\b' | ForEach-Object { $_.Line.Trim() })
+if ($allowLines | Where-Object { $_ -match '^(?i)AllowUsers\b' }) { throw "sshd_config has an AllowUsers line, which would refuse the upload accounts: $($allowLines -join ' | '). Nothing changed." }
+if (($allowLines | Where-Object { $_ -match '^(?i)AllowGroups\b' }) -and -not ($allowLines | Where-Object { $_ -match '(?i)"openssh users"' })) { throw "sshd_config's AllowGroups does not name ""openssh users"", which the upload accounts join: $($allowLines -join ' | '). Nothing changed." }
 
 $admins = 'BUILTIN\Administrators'; $system = 'NT AUTHORITY\SYSTEM'
 
@@ -158,6 +182,11 @@ foreach ($s in $stacks) {
     Add-LocalGroupMember -Group 'Users' -Member $s.User
     "    $($s.User) created"
 }
+if (-not (Get-LocalGroup -Name $sshGroup -ErrorAction SilentlyContinue)) { New-LocalGroup -Name $sshGroup -Description 'May sign in over SSH (sshd AllowGroups)' | Out-Null }
+foreach ($s in $stacks) {
+    if (-not (Test-InSshGroup $s.User)) { Add-LocalGroupMember -Group $sshGroup -Member $s.User }
+    "    $($s.User) is in '$sshGroup' (sshd AllowGroups)"
+}
 
 # ---------------------------------------------------- 3. upload folders ----
 Info 'Creating the upload folders'
@@ -170,6 +199,16 @@ foreach ($s in $stacks) {
     Set-ExactAcl $s.UploadDir @{ $admins = 'FullControl'; $system = 'FullControl'; $s.User = 'ReadAndExecute' }
     Set-ExactAcl $s.UploadInbox @{ $admins = 'FullControl'; $system = 'FullControl'; $s.User = 'Modify' }
     "    $($s.UploadDir): $($s.User) may read; only $($s.UploadInbox) takes its uploads"
+}
+# Windows' sshd looks up the jail's parent folders as the account when it starts the sftp session,
+# and ends the session at once if it may not. Read on those two folders only: no file in them and
+# nothing below them (the grant does not inherit).
+foreach ($d in 'C:\deploy', 'C:\deploy\upload') {
+    foreach ($s in $stacks) {
+        $out = icacls $d /grant "$($s.User):(RX)" 2>&1
+        if ($LASTEXITCODE -ne 0) { throw "icacls could not give $($s.User) read on $d : $out" }
+    }
+    "    $d : the upload accounts may read this folder only"
 }
 
 # --------------------------------------------------------------- 4. keys ---
