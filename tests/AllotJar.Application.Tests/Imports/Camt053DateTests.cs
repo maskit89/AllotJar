@@ -1,3 +1,4 @@
+using AllotJar.Application.Common.Exceptions;
 using AllotJar.Application.Common.Interfaces;
 using AllotJar.Application.Imports.Commands.CommitImport;
 using AllotJar.Application.Imports.Commands.PreviewImport;
@@ -227,6 +228,8 @@ public class Camt053DateTests
     [InlineData("2026-10-01+14:00")]
     [InlineData("2026-10-01-12:00")]
     [InlineData("\n  2026-10-01  \n")]
+    [InlineData("2026-10-01T00:00:00")]          // a date-time where the date belongs
+    [InlineData("2026-10-01T00:15:00+02:00")]
     public void Date_keeps_its_day_with_or_without_a_time_zone(string dt) =>
         Assert.Equal(new DateOnly(2026, 10, 1), BookedOn($"<BookgDt><Dt>{dt}</Dt></BookgDt>"));
 
@@ -242,6 +245,8 @@ public class Camt053DateTests
     [InlineData("<Dt>1 Oct 2026</Dt>")]
     [InlineData("<Dt>2026-02-30</Dt>")]                  // no such day
     [InlineData("<Dt></Dt>")]
+    [InlineData("<Dt>2026-10-01+99:99</Dt>")]          // no such time zone
+    [InlineData("<Dt>2026-10-01T24:00:00</Dt>")]
     [InlineData("<DtTm>01/10/2026 00:15:00</DtTm>")]
     [InlineData("<DtTm>Thu, 01 Oct 2026 00:15:00 GMT</DtTm>")]
     [InlineData("<DtTm>2026-10-01T24:00:00</DtTm>")]
@@ -282,26 +287,83 @@ public class Camt053DateTests
 
     // --- Statement periods -------------------------------------------------------------------
 
+    private static string PeriodStmt(string from, string to, string reference, params (string Ref, string Day, string Amount)[] entries) =>
+        $"""
+        <Stmt><Id>{reference}</Id>
+          <FrToDt><FrDtTm>{from}</FrDtTm><ToDtTm>{to}</ToDtTm></FrToDt>
+          <Acct><Id><IBAN>MT00SYNT00000000000000000000000</IBAN></Id><Ccy>EUR</Ccy></Acct>
+          {string.Concat(entries.Select(e => $"""
+            <Ntry><Amt Ccy="EUR">{e.Amount}</Amt><CdtDbtInd>DBIT</CdtDbtInd><Sts><Cd>BOOK</Cd></Sts>
+              <BookgDt><Dt>{e.Day}</Dt></BookgDt><AcctSvcrRef>{e.Ref}</AcctSvcrRef></Ntry>
+            """))}
+        </Stmt>
+        """;
+
+    private static string Statements(params string[] stmts) =>
+        "<Document xmlns=\"urn:iso:std:iso:20022:tech:xsd:camt.053.001.08\"><BkToCstmrStmt>"
+        + string.Concat(stmts)
+        + "</BkToCstmrStmt></Document>";
+
     [Fact]
-    public void Periods_written_day_first_are_not_compared()
+    public void Periods_written_day_first_are_compared_by_their_booking_days()
     {
         // Day first these are 1 to 10 January and 2 to 5 March. Read month first they were 1 January
         // to 1 October and 3 February to 3 May, which overlap, and the good file was refused. A
-        // period that isn't ISO is left out of the overlap check, as a missing one is.
-        static string Stmt(string from, string to, string day, string reference) => $"""
-            <Stmt><Id>{reference}</Id>
-              <FrToDt><FrDtTm>{from}</FrDtTm><ToDtTm>{to}</ToDtTm></FrToDt>
-              <Acct><Id><IBAN>MT00SYNT00000000000000000000000</IBAN></Id><Ccy>EUR</Ccy></Acct>
-              <Ntry><Amt Ccy="EUR">5.00</Amt><CdtDbtInd>DBIT</CdtDbtInd>
-                <BookgDt><Dt>{day}</Dt></BookgDt><AcctSvcrRef>{reference}</AcctSvcrRef></Ntry>
-            </Stmt>
-            """;
-        var xml = "<Document xmlns=\"urn:iso:std:iso:20022:tech:xsd:camt.053.001.08\"><BkToCstmrStmt>"
-            + Stmt("01/01/2026 00:00:00", "10/01/2026 23:59:59", "2026-01-05", "A")
-            + Stmt("02/03/2026 00:00:00", "05/03/2026 23:59:59", "2026-03-03", "B")
-            + "</BkToCstmrStmt></Document>";
+        // period that isn't ISO is compared by the days its entries are booked on instead.
+        var xml = Statements(
+            PeriodStmt("01/01/2026 00:00:00", "10/01/2026 23:59:59", "A", ("A", "2026-01-05", "5.00")),
+            PeriodStmt("02/03/2026 00:00:00", "05/03/2026 23:59:59", "B", ("B", "2026-03-03", "5.00")));
 
         Assert.Equal(new[] { "A", "B" }, _camt.Parse(xml).Entries.Select(e => e.Reference));
+    }
+
+    [Fact]
+    public void Overlapping_periods_written_day_first_are_still_refused()
+    {
+        // 1 to 10 October and 5 to 12 October both hold the payment of 7 October: imported from
+        // both, it would be booked twice.
+        var xml = Statements(
+            PeriodStmt("01/10/2026 00:00:00", "10/10/2026 23:59:59", "A",
+                ("R1", "2026-10-01", "5.00"), ("R2", "2026-10-07", "9.00")),
+            PeriodStmt("05/10/2026 00:00:00", "12/10/2026 23:59:59", "B",
+                ("R2", "2026-10-07", "9.00"), ("R3", "2026-10-11", "3.00")));
+
+        var ex = Assert.Throws<StatementParseException>(() => _camt.Parse(xml));
+        Assert.Contains("overlapping periods", ex.Message);
+    }
+
+    [Fact]
+    public void A_period_written_day_first_is_compared_with_an_ISO_one_by_booking_days()
+    {
+        var xml = Statements(
+            PeriodStmt("2026-10-01T00:00:00+02:00", "2026-10-11T00:00:00+02:00", "A",
+                ("R1", "2026-10-01", "5.00"), ("R2", "2026-10-07", "9.00")),
+            PeriodStmt("05/10/2026 00:00:00", "12/10/2026 23:59:59", "B",
+                ("R2", "2026-10-07", "9.00"), ("R3", "2026-10-11", "3.00")));
+
+        Assert.Throws<StatementParseException>(() => _camt.Parse(xml));
+    }
+
+    [Fact]
+    public void Daily_statements_with_periods_written_day_first_are_read()
+    {
+        var xml = Statements(
+            PeriodStmt("01/10/2026 00:00:00", "02/10/2026 00:00:00", "A", ("R1", "2026-10-01", "5.00")),
+            PeriodStmt("02/10/2026 00:00:00", "03/10/2026 00:00:00", "B", ("R2", "2026-10-02", "9.00")),
+            PeriodStmt("2026-10-03T00:00:00+02:00", "2026-10-04T00:00:00+02:00", "C", ("R3", "2026-10-03", "3.00")));
+
+        Assert.Equal(new[] { "R1", "R2", "R3" }, _camt.Parse(xml).Entries.Select(e => e.Reference));
+    }
+
+    [Fact]
+    public void A_date_that_does_not_exist_falls_back_to_the_date_time_beside_it()
+    {
+        // Dt and DtTm are a choice, so a bank never sends both; when one does, an unreadable Dt
+        // (ISO or not) is passed over the same way.
+        Assert.Equal(new DateOnly(2026, 3, 1),
+            BookedOn("<BookgDt><Dt>2026-02-30</Dt><DtTm>2026-03-01T10:00:00</DtTm></BookgDt>"));
+        Assert.Equal(new DateOnly(2026, 3, 1),
+            BookedOn("<BookgDt><Dt>30/02/2026</Dt><DtTm>2026-03-01T10:00:00</DtTm></BookgDt>"));
     }
 
     // --- Through preview and commit ----------------------------------------------------------

@@ -172,24 +172,45 @@ public partial class Camt053StatementParser : IStatementParser
 
     /// <summary>
     /// Refuse a file whose statements cover overlapping periods (<c>FrToDt</c>): an entry in the
-    /// overlap could be in both and import twice. A statement without a period is not compared;
-    /// periods that only touch (one ends as the next starts) do not overlap.
+    /// overlap could be in both and import twice. Periods that only touch (one ends as the next
+    /// starts) do not overlap. A period written the ISO way is compared as written. One that is
+    /// there but not ISO ("01/10/2026", which could be read month first) is compared by the first
+    /// and last booking day of the statement's own entries instead, days that share one day
+    /// overlapping. A statement without a period is not compared.
     /// </summary>
     private static void RefuseOverlaps(List<XElement> statements)
     {
-        var periods = new List<(DateTimeOffset From, DateTimeOffset To)>();
+        var instants = new List<(DateTimeOffset From, DateTimeOffset To)>();
+        var days = new List<(DateOnly First, DateOnly Last, bool Iso)>();
         foreach (var stmt in statements)
         {
             var period = Child(stmt, "FrToDt");
-            if (TryParseInstant(Value(Child(period, "FrDtTm")), out var from)
-                && TryParseInstant(Value(Child(period, "ToDtTm")), out var to))
+            if (period is null)
             {
-                if (periods.Any(p => from < p.To && p.From < to))
+                continue;
+            }
+
+            DateTimeOffset from = default, to = default;
+            var iso = TryParseInstant(Value(Child(period, "FrDtTm")), out from)
+                && TryParseInstant(Value(Child(period, "ToDtTm")), out to);
+            if (iso)
+            {
+                if (instants.Any(p => from < p.To && p.From < to))
                 {
-                    throw new StatementParseException(
-                        "This file holds statements for overlapping periods. Export each period once and import it again.");
+                    RefuseOverlap();
                 }
-                periods.Add((from, to));
+                instants.Add((from, to));
+            }
+
+            // Two ISO periods were compared above; a period that isn't ISO is compared by booking
+            // days with every other statement that has a period.
+            if (BookingDays(stmt) is var (first, last))
+            {
+                if (days.Any(d => (!iso || !d.Iso) && first <= d.Last && d.First <= last))
+                {
+                    RefuseOverlap();
+                }
+                days.Add((first, last, iso));
             }
         }
 
@@ -201,6 +222,19 @@ public partial class Camt053StatementParser : IStatementParser
             return text is not null && IsoDateTime().IsMatch(text)
                 && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out instant);
         }
+
+        static (DateOnly First, DateOnly Last)? BookingDays(XElement stmt)
+        {
+            var booked = stmt.Descendants()
+                .Where(e => e.Name.LocalName == "Ntry" && IsBooked(e))
+                .Select(e => TryParseDate(Child(e, "BookgDt") ?? Child(e, "ValDt")))
+                .OfType<DateOnly>()
+                .ToList();
+            return booked.Count == 0 ? null : (booked.Min(), booked.Max());
+        }
+
+        static void RefuseOverlap() => throw new StatementParseException(
+            "This file holds statements for overlapping periods. Export each period once and import it again.");
     }
 
     /// <summary>
@@ -384,9 +418,13 @@ public partial class Camt053StatementParser : IStatementParser
         }
 
         // An ISODate (xs:date) may carry a time zone ("2026-10-01+02:00", "2026-10-01Z"): the day
-        // is the day the bank wrote.
+        // is the day the bank wrote. A date-time written where the date belongs is read as one.
         var dt = Value(Child(dateContainer, "Dt"))?.Trim();
-        if (dt is not null && IsoDate().IsMatch(dt))
+        if (dt is not null && IsoDate().IsMatch(dt) && HasRealZone(dt) && DayAsWritten(dt) is DateOnly date)
+        {
+            return date;
+        }
+        if (dt is not null && IsIsoDateTime(dt))
         {
             return DayAsWritten(dt);
         }
@@ -395,14 +433,22 @@ public partial class Camt053StatementParser : IStatementParser
         // the server's clock (holistic review M1): "2026-10-01T00:15:00+02:00" is 1 October, not
         // 30 September. The time and offset are only checked to be real ones.
         var dtTm = Value(Child(dateContainer, "DtTm"))?.Trim();
-        if (dtTm is not null && IsoDateTime().IsMatch(dtTm)
-            && DateTimeOffset.TryParse(dtTm, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
+        if (dtTm is not null && IsIsoDateTime(dtTm))
         {
             return DayAsWritten(dtTm);
         }
 
         return null;
     }
+
+    /// <summary>An ISO date-time whose time and offset are real ones (not 24:00 or +15:00).</summary>
+    private static bool IsIsoDateTime(string text) =>
+        IsoDateTime().IsMatch(text)
+        && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _);
+
+    /// <summary>An ISO date's time zone, when it has one, is a real offset (not +99:99).</summary>
+    private static bool HasRealZone(string isoDate) =>
+        isoDate.Length == 10 || isoDate[10] == 'Z' || IsIsoDateTime($"{isoDate[..10]}T00:00:00{isoDate[10..]}");
 
     /// <summary>
     /// The yyyy-MM-dd day at the start of an ISO date or date-time, or null for one that doesn't
