@@ -193,8 +193,14 @@ public partial class Camt053StatementParser : IStatementParser
             }
         }
 
-        static bool TryParseInstant(string? text, out DateTimeOffset instant) =>
-            DateTimeOffset.TryParse(text?.Trim(), CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out instant);
+        // Only an ISO date-time is compared: "01/10/2026" could be read month first.
+        static bool TryParseInstant(string? text, out DateTimeOffset instant)
+        {
+            instant = default;
+            text = text?.Trim();
+            return text is not null && IsoDateTime().IsMatch(text)
+                && DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out instant);
+        }
     }
 
     /// <summary>
@@ -377,38 +383,53 @@ public partial class Camt053StatementParser : IStatementParser
             return null;
         }
 
+        // An ISODate (xs:date) may carry a time zone ("2026-10-01+02:00", "2026-10-01Z"): the day
+        // is the day the bank wrote.
         var dt = Value(Child(dateContainer, "Dt"))?.Trim();
-        if (dt is not null && DateOnly.TryParse(dt, CultureInfo.InvariantCulture, out var date))
+        if (dt is not null && IsoDate().IsMatch(dt))
         {
-            return date;
-        }
-        // An xs:date may carry a time zone ("2026-10-01+02:00", "2026-10-01Z"): the day is the
-        // day the bank wrote.
-        if (dt is not null && DateWithZone().IsMatch(dt)
-            && DateOnly.TryParseExact(dt.AsSpan(0, 10), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out date))
-        {
-            return date;
+            return DayAsWritten(dt);
         }
 
-        // A date-time is booked on the calendar day the bank wrote, never moved to UTC or to the
-        // server's clock (holistic review M1): "2026-10-01T00:15:00+02:00" is 1 October, not
-        // 30 September. AssumeUniversal only stops a time with no offset from being read in the
-        // server's zone; DateTime is then the clock time as written either way.
+        // An ISODateTime is booked on the calendar day the bank wrote, never moved to UTC or to
+        // the server's clock (holistic review M1): "2026-10-01T00:15:00+02:00" is 1 October, not
+        // 30 September. The time and offset are only checked to be real ones.
         var dtTm = Value(Child(dateContainer, "DtTm"))?.Trim();
-        if (dtTm is not null && DateTimeOffset.TryParse(dtTm, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var dto))
+        if (dtTm is not null && IsoDateTime().IsMatch(dtTm)
+            && DateTimeOffset.TryParse(dtTm, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _))
         {
-            return DateOnly.FromDateTime(dto.DateTime);
+            return DayAsWritten(dtTm);
         }
 
         return null;
     }
 
+    /// <summary>
+    /// The yyyy-MM-dd day at the start of an ISO date or date-time, or null for one that doesn't
+    /// exist (30 February). Only the ISO 20022 form is read: a bank that writes "01/10/2026" or
+    /// "01.10.2026" instead would otherwise be read month first, as 10 January, and the entry
+    /// would land silently in the wrong month. Such an entry is counted as not read instead.
+    /// </summary>
+    private static DateOnly? DayAsWritten(string iso) =>
+        DateOnly.TryParseExact(iso.AsSpan(0, 10), "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var day)
+            ? day
+            : null;
+
     // --- local-name navigation helpers --------------------------------------
     private static XElement? Child(XElement? parent, string localName) =>
         parent?.Elements().FirstOrDefault(e => e.Name.LocalName == localName);
 
-    [GeneratedRegex(@"^\d{4}-\d{2}-\d{2}(Z|[+-]\d{2}:\d{2})$", RegexOptions.CultureInvariant)]
-    private static partial Regex DateWithZone();
+    /// <summary>ISODate: yyyy-MM-dd, with an optional time zone.</summary>
+    [GeneratedRegex(@"^[0-9]{4}-[0-9]{2}-[0-9]{2}(Z|[+-][0-9]{2}:[0-9]{2})?$", RegexOptions.CultureInvariant)]
+    private static partial Regex IsoDate();
+
+    /// <summary>
+    /// ISODateTime: yyyy-MM-ddThh:mm:ss, optional fraction and time zone. A space for the T, no
+    /// seconds, no colon in the offset, or no time at all are taken too: none of them makes the
+    /// day ambiguous.
+    /// </summary>
+    [GeneratedRegex(@"^[0-9]{4}-[0-9]{2}-[0-9]{2}([T ][0-9]{2}:[0-9]{2}(:[0-9]{2}(\.[0-9]+)?)?(Z|[+-][0-9]{2}:?[0-9]{2})?)?$", RegexOptions.CultureInvariant)]
+    private static partial Regex IsoDateTime();
 
     private static string? Value(XElement? element) =>
         element is null ? null : element.Value;

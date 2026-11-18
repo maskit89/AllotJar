@@ -1086,3 +1086,12 @@ W07 removed `POST /import/hsbc-csv` and `POST /import/camt053` together with `Im
   2. `POST /import/commit` with 2,501 rows; with a body over 4 MB; eleven times in one minute; with a row whose reference is over 140 characters.
 - **Expected:** The preview answers **422** "This statement has N new rows, and up to 2,500 are imported at a time. Export a shorter date range from your bank and import it in parts." Commit: 2,501 rows is **400** with the same message, 2,500 rows go in; over 4 MB is **413**; the eleventh commit in a minute from one visitor is **429** "Too many imports in a minute. Wait a moment and try again." (preview keeps its own 30 a minute); the long reference is **400**. A commit still running after 30 seconds is stopped with **504** "The import took too long and was stopped. Import again with fewer rows: rows already saved are skipped.", nothing of it is saved and the account takes the next commit at once. Nothing is saved in any refused case.
 - **Automated:** Yes (ImportLimitsHttpTests.cs)
+
+### IMP-112 - A camt.053 date not written the ISO way is not guessed
+- **Priority:** P1
+- **Type:** Regression
+- **Origin:** Follow-up to holistic review 2 Nov 2026, M1 (18 Nov 2026)
+- **Preconditions:** No Maltese bank sends camt.053, so the files are synthetic, written from the ISO 20022 definitions (`Camt053DateTests.cs`). One entry per date: `<BookgDt><Dt>` as `01/10/2026`, `01.10.2026`, `2026-10-1`, `2026-02-30`; `<BookgDt><DtTm>` as `01/10/2026 00:15:00`, `2026-10-01T24:00:00`, `2026-10-01T12:00:00+15:00`; plus a good entry. Also entries with both `BookgDt` and `ValDt` in different months, one with only `ValDt`, and date-times at the edges of the day (`+14:00`, `-12:00`, `Z`, no offset, the nights Malta's clocks change, 31 Dec, 29 Feb).
+- **Steps:** Import each as **CAMT.053**.
+- **Expected:** A date not in the ISO form `yyyy-MM-dd` (with or without a time and zone) is never read: the entry is counted as **1 not read** and the good entry is listed. Before, `01/10/2026` was read month first as 10 January. A bad booking date is not replaced by the value date. The booking date always wins over the value date; the value date is used only when there is no booking date. Every date-time is booked on the day written in the file. Statement periods (`FrDtTm`/`ToDtTm`) that are not ISO are left out of the overlap check, as a missing period is.
+- **Automated:** Yes (Camt053DateTests.cs)
